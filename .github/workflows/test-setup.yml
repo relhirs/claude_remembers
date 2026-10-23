@@ -32,12 +32,9 @@ jobs:
       - name: Run CI tests
         run: python tests/ci_test.py
 
-      - name: Test installer syntax and prereq logic (Linux/macOS only)
+      - name: Check prerequisites (Linux/macOS only)
         if: runner.os != 'Windows'
         run: |
-          bash -n install.sh
-          echo "install.sh syntax check: PASS"
-          # Verify prereq check functions work by running key checks directly
           python3 -c "import sys; assert sys.version_info >= (3,10), 'Python too old'; print('Python version check: PASS')"
           pip3 --version > /dev/null 2>&1 && echo "pip3 check: PASS"
           git --version > /dev/null 2>&1 && echo "git check: PASS"

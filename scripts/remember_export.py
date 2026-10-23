@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-brain_export.py - Export brain data to human-readable text files.
+remember_export.py - Export memory data to human-readable text files.
 
 Exports sessions, search results, profile, decisions, or weekly recap
 to timestamped files in the exports/ folder.
 
 Usage:
-    python3 brain_export.py --profile
-    python3 brain_export.py --decisions
-    python3 brain_export.py --search "ASUS laptop"
-    python3 brain_export.py --session abc123
-    python3 brain_export.py --recap-week
+    python3 remember_export.py --profile
+    python3 remember_export.py --decisions
+    python3 remember_export.py --search "ASUS laptop"
+    python3 remember_export.py --session abc123
+    python3 remember_export.py --recap-week
 
 Exit codes: 0 success, 1 error
 """
@@ -95,13 +95,13 @@ def write_file(exports_dir, suffix, lines):
 # ---------------------------------------------------------------------------
 
 def export_profile(conn, exports_dir):
-    lines = ["BRAIN PROFILE EXPORT", f"Generated: {datetime.now().isoformat()}", ""]
+    lines = ["MEMORY PROFILE EXPORT", f"Generated: {datetime.now().isoformat()}", ""]
 
-    # Brain facts
+    # Personal facts
     rows = conn.execute(
-        "SELECT category, key, value FROM brain_facts ORDER BY category, key"
+        "SELECT category, key, value FROM remember_facts ORDER BY category, key"
     ).fetchall()
-    lines.append(f"## Brain Facts ({len(rows)} entries)")
+    lines.append(f"## Personal Facts ({len(rows)} entries)")
     lines.append("")
     current_cat = None
     for cat, key, value in rows:
@@ -114,11 +114,11 @@ def export_profile(conn, exports_dir):
 
     lines.append("")
 
-    # Brain preferences
+    # Personal preferences
     rows = conn.execute(
-        "SELECT category, preference FROM brain_preferences ORDER BY category"
+        "SELECT category, preference FROM remember_preferences ORDER BY category"
     ).fetchall()
-    lines.append(f"## Brain Preferences ({len(rows)} entries)")
+    lines.append(f"## Personal Preferences ({len(rows)} entries)")
     lines.append("")
     current_cat = None
     for cat, pref in rows:
@@ -130,8 +130,8 @@ def export_profile(conn, exports_dir):
         lines.append(f"  - {pref}")
 
     path, count = write_file(exports_dir, "profile_export", lines)
-    fact_count = conn.execute("SELECT COUNT(*) FROM brain_facts").fetchone()[0]
-    pref_count = conn.execute("SELECT COUNT(*) FROM brain_preferences").fetchone()[0]
+    fact_count = conn.execute("SELECT COUNT(*) FROM remember_facts").fetchone()[0]
+    pref_count = conn.execute("SELECT COUNT(*) FROM remember_preferences").fetchone()[0]
     print(f"Exported to: {path} ({fact_count} facts, {pref_count} preferences, {count} lines)")
 
 
@@ -426,10 +426,10 @@ def export_recap_week(conn, exports_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Export brain data to text files",
-        usage="python3 brain_export.py [--profile|--decisions|--search QUERY|--session ID|--recap-week]"
+        description="Export memory data to text files",
+        usage="python3 remember_export.py [--profile|--decisions|--search QUERY|--session ID|--recap-week]"
     )
-    parser.add_argument("--profile", action="store_true", help="Export all brain facts and preferences")
+    parser.add_argument("--profile", action="store_true", help="Export all personal facts and preferences")
     parser.add_argument("--decisions", action="store_true", help="Export all decisions")
     parser.add_argument("--session", type=str, default=None, help="Export full transcript for a session")
     parser.add_argument("--search", type=str, default=None, help="Export search results for a query")
@@ -440,10 +440,10 @@ def main():
     modes = sum([args.profile, args.decisions, args.session is not None,
                  args.search is not None, args.recap_week])
     if modes == 0:
-        print("Usage: /brain-export FLAG")
+        print("Usage: /remember-export FLAG")
         print()
         print("Flags (pick one):")
-        print("  --profile       Export all brain facts + preferences")
+        print("  --profile       Export all personal facts + preferences")
         print("  --decisions     Export all decisions, numbered")
         print('  --search QUERY  Export search results (e.g. --search "ASUS laptop")')
         print("  --session ID    Export full transcript for a session")

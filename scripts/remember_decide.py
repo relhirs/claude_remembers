@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-brain_decide.py - Fast decision lookup by number or keyword.
+remember_decide.py - Fast decision lookup by number or keyword.
 
-Looks up locked decisions from the brain database. Accepts a decision
+Looks up locked decisions from the memory database. Accepts a decision
 number for exact lookup or a keyword string for search.
 
 Usage:
-    python3 brain_decide.py 76
-    python3 brain_decide.py hooks
-    python3 brain_decide.py semantic search
+    python3 remember_decide.py 76
+    python3 remember_decide.py hooks
+    python3 remember_decide.py semantic search
 
 Exit codes: 0 success, 1 error
 """
@@ -126,19 +126,19 @@ def print_search_results(rows, query):
 def main():
     parser = argparse.ArgumentParser(
         description="Fast decision lookup by number or keyword",
-        usage="python3 brain_decide.py NUMBER_OR_KEYWORD"
+        usage="python3 remember_decide.py NUMBER_OR_KEYWORD"
     )
     parser.add_argument("query", nargs="*", help="Decision number or keyword(s)")
     args = parser.parse_args()
 
     query = " ".join(args.query).strip()
     if not query:
-        print("Usage: /brain-decide NUMBER or KEYWORD")
+        print("Usage: /remember-decide NUMBER or KEYWORD")
         print()
         print("Examples:")
-        print("  /brain-decide 76")
-        print("  /brain-decide hooks")
-        print("  /brain-decide semantic search")
+        print("  /remember-decide 76")
+        print("  /remember-decide hooks")
+        print("  /remember-decide semantic search")
         sys.exit(0)
 
     root_path = get_root_path()

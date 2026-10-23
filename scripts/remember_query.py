@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-brain_query.py - Search the brain database and return formatted results.
+remember_query.py - Search the memory database and return formatted results.
 
 Takes a natural language question, extracts keywords, runs FTS5 + semantic
 search, and returns formatted results for Claude to synthesize. All search
 happens locally (zero API tokens).
 
 Usage:
-    python3 brain_query.py "What did we work on for Mom and Nadene?"
-    python3 brain_query.py "What was decided about the Teamsters?" --project jg
-    python3 brain_query.py "YubiKey setup" --project gen --limit 5
+    python3 remember_query.py "What did we work on for Mom and Nadene?"
+    python3 remember_query.py "What was decided about the Teamsters?" --project jg
+    python3 remember_query.py "YubiKey setup" --project gen --limit 5
 
 Exit codes: 0 success, 1 error
 """
@@ -254,8 +254,8 @@ def search_facts(conn, keywords, project=None):
         return []
 
 
-def search_brain_facts(conn, keywords):
-    """Search brain_facts table by keywords."""
+def search_remember_facts(conn, keywords):
+    """Search remember_facts table by keywords."""
     if not keywords:
         return []
     conditions = []
@@ -266,7 +266,7 @@ def search_brain_facts(conn, keywords):
 
     sql = f"""
         SELECT bf.category, bf.key, bf.value
-        FROM brain_facts bf
+        FROM remember_facts bf
         WHERE ({" OR ".join(conditions)})
         LIMIT 10
     """
@@ -291,11 +291,11 @@ def truncate(text, max_len=300):
 
 
 def format_results(question, keywords, fts_results, semantic_results,
-                   decision_results, fact_results, brain_fact_results,
+                   decision_results, fact_results, remember_fact_results,
                    project, corrections=None):
     """Format all results into clean text for Claude to synthesize."""
     lines = []
-    lines.append(f"## Brain Query Results")
+    lines.append(f"## Memory Query Results")
     lines.append(f"Question: {question}")
     lines.append(f"Keywords: {', '.join(keywords)}")
     if corrections:
@@ -305,10 +305,10 @@ def format_results(question, keywords, fts_results, semantic_results,
         lines.append(f"Project filter: {project}")
     lines.append("")
 
-    # Brain facts
-    if brain_fact_results:
-        lines.append(f"### Personal Facts ({len(brain_fact_results)} matches)")
-        for row in brain_fact_results:
+    # Personal facts
+    if remember_fact_results:
+        lines.append(f"### Personal Facts ({len(remember_fact_results)} matches)")
+        for row in remember_fact_results:
             lines.append(f"- [{row[0]}] {row[1]}: {row[2]}")
         lines.append("")
 
@@ -343,8 +343,8 @@ def format_results(question, keywords, fts_results, semantic_results,
         lines.append("")
 
     if not any([fts_results, semantic_results, decision_results,
-                fact_results, brain_fact_results]):
-        lines.append("No results found in the brain database for this query.")
+                fact_results, remember_fact_results]):
+        lines.append("No results found in the memory database for this query.")
 
     return "\n".join(lines)
 
@@ -354,7 +354,7 @@ def format_results(question, keywords, fts_results, semantic_results,
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Search the brain database")
+    parser = argparse.ArgumentParser(description="Search the memory database")
     parser.add_argument("question", help="Natural language question to search for")
     parser.add_argument("--project", "-p", default=None,
                         help="Filter by project prefix (jg, gen, mb, etc.)")
@@ -383,7 +383,7 @@ def main():
         fts_results = search_fts(conn, keywords, args.project, args.limit)
         decision_results = search_decisions(conn, keywords, args.project)
         fact_results = search_facts(conn, keywords, args.project)
-        brain_fact_results = search_brain_facts(conn, keywords)
+        remember_fact_results = search_remember_facts(conn, keywords)
 
         # Semantic search (optional, slower due to model load)
         semantic_results = []
@@ -396,7 +396,7 @@ def main():
         # Format and print
         output = format_results(
             args.question, keywords, fts_results, semantic_results,
-            decision_results, fact_results, brain_fact_results,
+            decision_results, fact_results, remember_fact_results,
             args.project, corrections
         )
         print(output)

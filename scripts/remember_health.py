@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-brain_health.py - 9-point health check for claude-brain.
+remember_health.py - 9-point health check for claude_remembers.
 
-Performs a comprehensive diagnostic of the brain system and outputs
+Performs a comprehensive diagnostic of the memory system and outputs
 a clear terminal report with PASS/WARN/FAIL indicators. Diagnosis only - no fixes.
 
 Usage:
-    python3 brain_health.py [--json]
+    python3 remember_health.py [--json]
 
 Exit codes: 0 = all PASS, 1 = any WARN, 2 = any FAIL
 """
@@ -374,7 +374,7 @@ def check_dependencies():
 
 
 def check_mcp_server(config):
-    """7. MCP SERVER - check ~/.claude.json for brain-server registration; verify server.py exists."""
+    """7. MCP SERVER - check ~/.claude.json for remember-server registration; verify server.py exists."""
     details = {}
     claude_json_path = os.path.expanduser("~/.claude.json")
 
@@ -391,7 +391,7 @@ def check_mcp_server(config):
     registered_projects = []
     for project_path, project_data in projects.items():
         mcp_servers = project_data.get("mcpServers", {})
-        if "brain-server" in mcp_servers:
+        if "remember-server" in mcp_servers:
             # Use just the last folder name for brevity
             folder_name = os.path.basename(project_path.rstrip("/"))
             registered_projects.append(folder_name)
@@ -400,7 +400,7 @@ def check_mcp_server(config):
     details["registered_count"] = len(registered_projects)
 
     if len(registered_projects) == 0:
-        return "FAIL", "MCP: brain-server not registered in any project", details
+        return "FAIL", "MCP: remember-server not registered in any project", details
 
     # Verify server.py exists
     server_path = os.path.join(ROOT_PATH, "mcp", "server.py")
@@ -410,7 +410,7 @@ def check_mcp_server(config):
     if not server_exists:
         return "FAIL", f"MCP: registered for {len(registered_projects)} projects but server.py missing", details
 
-    summary = f"MCP: brain-server registered for {len(registered_projects)} projects, server.py exists"
+    summary = f"MCP: remember-server registered for {len(registered_projects)} projects, server.py exists"
     return "PASS", summary, details
 
 
@@ -450,7 +450,7 @@ def check_hooks():
         for entry in entries:
             for h in entry.get("hooks", []):
                 cmd = h.get("command", "")
-                if "claude-brain" in cmd and hook_files[hook_name] in cmd:
+                if "claude_remembers" in cmd and hook_files[hook_name] in cmd:
                     found = True
                     break
             if found:
@@ -632,8 +632,8 @@ def print_report(results):
     print()
 
     # Title row (spans full width)
-    title = f"{BOLD}Claude Brain Health Check{RESET}"
-    title_visual = "Claude Brain Health Check"
+    title = f"{BOLD}Claude Remembers Health Check{RESET}"
+    title_visual = "Claude Remembers Health Check"
     title_pad = INNER_W - len(title_visual) - 1
     print(f"┌{'─' * INNER_W}┐")
     print(f"│ {title}{' ' * title_pad}│")
@@ -717,7 +717,7 @@ def print_report(results):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Claude Brain 9-point health check")
+    parser = argparse.ArgumentParser(description="Claude Remembers 9-point health check")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 

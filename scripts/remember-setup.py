@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-brain-setup.py - First-run installer for claude-brain.
+remember-setup.py - First-run installer for claude_remembers.
 
 Creates database, config, directories, hooks, MCP registration,
-and seeds initial brain data. Idempotent - safe to re-run.
+and seeds initial profile data. Idempotent - safe to re-run.
 
 Usage:
-    python3 scripts/brain-setup.py
-    python3 scripts/brain-setup.py --questionnaire  (import filled questionnaire)
+    python3 scripts/remember-setup.py
+    python3 scripts/remember-setup.py --questionnaire  (import filled questionnaire)
 """
 
 import json
@@ -216,24 +216,24 @@ def phase_projects():
         else:
             # Common sync folder locations
             for candidate in [
-                home / "Dropbox" / "claude-brain",
-                home / "OneDrive" / "claude-brain",
-                home / "Google Drive" / "claude-brain",
+                home / "Dropbox" / "claude_remembers",
+                home / "OneDrive" / "claude_remembers",
+                home / "Google Drive" / "claude_remembers",
             ]:
                 if candidate.parent.exists():
                     default_root = str(candidate)
                     break
             else:
-                default_root = str(home / "Dropbox" / "claude-brain")
+                default_root = str(home / "Dropbox" / "claude_remembers")
 
         root_path = ask("Root folder path", default_root)
-        default_db = str(home / "claude-brain-local" / "claude-brain.db")
+        default_db = str(home / "claude_remembers-local" / "claude_remembers.db")
         db_path = ask("Local database path (NOT in sync folder)", default_db)
     else:
-        default_root = str(home / "claude-brain")
+        default_root = str(home / "claude_remembers")
         root_path = ask("Root folder path", default_root)
         root_path = os.path.expanduser(root_path)
-        db_path = os.path.join(root_path, "claude-brain.db")
+        db_path = os.path.join(root_path, "claude_remembers.db")
         info(f"Database will be at: {db_path}")
 
     root_path = os.path.expanduser(root_path)
@@ -298,7 +298,7 @@ def phase_projects():
         ok(f"Auto-added: other (prefix: {oth_prefix}) - catch-all for unmatched sessions")
 
     # --- Quick identity questions ---
-    print("\n  Quick identity setup (seeds your brain profile):")
+    print("\n  Quick identity setup (seeds your memory profile):")
     print("  Press Enter to skip any question.\n")
     identity = {}
     name_answer = ask("Your name")
@@ -316,7 +316,7 @@ def phase_projects():
     claude_md_content = None
     if claude_md_path.exists():
         info(f"\nFound personal CLAUDE.md at {claude_md_path}")
-        if ask_yn("Import its contents as brain preferences?"):
+        if ask_yn("Import its contents as remembered preferences?"):
             claude_md_content = claude_md_path.read_text(encoding="utf-8")
             ok("Will import CLAUDE.md preferences")
 
@@ -461,8 +461,8 @@ DDL_STATEMENTS = [
         created_at       TEXT
     )""",
 
-    # --- Brain tables ---
-    """CREATE TABLE IF NOT EXISTS brain_facts (
+    # --- Memory tables ---
+    """CREATE TABLE IF NOT EXISTS remember_facts (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
         category         TEXT,
         key              TEXT,
@@ -473,7 +473,7 @@ DDL_STATEMENTS = [
         created_at       TEXT,
         updated_at       TEXT
     )""",
-    """CREATE TABLE IF NOT EXISTS brain_preferences (
+    """CREATE TABLE IF NOT EXISTS remember_preferences (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
         category         TEXT,
         preference       TEXT,
@@ -603,9 +603,9 @@ def phase_database(cfg):
     if identity:
         for key, value in identity.items():
             cursor.execute(
-                "INSERT OR IGNORE INTO brain_facts (category, key, value, source, confidence, created_at, updated_at) "
-                "SELECT ?, ?, ?, 'brain-setup', 'confirmed', ?, ? "
-                "WHERE NOT EXISTS (SELECT 1 FROM brain_facts WHERE category='identity' AND key=?)",
+                "INSERT OR IGNORE INTO remember_facts (category, key, value, source, confidence, created_at, updated_at) "
+                "SELECT ?, ?, ?, 'remember-setup', 'confirmed', ?, ? "
+                "WHERE NOT EXISTS (SELECT 1 FROM remember_facts WHERE category='identity' AND key=?)",
                 ("identity", key, value, now, now, key)
             )
         conn.commit()
@@ -619,8 +619,8 @@ def phase_database(cfg):
         for line in lines:
             if len(line) > 10:  # Skip very short lines
                 cursor.execute(
-                    "INSERT INTO brain_preferences (category, preference, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                    ("imported-claude-md", line, "brain-setup (~/.claude/CLAUDE.md)", now, now)
+                    "INSERT INTO remember_preferences (category, preference, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    ("imported-claude-md", line, "remember-setup (~/.claude/CLAUDE.md)", now, now)
                 )
                 count += 1
         conn.commit()
@@ -672,8 +672,8 @@ def phase_config(cfg):
             "verify_after_copy": True,
         },
         "projects": projects_list,
-        "brain": {
-            "prefix": "brain",
+        "remember": {
+            "prefix": "remember",
             "categories": [
                 "identity", "family", "professional", "working-style",
                 "technical-setup", "goals", "preferences", "lessons-learned",
@@ -710,16 +710,16 @@ def phase_config(cfg):
         },
         "scripts": {
             "commands": {
-                "brain-check": "startup_check.py",
-                "brain-sync": "brain_sync.py",
-                "brain-status": "status.py",
+                "remember-check": "startup_check.py",
+                "remember-sync": "remember_sync.py",
+                "remember-status": "status.py",
             },
         },
         "meta": {
-            "project_name": "claude-brain",
+            "project_name": "claude_remembers",
             "version": "0.1.0",
             "license": "MIT",
-            "github": "https://github.com/yourusername/claude-brain",
+            "github": "https://github.com/yourusername/claude_remembers",
         },
     }
 
@@ -734,8 +734,8 @@ def phase_config(cfg):
 
     if write_config:
         with open(config_path, "w") as f:
-            f.write("# claude-brain Configuration File\n")
-            f.write("# Generated by brain-setup.py on " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
+            f.write("# claude_remembers Configuration File\n")
+            f.write("# Generated by remember-setup.py on " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
             f.write("# See config.yaml.example for documentation of all options.\n\n")
             yaml.dump(config_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         ok(f"config.yaml written")
@@ -746,8 +746,8 @@ def phase_config(cfg):
     example_data = {
         "storage": {
             "mode": "synced",
-            "root_path": "~/Dropbox/claude-brain",
-            "local_db_path": "~/claude-brain-local/claude-brain.db",
+            "root_path": "~/Dropbox/claude_remembers",
+            "local_db_path": "~/claude_remembers-local/claude_remembers.db",
         },
         "database": config_data["database"],
         "backup": config_data["backup"],
@@ -756,7 +756,7 @@ def phase_config(cfg):
             {"folder_name": "general", "prefix": "gen", "label": "General Conversations"},
             {"folder_name": "other", "prefix": "oth", "label": "Uncategorized"},
         ],
-        "brain": config_data["brain"],
+        "remember": config_data["remember"],
         "jsonl": {
             "source_paths": ["~/.claude/projects"],
             "ingest_subagents": True,
@@ -772,10 +772,10 @@ def phase_config(cfg):
         "startup": config_data["startup"],
         "scripts": config_data["scripts"],
         "meta": {
-            "project_name": "claude-brain",
+            "project_name": "claude_remembers",
             "version": "0.1.0",
             "license": "MIT",
-            "github": "https://github.com/yourusername/claude-brain",
+            "github": "https://github.com/yourusername/claude_remembers",
             "author": "Your Name",
         },
     }
@@ -785,9 +785,9 @@ def phase_config(cfg):
         ok("config.yaml.example already exists (shipped with repo, skipping)")
     else:
         with open(example_path, "w") as f:
-            f.write("# claude-brain Configuration File - EXAMPLE\n")
+            f.write("# claude_remembers Configuration File - EXAMPLE\n")
             f.write("# Copy this to config.yaml and edit with your values.\n")
-            f.write("# Or run: python3 scripts/brain-setup.py (generates config for you)\n\n")
+            f.write("# Or run: python3 scripts/remember-setup.py (generates config for you)\n\n")
             yaml.dump(example_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         ok("config.yaml.example written")
 
@@ -802,19 +802,19 @@ def phase_config(cfg):
             PROJECT: {p['folder_name']}
             PREFIX: {p['prefix']}
 
-            ## RULE #1 - USE THE BRAIN FIRST. ALWAYS.
-            **You have a brain with persistent memory across sessions. USE IT before doing anything substantive.**
-            - Before proposing a plan, starting a task, debugging, answering questions, or suggesting changes: **search the brain.**
+            ## RULE #1 - USE THE MEMORY FIRST. ALWAYS.
+            **You have persistent memory across sessions. USE IT before doing anything substantive.**
+            - Before proposing a plan, starting a task, debugging, answering questions, or suggesting changes: **search the memory.**
             - Use `search_transcripts`, `search_semantic`, `get_recent_summaries`, `lookup_decision`, `lookup_fact`.
-            - Files tell you WHAT exists. The brain tells you WHY - strategic context, prior decisions, rejected approaches.
-            - Not using the brain is the same as not having it.
+            - Files tell you WHAT exists. The memory tells you WHY - strategic context, prior decisions, rejected approaches.
+            - Not using the memory is the same as not having it.
 
-            ## BRAIN CONNECTION
-            MCP server "brain-server" provides persistent memory.
+            ## MEMORY CONNECTION
+            MCP server "remember-server" provides persistent memory.
             Database: {cfg['db_path']}
 
             ## SESSION START
-            1. **Search the brain** - query search_transcripts + get_recent_summaries for this project. This is step ONE.
+            1. **Search the memory** - query search_transcripts + get_recent_summaries for this project. This is step ONE.
             2. Call get_profile() and get_project_state('{p['prefix']}') to load working context.
             3. Hooks handle startup check and context injection automatically.
 
@@ -828,7 +828,7 @@ def phase_config(cfg):
             - "Recent sessions" -> get_recent_sessions
             - "My preferences" / "My profile" -> get_profile
             - "Project status" -> get_project_state
-            - "Brain status" / "How many sessions" -> get_status
+            - "Memory status" / "How many sessions" -> get_status
 
             ## SEARCH PRIORITY
             1. Structured tables (decisions, facts) via MCP
@@ -840,14 +840,14 @@ def phase_config(cfg):
             ## SESSION START PROTOCOL
             When a session starts, you receive automatic context from the session-start hook
             (last session notes, NEXT_SESSION.md, recent summaries). Before responding to the user:
-            1. Search the brain: search_transcripts + get_recent_summaries for project '{p['prefix']}'
+            1. Search the memory: search_transcripts + get_recent_summaries for project '{p['prefix']}'
             2. Review the injected context (last session notes, NEXT_SESSION.md if present)
             3. SHOW unfinished items and next-session notes to the user prominently (they must SEE and react)
             4. Output this checklist (every row must show DONE):
 
             | Start-Session Checklist              | Status   |
             |--------------------------------------|----------|
-            | Brain searched                       | DONE     |
+            | Memory searched                      | DONE     |
             | Last session notes reviewed          | DONE     |
             | Unfinished items SHOWN to user       | DONE     |
             | Next-session notes SHOWN to user     | DONE     |
@@ -874,9 +874,9 @@ def phase_config(cfg):
 
             ## SLASH COMMANDS
             Type these in Claude Code for direct access:
-            /brain-question, /brain-search, /brain-history, /brain-recap, /brain-decide,
-            /brain-health, /brain-status, /brain-import, /brain-questionnaire, /brain-setup,
-            /brain-export
+            /remember-question, /remember-search, /remember-history, /remember-recap, /remember-decide,
+            /remember-health, /remember-status, /remember-import, /remember-questionnaire, /remember-setup,
+            /remember-export
 
             ## FILE VERSIONING
             After creating or modifying any file, run:
@@ -905,7 +905,7 @@ def phase_email(cfg):
     phase_header(7, 9, "EMAIL DIGESTS (optional)")
 
     print("""
-  The brain can email you proactive status reports:
+  The memory system can email you proactive status reports:
     - Daily standup at 8am (what to work on today)
     - Weekly portfolio digest (Monday mornings)
     - Project deep dives (on demand)
@@ -939,7 +939,7 @@ def phase_email(cfg):
   To create one:
     1. Go to myaccount.google.com -> Security -> 2-Step Verification
     2. At the bottom, click "App passwords"
-    3. Create one for "Mail" / "Other" -> name it "claude-brain"
+    3. Create one for "Mail" / "Other" -> name it "claude_remembers"
     4. Copy the 16-character password
 """)
     app_password = input("  Gmail App Password: ").strip()
@@ -972,8 +972,8 @@ def phase_email(cfg):
             "gmail_app_password": app_password,
         }
         with open(config_path, "w") as f:
-            f.write("# claude-brain Configuration File\n")
-            f.write("# Updated by brain-setup.py on " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
+            f.write("# claude_remembers Configuration File\n")
+            f.write("# Updated by remember-setup.py on " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
             f.write("# See config.yaml.example for documentation of all options.\n\n")
             yaml.dump(config_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         ok("Email config written to config.yaml")
@@ -984,7 +984,7 @@ def phase_email(cfg):
     # Offer to set up cron
     print()
     root = cfg["root_path"]
-    digest_script = os.path.join(root, "scripts", "brain_digest.py")
+    digest_script = os.path.join(root, "scripts", "remember_digest.py")
     log_dir = os.path.dirname(cfg["db_path"])
     daily_cron = f'0 8 * * 1-5 /usr/bin/python3 {digest_script} --daily >> {log_dir}/digest.log 2>&1'
     weekly_cron = f'0 8 * * 1 /usr/bin/python3 {digest_script} >> {log_dir}/digest.log 2>&1'
@@ -993,7 +993,7 @@ def phase_email(cfg):
         try:
             import subprocess
             existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
-            if "brain_digest" not in existing and "--daily" not in existing:
+            if "remember_digest" not in existing and "--daily" not in existing:
                 new_cron = existing.rstrip("\n") + "\n" + daily_cron + "\n"
                 subprocess.run(["crontab", "-"], input=new_cron, text=True)
                 ok("Daily cron installed (weekdays 8am)")
@@ -1006,9 +1006,9 @@ def phase_email(cfg):
     if ask_yn("  Set up weekly digest cron (Monday 8am)?", "y"):
         try:
             existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
-            if "brain_digest" not in existing or "--daily" in existing:
+            if "remember_digest" not in existing or "--daily" in existing:
                 # Check if weekly already there
-                if "brain_digest.py >>" in existing and "--daily" not in existing.split("brain_digest.py >>")[0].split("\n")[-1]:
+                if "remember_digest.py >>" in existing and "--daily" not in existing.split("remember_digest.py >>")[0].split("\n")[-1]:
                     ok("Weekly cron already exists, skipped")
                 else:
                     new_cron = existing.rstrip("\n") + "\n" + weekly_cron + "\n"
@@ -1075,7 +1075,7 @@ def phase_registration(cfg):
                 json.dump(settings, f, indent=4)
             ok(f"{hooks_added} hooks registered")
         else:
-            warn("Hooks not registered - brain won't auto-capture sessions")
+            warn("Hooks not registered - memory won't auto-capture sessions")
     else:
         ok("All 6 hooks already registered")
 
@@ -1111,8 +1111,8 @@ def phase_registration(cfg):
             }
 
         existing_mcp = projects_section[project_path].get("mcpServers", {})
-        if "brain-server" not in existing_mcp:
-            existing_mcp["brain-server"] = mcp_entry
+        if "remember-server" not in existing_mcp:
+            existing_mcp["remember-server"] = mcp_entry
             projects_section[project_path]["mcpServers"] = existing_mcp
             mcp_added += 1
 
@@ -1127,8 +1127,8 @@ def phase_registration(cfg):
             "disabledMcpjsonServers": [],
             "hasTrustDialogAccepted": False,
         }
-    if "brain-server" not in projects_section[root_str].get("mcpServers", {}):
-        projects_section[root_str].setdefault("mcpServers", {})["brain-server"] = mcp_entry
+    if "remember-server" not in projects_section[root_str].get("mcpServers", {}):
+        projects_section[root_str].setdefault("mcpServers", {})["remember-server"] = mcp_entry
         mcp_added += 1
 
     if mcp_added > 0:
@@ -1139,7 +1139,7 @@ def phase_registration(cfg):
                 json.dump(claude_json, f, indent=4)
             ok(f"MCP server registered for {mcp_added} paths")
         else:
-            warn("MCP not registered - brain queries won't work until registered")
+            warn("MCP not registered - memory queries won't work until registered")
     else:
         ok("MCP server already registered for all projects")
 
@@ -1148,8 +1148,8 @@ def phase_registration(cfg):
     commands_dir.mkdir(parents=True, exist_ok=True)
 
     slash_commands = {
-        "brain-import": textwrap.dedent(f"""\
-            Import conversations from Claude.ai, ChatGPT, or Gemini into the brain database.
+        "remember-import": textwrap.dedent(f"""\
+            Import conversations from Claude.ai, ChatGPT, or Gemini into the memory database.
 
             **Claude.ai:** Uses JSON files exported via Chrome extension.
             Step 1: List JSON files in the imports folder:
@@ -1160,7 +1160,7 @@ def phase_registration(cfg):
             1. Install the AI Chat Exporter Chrome extension from the Chrome Web Store
             2. Go to claude.ai, open a conversation, click the extension icon, export as JSON
             3. Move the downloaded .json file to: {root}/imports/
-            4. Then run /brain-import again"
+            4. Then run /remember-import again"
 
             **ChatGPT:** Tell the user to run: python3 {root}/scripts/import_chatgpt.py --scan <path-to-chatgpt-export>
             **Gemini:** Tell the user to run: python3 {root}/scripts/import_gemini.py --scan <path-to-gemini-takeout>
@@ -1178,8 +1178,8 @@ def phase_registration(cfg):
             Step 5: Show the result. If successful, tell the user the file has been moved to imports/completed/.
             Ask if they want to import another file (if more remain in imports/).
         """),
-        "brain-status": textwrap.dedent(f"""\
-            Run the brain status check. Execute this command:
+        "remember-status": textwrap.dedent(f"""\
+            Run the memory status check. Execute this command:
             python3 {root}/scripts/status.py
 
             Show the user the full output. This displays:
@@ -1189,10 +1189,10 @@ def phase_registration(cfg):
             - Database size and backup status
             - Semantic search embedding count
         """),
-        "brain-setup": textwrap.dedent(f"""\
-            Run the brain setup script to add projects or fix configuration.
+        "remember-setup": textwrap.dedent(f"""\
+            Run the setup script to add projects or fix configuration.
             Execute this command:
-            python3 {root}/scripts/brain-setup.py
+            python3 {root}/scripts/remember-setup.py
 
             This is an interactive script. It will walk through setup phases
             and is safe to re-run (idempotent). Use this when:
@@ -1200,19 +1200,19 @@ def phase_registration(cfg):
             - Fixing a broken hook or MCP registration
             - Re-generating config after changes
         """),
-        "brain-questionnaire": textwrap.dedent(f"""\
-            Help the user fill out their brain questionnaire.
+        "remember-questionnaire": textwrap.dedent(f"""\
+            Help the user fill out their questionnaire.
 
-            The questionnaire file is at: {root}/brain-questionnaire.txt
+            The questionnaire file is at: {root}/remember-questionnaire.txt
 
             First, read the file to see what's already filled in.
             Then ask the user what they'd like to add or update.
             Edit the file with their answers.
 
             When they're done, run:
-            python3 {root}/scripts/brain-setup.py --questionnaire
+            python3 {root}/scripts/remember-setup.py --questionnaire
 
-            This imports their answers into the brain database so Claude
+            This imports their answers into the memory database so Claude
             knows who they are across every session.
         """),
     }
@@ -1337,7 +1337,7 @@ def phase_health_check(cfg):
             cj = json.load(f)
         mcp_count = sum(
             1 for p_cfg in cj.get("projects", {}).values()
-            if "brain-server" in p_cfg.get("mcpServers", {})
+            if "remember-server" in p_cfg.get("mcpServers", {})
         )
         if mcp_count > 0:
             checks.append(("MCP registered", True, f"{mcp_count} project(s)"))
@@ -1372,7 +1372,7 @@ def phase_health_check(cfg):
         conn = sqlite3.connect(cfg["db_path"])
         sessions = conn.execute("SELECT COUNT(*) FROM sys_sessions").fetchone()[0]
         transcripts = conn.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0]
-        facts = conn.execute("SELECT COUNT(*) FROM brain_facts").fetchone()[0]
+        facts = conn.execute("SELECT COUNT(*) FROM remember_facts").fetchone()[0]
         conn.close()
         checks.append(("DB contents", True, f"{sessions} sessions, {transcripts} messages, {facts} facts"))
     except Exception:
@@ -1389,20 +1389,20 @@ def phase_health_check(cfg):
 
     # --- Questionnaire info ---
     print(f"\n{'='*60}")
-    print(f"  PERSONALIZE YOUR BRAIN")
+    print(f"  PERSONALIZE YOUR MEMORY")
     print(f"{'='*60}")
-    questionnaire_path = root / "brain-questionnaire.txt"
+    questionnaire_path = root / "remember-questionnaire.txt"
     if not questionnaire_path.exists():
         _write_questionnaire_template(questionnaire_path)
     print(f"""
   A questionnaire template has been created at:
     {questionnaire_path}
 
-  Fill it out to teach the brain about you - your background,
+  Fill it out to teach the system about you - your background,
   preferences, family, goals, and working style. This makes Claude
   actually know who you are across every session.
 
-  Once you're in Claude Code, just type:  /brain-questionnaire
+  Once you're in Claude Code, just type:  /remember-questionnaire
   Claude will help you fill it out and import your answers.
 """)
 
@@ -1413,10 +1413,10 @@ def phase_health_check(cfg):
     print(f"""
   These commands work inside any Claude Code session:
 
-    /brain-import         Import conversations (Claude.ai, ChatGPT, Gemini)
-    /brain-status         Check brain health and statistics
-    /brain-setup          Re-run setup (add projects, fix config)
-    /brain-questionnaire  Fill out or update your brain profile
+    /remember-import         Import conversations (Claude.ai, ChatGPT, Gemini)
+    /remember-status         Check memory health and statistics
+    /remember-setup          Re-run setup (add projects, fix config)
+    /remember-questionnaire  Fill out or update your memory profile
 """)
 
     # --- Next steps ---
@@ -1428,7 +1428,7 @@ def phase_health_check(cfg):
      Open Claude Code in any project folder:
        cd {root / cfg['projects'][0]['folder_name']}
        claude
-     The brain activates automatically - hooks fire, MCP connects,
+     The memory activates automatically - hooks fire, MCP connects,
      context loads. Nothing else to configure.
 
   2. IMPORT CONVERSATIONS (optional)
@@ -1456,9 +1456,9 @@ def phase_health_check(cfg):
        Move all the .json files into your imports folder:
          mv ~/Downloads/*.json {root / 'imports'}/
 
-     Step 4 - Import into the brain:
+     Step 4 - Import into memory:
        Open Claude Code in any project folder and type:
-         /brain-import
+         /remember-import
        Claude will walk you through assigning each conversation
        to a project. Successfully imported files are moved to
        imports/completed/ automatically.
@@ -1474,15 +1474,15 @@ def phase_health_check(cfg):
        Or just tell Claude: "import my Gemini conversations"
 
   3. FILL OUT THE QUESTIONNAIRE (optional)
-     Open Claude Code and type:  /brain-questionnaire
+     Open Claude Code and type:  /remember-questionnaire
      Claude will help you fill out your profile interactively.
 
-  4. CHECK BRAIN STATUS (anytime)
-     Inside Claude Code, type:  /brain-status
+  4. CHECK MEMORY STATUS (anytime)
+     Inside Claude Code, type:  /remember-status
 """)
 
     if all_pass:
-        print(f"  {green('Setup complete. Your brain is ready.')}")
+        print(f"  {green('Setup complete. Your memory is ready.')}")
     else:
         print(f"  {yellow('Setup finished with warnings. Review FAIL items above.')}")
 
@@ -1492,10 +1492,10 @@ def phase_health_check(cfg):
 def _write_questionnaire_template(path):
     """Write a blank questionnaire template for the user to fill out."""
     template = textwrap.dedent("""\
-        # Brain Questionnaire
+        # Remember Questionnaire
         # Fill out as much or as little as you want.
         # Lines starting with # are comments and will be ignored.
-        # After filling out, run: python3 scripts/brain-setup.py --questionnaire
+        # After filling out, run: python3 scripts/remember-setup.py --questionnaire
 
         ## IDENTITY
         # Full name:
@@ -1540,15 +1540,15 @@ def _write_questionnaire_template(path):
         ## PREFERENCES
         # Timezone:
         # Work hours:
-        # Anything else the brain should know:
+        # Anything else the memory system should know:
     """)
     with open(path, "w") as f:
         f.write(template)
 
 
 def import_questionnaire(root_path, db_path):
-    """Import a filled-out questionnaire into brain_facts."""
-    q_path = Path(root_path) / "brain-questionnaire.txt"
+    """Import a filled-out questionnaire into remember_facts."""
+    q_path = Path(root_path) / "remember-questionnaire.txt"
     if not q_path.exists():
         fail(f"Questionnaire not found: {q_path}")
         sys.exit(1)
@@ -1577,17 +1577,17 @@ def import_questionnaire(root_path, db_path):
             if value:  # Only insert if there's a value
                 # Upsert - update if same category+key exists
                 existing = cursor.execute(
-                    "SELECT id FROM brain_facts WHERE category=? AND key=?",
+                    "SELECT id FROM remember_facts WHERE category=? AND key=?",
                     (current_category, key)
                 ).fetchone()
                 if existing:
                     cursor.execute(
-                        "UPDATE brain_facts SET value=?, source='questionnaire', updated_at=? WHERE id=?",
+                        "UPDATE remember_facts SET value=?, source='questionnaire', updated_at=? WHERE id=?",
                         (value, now, existing[0])
                     )
                 else:
                     cursor.execute(
-                        "INSERT INTO brain_facts (category, key, value, source, confidence, created_at, updated_at) VALUES (?, ?, ?, 'questionnaire', 'confirmed', ?, ?)",
+                        "INSERT INTO remember_facts (category, key, value, source, confidence, created_at, updated_at) VALUES (?, ?, ?, 'questionnaire', 'confirmed', ?, ?)",
                         (current_category, key, value, now, now)
                     )
                 count += 1
@@ -1602,7 +1602,7 @@ def import_questionnaire(root_path, db_path):
 # ---------------------------------------------------------------------------
 
 def main():
-    print(f"\n{bold('claude-brain setup')}")
+    print(f"\n{bold('claude_remembers setup')}")
     print("Persistent memory system for Claude Code\n")
 
     # Handle --questionnaire mode
@@ -1618,10 +1618,10 @@ def main():
             if config["storage"]["mode"] == "synced":
                 db_path = config["storage"]["local_db_path"]
             else:
-                db_path = os.path.join(root_path, "claude-brain.db")
+                db_path = os.path.join(root_path, "claude_remembers.db")
             import_questionnaire(root_path, db_path)
         else:
-            fail("config.yaml not found. Run brain-setup.py first (without --questionnaire).")
+            fail("config.yaml not found. Run remember-setup.py first (without --questionnaire).")
             sys.exit(1)
         return
 

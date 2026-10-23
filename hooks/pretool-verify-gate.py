@@ -20,7 +20,7 @@ import sys
 PREFLIGHT = """PRE-FLIGHT — verify before running this tool
 
 1. NEVER ASSUME. Did you verify each cited fact?
-   (--help, man, modinfo, sysfs, Exa web_search_exa, brain tools)
+   (--help, man, modinfo, sysfs, Exa web_search_exa, memory tools)
 
 2. Real ambiguity in the user's request?
    → STOP and ask, do not run this tool.

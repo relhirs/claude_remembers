@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""user-prompt-submit.py - Claude Code UserPromptSubmit hook for claude-brain.
+"""user-prompt-submit.py - Claude Code UserPromptSubmit hook for claude_remembers.
 
 Fires before every user message is sent to Claude.
 1. Extracts user prompt text from stdin JSON
-2. Searches for relevant memories (FTS5 search with fuzzy correction)
-3. Returns top 5 relevant memories as additionalContext
+2. Post-/clear recovery: if the previous session in this project ended via
+   /clear and hasn't been shown yet (event-based, no time window), inject
+   its generated summary merged with a normal relevance search.
+3. Otherwise: keyword (FTS5) search first; only fall back to semantic
+   (embedding) search when keyword results are weak/empty, since semantic
+   search's cold model-load cost is only worth paying when the fast path
+   already struck out.
+4. Returns results as additionalContext, capped by a relevance floor
+   rather than always padding to a fixed count.
 
 RULE: stdout is SACRED. Only valid JSON goes to stdout.
 """
@@ -17,12 +24,16 @@ import sys
 
 import yaml
 
-# Add scripts/ to path for fuzzy_search import
+# Add scripts/ to path for fuzzy_search / semantic_search imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 try:
     from fuzzy_search import fuzzy_correct
 except ImportError:
     fuzzy_correct = None
+try:
+    from semantic_search import semantic_search
+except ImportError:
+    semantic_search = None
 
 STOP_WORDS = {
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
@@ -38,6 +49,11 @@ STOP_WORDS = {
     "very", "much", "well", "still", "already", "please", "thanks",
     "sure", "right", "good", "new", "first", "last", "next", "other",
 }
+
+# A weak FTS5 rank (closer to 0 is better) below this is treated as "no
+# good keyword match" and triggers the semantic fallback.
+FTS_RANK_FLOOR = -2.0
+MAX_RESULTS = 5
 
 # ---------------------------------------------------------------------------
 # Frustration detection - circuit breaker
@@ -78,12 +94,10 @@ def detect_frustration(text):
     """Check if the user's message indicates frustration."""
     text_lower = text.lower()
 
-    # Check explicit patterns
     for pattern in FRUSTRATION_PATTERNS:
         if re.search(pattern, text_lower):
             return True
 
-    # Check high caps ratio (>50% uppercase, message > 20 chars)
     if len(text) > 20:
         alpha_chars = [c for c in text if c.isalpha()]
         if alpha_chars:
@@ -91,7 +105,6 @@ def detect_frustration(text):
             if upper_ratio > 0.5:
                 return True
 
-    # Check multiple exclamation/question marks
     if text.count("!") >= 3 or text.count("?") >= 3:
         return True
 
@@ -106,14 +119,14 @@ def extract_topic_keywords(text):
 
 
 def handle_frustration(prompt_text, root):
-    """When frustration detected: search brain for topic context, return STOP directive."""
+    """When frustration detected: search memory for topic context, return STOP directive."""
     topic_keywords = extract_topic_keywords(prompt_text)
 
     context_lines = [
         "## FRUSTRATION DETECTED - STOP AND REASSESS",
         "Something is wrong with your current approach.",
         "Do NOT continue what you were doing. Instead:",
-        "1. Review the brain context below",
+        "1. Review the memory context below",
         "2. Verify your assumptions are correct",
         "3. Present your findings to Mike BEFORE taking any action",
         "",
@@ -131,7 +144,6 @@ def handle_frustration(prompt_text, root):
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA busy_timeout=5000;")
 
-        # Search transcripts for topic keywords
         if topic_keywords:
             fts_query = " OR ".join(f'"{kw}"' for kw in topic_keywords)
             try:
@@ -146,7 +158,7 @@ def handle_frustration(prompt_text, root):
                     (fts_query,),
                 ).fetchall()
                 if rows:
-                    context_lines.append("## Brain Context for Current Topic")
+                    context_lines.append("## Memory Context for Current Topic")
                     for proj, ts, preview in rows:
                         date = ts[:10] if ts else "?"
                         text = (preview or "").replace("\n", " ").strip()
@@ -155,7 +167,6 @@ def handle_frustration(prompt_text, root):
             except Exception:
                 pass
 
-        # Get last 3 session notes for broader context
         try:
             notes_rows = conn.execute(
                 """SELECT notes, started_at FROM sys_sessions
@@ -181,103 +192,91 @@ def handle_frustration(prompt_text, root):
 
 
 # ---------------------------------------------------------------------------
-# GO check - Rule #2 enforcement
-# Detects "discussion" messages that do NOT contain explicit GO trigger.
-# Prevents Claude from coding when Mike is asking for thoughts/opinions.
+# Post-/clear recovery
+# Detection: event-based (sys_sessions.end_reason='clear' AND
+# clear_recovery_shown=0), no time window - fires on your very next prompt
+# whenever you return, 30 seconds or 3 days later.
 # ---------------------------------------------------------------------------
 
-DISCUSSION_PATTERNS = [
-    r"\bthoughts\b",
-    r"\bwhat do you think\b",
-    r"\bwhat would you\b",
-    r"\bhow would you\b",
-    r"\bideas\b",
-    r"\bpropose\b",
-    r"\boptions\b",
-    r"\bapproach\b",
-    r"\bwhat.{0,20}best practice\b",
-    r"\bshould we\b",
-    r"\bcould we\b",
-    r"\bother ideas\b",
-    r"\bwhich.{0,15}easier\b",
-    r"\bwhich.{0,15}better\b",
-]
+def _keyword_search(conn, fts_query, cwd_project):
+    """Same project-biased FTS5 search used by the normal path below."""
+    rows = []
+    if cwd_project:
+        rows = conn.execute("""
+            SELECT t.project, t.timestamp, t.content, fts.rank
+            FROM transcripts_fts fts
+            JOIN transcripts t ON t.rowid = fts.rowid
+            WHERE transcripts_fts MATCH ? AND t.project = ?
+            ORDER BY fts.rank * (1.0 + 0.1 * MAX(0, julianday('now') - julianday(t.timestamp)))
+            LIMIT 3
+        """, (fts_query, cwd_project)).fetchall()
 
-GO_PATTERNS = [
-    r"\bgo\b",
-    r"\bgo,",
-    r"\bbuild it\b",
-    r"\bdo it\b",
-    r"\bexecute\b",
-    r"\bstart\b",
-    r"\bship it\b",
-    r"\bmake it\b",
-    r"\bimplement\b",
-    r"\bcreate it\b",
-    r"\bwrite it\b",
-]
+    global_rows = conn.execute("""
+        SELECT t.project, t.timestamp, t.content, fts.rank
+        FROM transcripts_fts fts
+        JOIN transcripts t ON t.rowid = fts.rowid
+        WHERE transcripts_fts MATCH ?
+        ORDER BY fts.rank * (1.0 + 0.1 * MAX(0, julianday('now') - julianday(t.timestamp)))
+        LIMIT 7
+    """, (fts_query,)).fetchall()
 
-
-def detect_discussion_not_go(text):
-    """Return True if message looks like a discussion request WITHOUT a GO trigger."""
-    text_lower = text.lower()
-
-    has_discussion = any(re.search(p, text_lower) for p in DISCUSSION_PATTERNS)
-    if not has_discussion:
-        return False
-
-    has_go = any(re.search(p, text_lower) for p in GO_PATTERNS)
-    if has_go:
-        return False
-
-    return True
+    seen = set()
+    merged = []
+    for r in list(rows) + list(global_rows):
+        key = (r[0], (r[2] or "")[:50])
+        if key in seen:
+            continue
+        seen.add(key)
+        if r[3] is not None and r[3] > FTS_RANK_FLOOR:
+            continue  # below the relevance floor - skip rather than pad
+        merged.append(r)
+        if len(merged) >= MAX_RESULTS:
+            break
+    return merged
 
 
-CLEAR_CHECKPOINT_MARKER = "CLEAR_CHECKPOINT"
-
-
-def _build_post_clear_context(conn, cwd_project, current_session_id):
-    """Detect post-/clear state and build recovery context.
-
-    When /clear fires, session-end.py writes a CLEAR_CHECKPOINT marker on the
-    ended session. The next UserPromptSubmit after /clear uses a NEW session_id
-    (CC creates a new session). This function detects that transition and
-    returns recovery context Claude can use to continue cleanly.
-
-    Detection: a session in the same project ended < 5 minutes ago with the
-    CLEAR_CHECKPOINT marker, and the current session_id differs from it.
-
-    Returns: formatted context string, or None if not post-/clear state.
-    """
+def _build_post_clear_context(conn, cwd_project, current_session_id, keywords):
+    """Detect post-/clear state and build recovery context, merged with a
+    normal relevance search against the user's NEW prompt (not a fixed
+    override that replaces search for the turn)."""
     try:
         row = conn.execute(
-            """SELECT session_id, ended_at, message_count
+            """SELECT session_id, notes, ended_at, message_count
                FROM sys_sessions
                WHERE project = ?
                  AND session_id != ?
-                 AND notes LIKE ?
-                 AND ended_at > datetime('now', '-5 minutes')
+                 AND end_reason = 'clear'
+                 AND clear_recovery_shown = 0
                ORDER BY ended_at DESC
                LIMIT 1""",
-            (cwd_project, current_session_id, CLEAR_CHECKPOINT_MARKER + "%"),
+            (cwd_project, current_session_id),
         ).fetchone()
 
         if not row:
             return None
 
-        old_session_id, ended_at, msg_count = row
+        old_session_id, notes, ended_at, msg_count = row
 
         lines = []
         lines.append("## POST-/CLEAR CONTEXT RECOVERY")
         lines.append("")
         lines.append(
-            f"A /clear just happened. Previous session `{old_session_id}` "
+            f"A /clear happened. Previous session `{old_session_id}` "
             f"ended at {(ended_at or '')[:19]} with {msg_count} messages."
         )
-        lines.append("The brain has restored context below so you can continue cleanly.")
         lines.append("")
 
-        # Project summary (aggregate state across all sessions for this project)
+        if notes and "AUTO-GENERATED FALLBACK" not in notes:
+            lines.append("### Session Summary")
+            lines.append(notes)
+            lines.append("")
+        else:
+            lines.append(
+                f"### Session Summary\nStill generating or unavailable for `{old_session_id}`. "
+                f"Call `get_session('{old_session_id}')` via the memory MCP if you need detail now."
+            )
+            lines.append("")
+
         proj_row = conn.execute(
             """SELECT summary FROM project_registry
                WHERE prefix = ? AND summary IS NOT NULL AND summary != ''""",
@@ -288,45 +287,31 @@ def _build_post_clear_context(conn, cwd_project, current_session_id):
             lines.append(proj_row[0])
             lines.append("")
 
-        # Last 10 exchanges (20 messages: user + assistant interleaved)
-        msgs = conn.execute(
-            """SELECT role, content, timestamp
-               FROM transcripts
-               WHERE session_id = ?
-                 AND role IN ('user', 'assistant')
-                 AND content IS NOT NULL AND trim(content) != ''
-               ORDER BY timestamp DESC
-               LIMIT 20""",
-            (old_session_id,),
-        ).fetchall()
-
-        if msgs:
-            msgs = list(reversed(msgs))  # chronological
-            lines.append("### Last 10 Exchanges from Previous Session")
-            lines.append("")
-            for role, content, ts in msgs:
-                preview = (content or "")[:600].replace("\n", " ").strip()
-                who = "**You**" if role == "user" else "**Claude**"
-                ts_str = (ts or "")[:19]
-                lines.append(f"{who} [{ts_str}]: {preview}")
+        # Merge in a normal relevance search against the actual new prompt,
+        # deduplicated against anything the summary already covers.
+        if keywords:
+            fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
+            try:
+                search_rows = _keyword_search(conn, fts_query, cwd_project)
+            except Exception:
+                search_rows = []
+            summary_lower = (notes or "").lower()
+            fresh = [
+                r for r in search_rows
+                if not ((r[2] or "")[:80].lower() in summary_lower)
+            ]
+            if fresh:
+                lines.append("### Relevant to Your New Message")
+                for proj, ts, content, _rank in fresh:
+                    preview = (content or "")[:400].replace("\n", " ")
+                    lines.append(f"- [{(ts or '')[:10]}, {proj}] {preview}")
                 lines.append("")
 
-        lines.append("### YOUR TASKS (do these FIRST, before responding to user)")
-        lines.append(
-            f"1. For deeper context beyond the exchanges above, call "
-            f"`get_session('{old_session_id}')` via brain MCP."
+        conn.execute(
+            "UPDATE sys_sessions SET clear_recovery_shown = 1 WHERE session_id = ?",
+            (old_session_id,),
         )
-        lines.append(
-            f"2. Write proper session notes for session `{old_session_id}` "
-            f"using scripts/write_session_notes.py."
-        )
-        lines.append(
-            "3. Update project summary via scripts/write_project_summary.py "
-            "if the state has materially changed."
-        )
-        lines.append("4. THEN respond to the user's prompt.")
-        lines.append("")
-        lines.append("This recovery context replaces the normal brain search for this turn.")
+        conn.commit()
 
         return "\n".join(lines)
     except Exception:
@@ -334,13 +319,11 @@ def _build_post_clear_context(conn, cwd_project, current_session_id):
 
 
 def main():
-    # Read stdin (hook protocol sends prompt data)
     raw_input = sys.stdin.read()
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     try:
-        # 1. Extract prompt text
         try:
             input_data = json.loads(raw_input)
         except json.JSONDecodeError:
@@ -360,20 +343,6 @@ def main():
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}}))
             return
 
-        # GO check - prevent coding without explicit GO (Rule #2 enforcement)
-        if prompt_text and detect_discussion_not_go(prompt_text):
-            context = (
-                "## RULE #2 REMINDER - DO NOT CODE\n"
-                "Mike is asking for your THOUGHTS, not code.\n"
-                "PRESENT the plan. Do NOT write, edit, or create any files.\n"
-                "Wait for Mike to say 'GO' + name the specific step.\n"
-                "Violated in sessions 17, 19, 21, 25, 36. ZERO TOLERANCE."
-            )
-            print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}}))
-            return
-
-        # 2. Load config and open DB (needed for post-/clear check, which must
-        #    run BEFORE the short-prompt skip — user might type "continue" after /clear)
         config_path = os.path.join(root, "config.yaml")
         with open(config_path) as f:
             config = yaml.safe_load(f)
@@ -383,7 +352,6 @@ def main():
             print("{}")
             return
 
-        # Detect current project from CWD (used by post-/clear and FTS5 biasing)
         cwd_project = None
         cwd = os.environ.get("CWD", os.getcwd())
         mapping = config.get("jsonl_project_mapping", {})
@@ -395,9 +363,25 @@ def main():
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA busy_timeout=5000;")
 
-        # Post-/clear recovery: overrides normal flow when detected
+        # Extract keywords once - used by both post-/clear merge and the
+        # normal search path below.
+        words = re.findall(r'[a-zA-Z](?:[a-zA-Z\-]*[a-zA-Z])?', prompt_text.lower())
+        words = [w for w in words if len(w) >= 3]
+        keywords = [w for w in words if w.replace("-", "") not in STOP_WORDS and w not in STOP_WORDS]
+        keywords = keywords[:8]
+        if fuzzy_correct and keywords:
+            try:
+                keywords, _ = fuzzy_correct(keywords, db_path)
+            except Exception:
+                pass
+
+        # Post-/clear recovery: event-based, no time window. Runs before the
+        # short-prompt skip, same as before - "continue" after /clear must
+        # still trigger it.
         if cwd_project and current_session_id:
-            post_clear_ctx = _build_post_clear_context(conn, cwd_project, current_session_id)
+            post_clear_ctx = _build_post_clear_context(
+                conn, cwd_project, current_session_id, keywords
+            )
             if post_clear_ctx:
                 conn.close()
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": post_clear_ctx}}))
@@ -409,62 +393,27 @@ def main():
             print("{}")
             return
 
-        # 3. FTS5 search (semantic search available via MCP search_semantic on demand)
-
-        # Extract keywords from prompt (handles hyphenated terms like "pre-compact")
-        words = re.findall(r'[a-zA-Z](?:[a-zA-Z\-]*[a-zA-Z])?', prompt_text.lower())
-        words = [w for w in words if len(w) >= 3]
-        keywords = [w for w in words if w.replace("-", "") not in STOP_WORDS and w not in STOP_WORDS]
-        keywords = keywords[:8]  # Cap at 8 keywords
-
-        # Fuzzy correct keywords to fix typos before searching
-        if fuzzy_correct and keywords:
-            try:
-                keywords, _ = fuzzy_correct(keywords, db_path)
-            except Exception:
-                pass
-
         if not keywords:
             conn.close()
             print("{}")
             return
 
         fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
+        rows = _keyword_search(conn, fts_query, cwd_project)
 
-        # Search with project bias: get 3 from current project + 5 global, dedup to top 5
-        # Recency weighting: rank * (1 + age_penalty) where newer = lower penalty
-        rows = []
-        if cwd_project:
-            rows = conn.execute("""
-                SELECT t.project, t.timestamp, t.content
-                FROM transcripts_fts fts
-                JOIN transcripts t ON t.rowid = fts.rowid
-                WHERE transcripts_fts MATCH ? AND t.project = ?
-                ORDER BY fts.rank * (1.0 + 0.1 * MAX(0, julianday('now') - julianday(t.timestamp)))
-                LIMIT 3
-            """, (fts_query, cwd_project)).fetchall()
-
-        # Fill remaining slots with global results (recency weighted)
-        global_rows = conn.execute("""
-            SELECT t.project, t.timestamp, t.content
-            FROM transcripts_fts fts
-            JOIN transcripts t ON t.rowid = fts.rowid
-            WHERE transcripts_fts MATCH ?
-            ORDER BY fts.rank * (1.0 + 0.1 * MAX(0, julianday('now') - julianday(t.timestamp)))
-            LIMIT 7
-        """, (fts_query,)).fetchall()
-
-        # Merge: project-biased first, then global (dedup by content prefix)
-        seen = set()
-        merged = []
-        for r in list(rows) + list(global_rows):
-            key = (r[0], (r[2] or "")[:50])
-            if key not in seen:
-                seen.add(key)
-                merged.append(r)
-            if len(merged) >= 5:
-                break
-        rows = merged
+        # Semantic fallback: only when keyword search came up empty/weak -
+        # this is the one place per-message search can be slow (embedding
+        # model cold start), by design limited to messages that already
+        # struck out on the fast path.
+        if not rows and semantic_search:
+            try:
+                sem_results = semantic_search(conn, config, prompt_text, project=cwd_project, limit=MAX_RESULTS)
+                rows = [
+                    (r["project"], r["timestamp"], r["content"], None)
+                    for r in sem_results if r["similarity"] > 0.35
+                ]
+            except Exception:
+                pass
 
         conn.close()
 
@@ -472,22 +421,10 @@ def main():
             print("{}")
             return
 
-        semantic_results = []
-        for project, timestamp, content in rows:
-            semantic_results.append({
-                "content": (content or "")[:400].replace("\n", " "),
-                "project": project or "",
-                "timestamp": (timestamp or "")[:10],
-            })
-
-        # 4. Format results
-        if not semantic_results:
-            print("{}")
-            return
-
         lines = ["## Relevant Memories", ""]
-        for i, r in enumerate(semantic_results, 1):
-            lines.append(f"{i}. [{r['timestamp']}, {r['project']}] {r['content']}")
+        for i, (project, timestamp, content, _rank) in enumerate(rows, 1):
+            preview = (content or "")[:400].replace("\n", " ")
+            lines.append(f"{i}. [{(timestamp or '')[:10]}, {project or ''}] {preview}")
         lines.append("")
 
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "\n".join(lines)}}))

@@ -1,13 +1,13 @@
 ################################################################################
-# claude-brain Configuration File - EXAMPLE
+# claude_remembers Configuration File - EXAMPLE
 # config.yaml.example
 ################################################################################
 #
-# This is the REFERENCE configuration for claude-brain, a persistent memory
+# This is the REFERENCE configuration for claude_remembers, a persistent memory
 # system for Claude Code using SQLite and MCP.
 #
 # HOW TO USE:
-#   Option 1 (recommended): Run python3 scripts/brain-setup.py
+#   Option 1 (recommended): Run python3 scripts/remember-setup.py
 #            The setup script generates config.yaml interactively.
 #   Option 2 (manual): Copy this file to config.yaml and edit with your values.
 #
@@ -33,14 +33,14 @@
 #            Best for single-computer setups. Database lives inside the
 #            root folder.
 #
-# brain-setup sets these values during first-time installation.
+# remember-setup sets these values during first-time installation.
 
 storage:
   mode: "synced"                               # "synced" or "local"
-  root_path: "~/Dropbox/claude-brain"          # Your root folder path
+  root_path: "~/Dropbox/claude_remembers"          # Your root folder path
   # local_db_path is ONLY used when mode is "synced".
-  # When mode is "local", the database lives at root_path/claude-brain.db
-  local_db_path: "~/claude-brain-local/claude-brain.db"
+  # When mode is "local", the database lives at root_path/claude_remembers.db
+  local_db_path: "~/claude_remembers-local/claude_remembers.db"
 
 # ==============================================================================
 # DATABASE
@@ -52,7 +52,7 @@ storage:
 database:
   write_every_response: true
   read_priority:
-    - structured_tables    # decisions, facts, brain profile
+    - structured_tables    # decisions, facts, memory profile
     - raw_transcripts      # full-text search across all conversations
     - project_files        # text files in the project folder
     - tell_user_not_found  # "I don't have this information"
@@ -75,13 +75,13 @@ backup:
 #
 # TO ADD A NEW PROJECT:
 #   1. Add an entry below
-#   2. Run: python3 scripts/brain-setup.py (or create folder + CLAUDE.md manually)
+#   2. Run: python3 scripts/remember-setup.py (or create folder + CLAUDE.md manually)
 #   3. The startup check registers the prefix on next session
 #
 # NAMING:
 #   folder_name: lowercase, hyphens only (e.g., "my-project")
 #   prefix:      lowercase, 2-4 chars (e.g., "mp") - NO trailing underscore
-#   label:       human-readable name shown in brain-import picklist
+#   label:       human-readable name shown in remember-import picklist
 
 projects:
   - folder_name: "my-project"
@@ -97,14 +97,14 @@ projects:
     label: "Uncategorized"
 
 # ==============================================================================
-# BRAIN PROFILE
+# REMEMBER PROFILE
 # ==============================================================================
-# brain tables store personal profile data (from questionnaire).
+# remember tables store personal profile data (from questionnaire).
 # These are NOT project-specific - they apply across ALL projects.
 # Data is written only after Y/F/R verification by the user.
 
-brain:
-  prefix: "brain"
+remember:
+  prefix: "remember"
   categories:
     - identity
     - family
@@ -121,7 +121,7 @@ brain:
 # JSONL INGESTION
 # ==============================================================================
 # Claude Code saves session logs as JSONL files automatically.
-# claude-brain ingests these at startup to capture any exchanges that
+# claude_remembers ingests these at startup to capture any exchanges that
 # write_exchange.py may have missed (e.g., terminal closed without /exit).
 #
 # BEHAVIOR (always on for reliability):
@@ -165,6 +165,26 @@ jsonl_project_mapping:
 semantic_search:
   enabled: true
   model: "all-MiniLM-L6-v2"                   # 384-dim embeddings, ~80MB model
+
+# ==============================================================================
+# SESSION SUMMARIZATION
+# ==============================================================================
+# At the end of every session, scripts/summarize_session.py calls Claude
+# Haiku to generate a structured summary (replacing placeholder notes).
+# If this fails (no credentials, network, rate limit) it falls back to a
+# simple auto-generated note - a session is never left with nothing.
+#
+# Credentials: picks up ANTHROPIC_API_KEY from the environment by default.
+# Since this runs as a detached background script (not an interactive
+# shell), it won't see an `ant auth login` profile - set api_key below
+# OR export ANTHROPIC_API_KEY in your shell profile if you'd rather not
+# put it in this file.
+
+summarization:
+  enabled: true
+  model: "claude-haiku-4-5"
+  max_tokens: 2048
+  api_key: ""                                 # optional override; blank = use ANTHROPIC_API_KEY env var
 
 # ==============================================================================
 # FILE VERSIONING
@@ -217,31 +237,31 @@ startup:
 
 scripts:
   commands:
-    brain-check:    "startup_check.py"
-    brain-sync:     "brain_sync.py"
-    brain-status:   "status.py"
+    remember-check:    "startup_check.py"
+    remember-sync:     "remember_sync.py"
+    remember-status:   "status.py"
 
 # ==============================================================================
 # EMAIL DIGESTS
 # ==============================================================================
-# Proactive email summaries - the brain reaches out to YOU.
+# Proactive email summaries - the system reaches out to YOU.
 # Three templates: daily standup, weekly digest, project deep dive.
 # Uses Gmail SMTP (App Password required - NOT your regular password).
 #
 # GMAIL APP PASSWORD SETUP:
 #   1. Go to myaccount.google.com → Security → 2-Step Verification (must be ON)
 #   2. At bottom of 2-Step page, click "App passwords"
-#   3. Create one for "Mail" on "Other (custom name)" → enter "claude-brain"
+#   3. Create one for "Mail" on "Other (custom name)" → enter "claude_remembers"
 #   4. Copy the 16-character password (spaces don't matter)
 #   5. Paste it below as gmail_app_password
 #
 # CRON EXAMPLES (add via: crontab -e):
 #   Daily standup (weekdays 8am):
-#     0 8 * * 1-5 /usr/bin/python3 /path/to/scripts/brain_digest.py --daily >> ~/claude-brain-local/digest.log 2>&1
+#     0 8 * * 1-5 /usr/bin/python3 /path/to/scripts/remember_digest.py --daily >> ~/claude_remembers-local/digest.log 2>&1
 #   Weekly digest (Monday 8am):
-#     0 8 * * 1 /usr/bin/python3 /path/to/scripts/brain_digest.py >> ~/claude-brain-local/digest.log 2>&1
+#     0 8 * * 1 /usr/bin/python3 /path/to/scripts/remember_digest.py >> ~/claude_remembers-local/digest.log 2>&1
 #   Project deep dive (on demand):
-#     python3 scripts/brain_digest.py --project mb
+#     python3 scripts/remember_digest.py --project mb
 
 email:
   enabled: false                                 # Set to true after configuring SMTP
@@ -255,8 +275,8 @@ email:
 # ==============================================================================
 
 meta:
-  project_name: "claude-brain"
+  project_name: "claude_remembers"
   version: "0.1.0"
   license: "MIT"
-  github: "https://github.com/yourusername/claude-brain"
+  github: "https://github.com/yourusername/claude_remembers"
   author: "Your Name"

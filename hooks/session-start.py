@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""session-start.py - Claude Code SessionStart hook for claude-brain.
+"""session-start.py - Claude Code SessionStart hook for claude_remembers.
 
 Fires once when a Claude Code session starts.
 1. Runs startup_check.py (scan for new JSONL, ingest, backup)
@@ -20,9 +20,9 @@ import yaml
 
 
 def _verify_pending_items(conn, next_session_content):
-    """Parse NEXT_SESSION.md for pending items, verify each against brain DB.
+    """Parse NEXT_SESSION.md for pending items, verify each against the memory DB.
 
-    Searches the brain for each pending item individually. If the brain has
+    Searches the memory for each pending item individually. If the memory has
     evidence that an item is already resolved, flags it so Claude does NOT
     present it as pending to the user.
 
@@ -188,12 +188,12 @@ def main():
 
         # Verification checklist - always first, non-negotiable
         lines.append("## Session Start Checklist")
-        lines.append("- **MANDATORY: Search the brain (search_transcripts, search_semantic, get_recent_summaries) BEFORE your first substantive response.** Brain has 24,000+ transcripts. Use it.")
+        lines.append("- **MANDATORY: Search the memory (search_transcripts, search_semantic, get_recent_summaries) BEFORE your first substantive response.** The memory has 24,000+ transcripts. Use it.")
         lines.append("- **SHOW unfinished items and next-session notes to the user prominently.** They must SEE and react to them -- not just a checkmark.")
         lines.append("- Before acting on inherited work: verify the premise independently")
         lines.append("- Before debugging: identify WHICH component is actually failing")
         lines.append("- Do NOT trust prior session notes blindly - they may contain wrong assumptions")
-        lines.append("- **NEXT_SESSION.md is a HINT, not truth. The brain is the source of truth.** Verify EACH pending item/decision against the brain individually before presenting it to the user. One broad search is NOT enough.")
+        lines.append("- **NEXT_SESSION.md is a HINT, not truth. The memory is the source of truth.** Verify EACH pending item/decision against the memory individually before presenting it to the user. One broad search is NOT enough.")
         lines.append("")
 
         # Read NEXT_SESSION.md from CWD if it exists
@@ -213,19 +213,19 @@ def main():
             except Exception:
                 pass
 
-        # Verify pending items from NEXT_SESSION.md against brain DB
+        # Verify pending items from NEXT_SESSION.md against the memory DB
         if next_session_content:
             try:
                 verified = _verify_pending_items(conn, next_session_content)
                 if verified:
-                    lines.append("## Brain Verification: Pending Items May Be Stale")
+                    lines.append("## Memory Verification: Pending Items May Be Stale")
                     lines.append("These items from NEXT_SESSION.md were listed as pending,")
-                    lines.append("but the brain has evidence they may ALREADY be resolved.")
+                    lines.append("but the memory has evidence they may ALREADY be resolved.")
                     lines.append("**Do NOT present these as pending without re-verifying.**")
                     lines.append("")
                     for v in verified:
                         lines.append(f"- **POSSIBLY RESOLVED:** {v['item']}")
-                        lines.append(f"  Brain evidence ({v['date']}): {v['snippet']}")
+                        lines.append(f"  Memory evidence ({v['date']}): {v['snippet']}")
                     lines.append("")
             except Exception:
                 pass
@@ -384,20 +384,10 @@ def main():
                         lines.append(f"- [{date}] {topic}")
                 lines.append("")
 
-        # Check for available updates (silent, 3-second timeout)
-        try:
-            root_path = config.get("storage", {}).get("root_path", "")
-            if root_path and os.path.isdir(os.path.join(root_path, ".git")):
-                result = subprocess.run(
-                    ["git", "-C", root_path, "fetch", "--dry-run"],
-                    capture_output=True, text=True, timeout=3
-                )
-                if result.stderr.strip():
-                    lines.append("## Brain Update Available")
-                    lines.append(f"To update: `cd {root_path} && git pull && pip3 install -r requirements.txt`")
-                    lines.append("")
-        except Exception:
-            pass
+        # Update checker intentionally removed: this install has diverged
+        # from the upstream repo it was cloned from (custom /clear recovery,
+        # summarization, search changes), so "run git pull" would silently
+        # overwrite local changes rather than offer a safe upstream update.
 
         if lines:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}}))

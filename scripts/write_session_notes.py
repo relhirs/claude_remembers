@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-write_session_notes.py - Store session notes in the brain database.
+write_session_notes.py - Store session notes in the memory database.
 
 Replaces the LAST SESSION block in MEMORY.md. Notes are written to
 sys_sessions.notes and read by session-start.py on next session start.
@@ -144,7 +144,7 @@ def get_latest_notes(db_path, project=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Write session notes to brain DB")
+    parser = argparse.ArgumentParser(description="Write session notes to memory DB")
     parser.add_argument("--session-id", help=argparse.SUPPRESS)
     parser.add_argument("--notes", help="Session notes text")
     parser.add_argument("--notes-file", help="Read notes from file instead of --notes")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-import_claude_ai.py - Import claude.ai JSON conversation exports into claude-brain.
+import_claude_ai.py - Import claude.ai JSON conversation exports into claude_remembers.
 
 Parses claude.ai export JSON (single conversation per file), maps messages,
 writes to sys_sessions + transcripts + sys_ingest_log, moves file to completed/.
@@ -143,7 +143,7 @@ def import_export(file_path, project, root_path=None, config=None, move_on_succe
         "family": ["mom", "mother", "father", "wife", "daughter", "family"],
         "health": ["doctor", "medical", "health", "therapy", "leg"],
         "legal": ["lawyer", "legal", "court", "contract", "estate"],
-        "brain-project": ["brain", "mcp", "hook", "session", "memory", "database"],
+        "remember-project": ["brain", "mcp", "hook", "session", "memory", "database"],
     }
     tag_text = (conversation_name or "").lower()
     # Add first few message contents for better matching
@@ -290,7 +290,7 @@ def import_export(file_path, project, root_path=None, config=None, move_on_succe
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Import claude.ai JSON export into claude-brain DB")
+    parser = argparse.ArgumentParser(description="Import claude.ai JSON export into claude_remembers DB")
     parser.add_argument("json_file", help="Path to claude.ai JSON export file")
     parser.add_argument("--project", required=True, help="Project prefix to assign")
     args = parser.parse_args()

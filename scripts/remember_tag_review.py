@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-brain_tag_review.py - Batch tag review for brain sessions.
+remember_tag_review.py - Batch tag review for memory sessions.
 
 Generates an xlsx of untagged (or all) sessions with auto-suggested tags.
 User reviews and edits tags in the spreadsheet, then runs update mode
@@ -16,11 +16,11 @@ Options:
   --output <f>   Output path for xlsx (default: tag_review.xlsx)
 
 Workflow:
-  1. python3 scripts/brain_tag_review.py --generate
+  1. python3 scripts/remember_tag_review.py --generate
   2. Review tag_review.xlsx -- edit the yellow tags column
-  3. python3 scripts/brain_tag_review.py --update --map tag_review.xlsx
+  3. python3 scripts/remember_tag_review.py --update --map tag_review.xlsx
 
-Usage via slash command: /brain-tag-review
+Usage via slash command: /remember-tag-review
 """
 
 import argparse
@@ -54,7 +54,7 @@ TAG_KEYWORDS = {
     "business": ["business", "company", "startup", "entrepreneur", "marketing", "client", "consultant"],
     "writing": ["writing", "write", "story", "narrative", "voice", "author", "publisher"],
     "research": ["research", "compare", "analysis", "review", "best", "recommend", "options"],
-    "brain-project": ["brain", "mcp", "hook", "session", "memory", "database", "sqlite", "ingestion"],
+    "remember-project": ["brain", "mcp", "hook", "session", "memory", "database", "sqlite", "ingestion"],
 }
 
 
@@ -81,7 +81,7 @@ def load_config():
     if mode == "synced":
         return os.path.expanduser(storage.get("local_db_path", ""))
     else:
-        return os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude-brain.db")
+        return os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude_remembers.db")
 
 
 def suggest_tags(text):
@@ -180,7 +180,7 @@ def cmd_generate(args):
 
     tag_descriptions = {
         "auto": "Cars, vehicles, maintenance", "ai-tools": "ChatGPT, Claude, Gemini, LLMs",
-        "book-editing": "Chapter edits, polish, revisions", "brain-project": "Brain DB, MCP, hooks development",
+        "book-editing": "Chapter edits, polish, revisions", "remember-project": "Memory DB, MCP, hooks development",
         "business": "Companies, startups, marketing", "coding": "Python, scripts, programming",
         "dialogue": "Dialogue writing in the book", "family": "Mom, father, wife, kids, grandpa",
         "finance": "Money, banking, investing, taxes", "health": "Medical, therapy, injuries",
@@ -203,7 +203,7 @@ def cmd_generate(args):
     ws2.cell(row=last_row + 4, column=1, value="2. You can use any tag from this list or create new ones")
     ws2.cell(row=last_row + 5, column=1, value="3. Multiple tags: separate with commas")
     ws2.cell(row=last_row + 6, column=1, value="4. Leave blank to skip tagging a session")
-    ws2.cell(row=last_row + 7, column=1, value="5. Save the file, then run: python3 scripts/brain_tag_review.py --update --map tag_review.xlsx")
+    ws2.cell(row=last_row + 7, column=1, value="5. Save the file, then run: python3 scripts/remember_tag_review.py --update --map tag_review.xlsx")
 
     wb.save(output_path)
     conn.close()
@@ -215,7 +215,7 @@ def cmd_generate(args):
         print(f"  Project filter: {args.project}")
     print(f"  Mode: {'all sessions' if args.all else 'untagged only'}")
     print(f"\n{yellow('NEXT:')} Review the yellow suggested_tags column, then run:")
-    print(f"  python3 scripts/brain_tag_review.py --update --map {output_path}")
+    print(f"  python3 scripts/remember_tag_review.py --update --map {output_path}")
 
 
 def cmd_update(args):
@@ -265,7 +265,7 @@ def cmd_update(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch tag review for brain sessions")
+    parser = argparse.ArgumentParser(description="Batch tag review for memory sessions")
     parser.add_argument("--generate", action="store_true", help="Generate xlsx with suggested tags")
     parser.add_argument("--update", action="store_true", help="Update DB from reviewed xlsx")
     parser.add_argument("--map", metavar="XLSX", help="Reviewed xlsx file (for --update)")
@@ -282,9 +282,9 @@ def main():
     else:
         parser.print_help()
         print(f"\n{yellow('Workflow:')}")
-        print(f"  1. python3 scripts/brain_tag_review.py --generate")
+        print(f"  1. python3 scripts/remember_tag_review.py --generate")
         print(f"  2. Review tag_review.xlsx (edit suggested_tags column)")
-        print(f"  3. python3 scripts/brain_tag_review.py --update --map tag_review.xlsx")
+        print(f"  3. python3 scripts/remember_tag_review.py --update --map tag_review.xlsx")
 
 
 if __name__ == "__main__":

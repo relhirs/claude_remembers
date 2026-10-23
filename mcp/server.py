@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-server.py - MCP server for claude-brain.
+server.py - MCP server for claude_remembers.
 
-Read-only access to the claude-brain SQLite database.
+Read-only access to the claude_remembers SQLite database.
 All writes are handled by hooks and scripts.
 
 11 tool functions:
@@ -11,7 +11,7 @@ All writes are handled by hooks and scripts.
   search_semantic, get_status, get_schema
 
 Registration:
-  claude mcp add brain-server python3 /path/to/mcp/server.py
+  claude mcp add remember-server python3 /path/to/mcp/server.py
 """
 
 import datetime
@@ -25,9 +25,10 @@ import sys
 import yaml
 from mcp.server.fastmcp import FastMCP
 
-# fuzzy_search is in scripts/ - add to path
+# fuzzy_search / semantic_search are in scripts/ - add to path
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from scripts.fuzzy_search import fuzzy_correct
+from scripts.semantic_search import semantic_search as _semantic_search
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -52,26 +53,14 @@ def get_db():
 
 # Semantic search - SQLite + numpy (Decision 89)
 SEMANTIC_AVAILABLE = False
-_embed_model = None
 try:
-    from sentence_transformers import SentenceTransformer
-    import numpy as np
+    import sentence_transformers  # noqa: F401
+    import numpy  # noqa: F401
     SEMANTIC_AVAILABLE = True
 except (ImportError, Exception):
     pass
 
-
-def _get_embed_model():
-    """Lazily load the SentenceTransformer model (cached in MCP server process)."""
-    global _embed_model
-    if _embed_model is not None:
-        return _embed_model
-    sem_config = CONFIG.get("semantic_search", {})
-    model_name = sem_config.get("model", "all-MiniLM-L6-v2")
-    _embed_model = SentenceTransformer(model_name)
-    return _embed_model
-
-mcp = FastMCP("brain-server")
+mcp = FastMCP("remember-server")
 
 # ---------------------------------------------------------------------------
 # 1. get_profile
@@ -79,21 +68,21 @@ mcp = FastMCP("brain-server")
 
 @mcp.tool()
 def get_profile() -> str:
-    """Returns Mike's complete profile: all brain_facts and brain_preferences.
+    """Returns Mike's complete profile: all remember_facts and remember_preferences.
     Call this at the start of every session to load working context."""
     conn = get_db()
     try:
         facts = conn.execute(
-            "SELECT category, key, value, confidence FROM brain_facts ORDER BY category, key"
+            "SELECT category, key, value, confidence FROM remember_facts ORDER BY category, key"
         ).fetchall()
         prefs = conn.execute(
-            "SELECT category, preference FROM brain_preferences ORDER BY category"
+            "SELECT category, preference FROM remember_preferences ORDER BY category"
         ).fetchall()
 
         if not facts and not prefs:
-            return "Profile is empty. No brain_facts or brain_preferences populated yet."
+            return "Profile is empty. No remember_facts or remember_preferences populated yet."
 
-        lines = ["## Brain Profile", ""]
+        lines = ["## Memory Profile", ""]
         if facts:
             lines.append("### Facts")
             current_cat = None
@@ -550,52 +539,19 @@ def search_semantic(
         return "Semantic search is unavailable (sentence-transformers or numpy not installed)."
 
     try:
-        model = _get_embed_model()
-        query_embedding = model.encode(query)
-        query_vec = np.array(query_embedding, dtype=np.float32)
-
         conn = get_db()
         try:
-            # Load embeddings (with optional project filter via JOIN)
-            if project:
-                rows = conn.execute(
-                    """SELECT te.transcript_id, te.embedding,
-                              t.project, t.timestamp, t.content
-                       FROM transcript_embeddings te
-                       JOIN transcripts t ON t.id = te.transcript_id
-                       WHERE t.project = ?""",
-                    (project,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT te.transcript_id, te.embedding,
-                              t.project, t.timestamp, t.content
-                       FROM transcript_embeddings te
-                       JOIN transcripts t ON t.id = te.transcript_id""",
-                ).fetchall()
+            results = _semantic_search(conn, CONFIG, query, project=project, limit=limit)
 
-            if not rows:
+            if not results:
                 return f"No embeddings found" + (f" for project '{project}'" if project else "") + ". Run batch embedding first."
 
-            # Compute cosine similarity
-            scores = []
-            for row in rows:
-                emb = np.frombuffer(row["embedding"], dtype=np.float32)
-                dot = np.dot(query_vec, emb)
-                norm = np.linalg.norm(query_vec) * np.linalg.norm(emb)
-                sim = float(dot / norm) if norm > 0 else 0.0
-                scores.append((sim, row))
-
-            # Sort by similarity descending, take top K
-            scores.sort(key=lambda x: x[0], reverse=True)
-            top = scores[:limit]
-
-            lines = [f"## Semantic Search Results ({len(top)} of {len(rows)} embeddings)", ""]
-            for sim, row in top:
-                date = row["timestamp"][:10] if row["timestamp"] else "?"
-                proj = row["project"] or "?"
-                preview = (row["content"] or "")[:600].replace("\n", " ").strip()
-                lines.append(f"- [{date}, {proj}, {sim:.3f}] {preview}")
+            lines = [f"## Semantic Search Results ({len(results)})", ""]
+            for r in results:
+                date = (r["timestamp"] or "")[:10] or "?"
+                proj = r["project"] or "?"
+                preview = (r["content"] or "")[:600].replace("\n", " ").strip()
+                lines.append(f"- [{date}, {proj}, {r['similarity']:.3f}] {preview}")
 
             lines.append("")
             lines.append("Tip: For full message content, use get_session(session_id).")
@@ -639,7 +595,7 @@ def get_status() -> str:
 
         # Backup info
         backup_dir = os.path.join(ROOT, "db-backup")
-        bak1 = os.path.join(backup_dir, "claude-brain.db.bak1")
+        bak1 = os.path.join(backup_dir, "claude_remembers.db.bak1")
         if os.path.exists(bak1):
             bak_mtime = datetime.datetime.fromtimestamp(
                 os.path.getmtime(bak1), tz=datetime.timezone.utc
@@ -659,7 +615,7 @@ def get_status() -> str:
         sem_status += f" ({embeddings} embeddings)"
 
         lines = [
-            "## Claude Brain Status",
+            "## Claude Remembers Status",
             "",
             f"Database: {DB_PATH} ({db_size_kb:.0f} KB)",
             f"Sessions: {sessions}",

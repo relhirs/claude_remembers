@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-brain_history.py - Session timeline from the brain database.
+remember_history.py - Session timeline from the memory database.
 
 Clean list of recent sessions, one line each: date, project, message count,
 duration, and topic (from session notes).
 
 Usage:
-    python3 brain_history.py
-    python3 brain_history.py --project jg --count 5
+    python3 remember_history.py
+    python3 remember_history.py --project jg --count 5
 
 Exit codes: 0 success, 1 error
 """
@@ -99,8 +99,8 @@ def format_duration(started, ended):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Session timeline from the brain database",
-        usage="python3 brain_history.py [--project PREFIX] [--count N]"
+        description="Session timeline from the memory database",
+        usage="python3 remember_history.py [--project PREFIX] [--count N]"
     )
     parser.add_argument("--project", "-p", default=None,
                         help="Filter by project prefix (jg, gen, mb, etc.)")
@@ -109,11 +109,11 @@ def main():
     args = parser.parse_args()
 
     if args.count <= 0:
-        print("Usage: /brain-history [--project PREFIX] [--count N]")
+        print("Usage: /remember-history [--project PREFIX] [--count N]")
         print()
         print("Examples:")
-        print("  /brain-history")
-        print("  /brain-history --project jg --count 5")
+        print("  /remember-history")
+        print("  /remember-history --project jg --count 5")
         sys.exit(0)
 
     root_path = get_root_path()

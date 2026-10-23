@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-import_chatgpt.py - Import ChatGPT conversation exports into the brain database.
+import_chatgpt.py - Import ChatGPT conversation exports into the memory database.
 
 Supports the full data export from OpenAI (Settings → Data → Export).
 Text conversations only -- audio, images, and system messages are skipped.
@@ -205,7 +205,7 @@ def load_config():
     """Load config.yaml to get database path."""
     config_path = ROOT_DIR / "config.yaml"
     if not config_path.exists():
-        print(red("config.yaml not found. Run brain-setup.py first."))
+        print(red("config.yaml not found. Run remember-setup.py first."))
         sys.exit(1)
 
     import yaml
@@ -217,7 +217,7 @@ def load_config():
     if mode == "synced":
         db_path = os.path.expanduser(storage.get("local_db_path", ""))
     else:
-        db_path = os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude-brain.db")
+        db_path = os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude_remembers.db")
 
     return db_path
 
@@ -555,7 +555,7 @@ def cmd_import(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Import ChatGPT conversations into the brain database"
+        description="Import ChatGPT conversations into the memory database"
     )
     parser.add_argument("--scan", dest="scan_dir", metavar="DIR",
                         help="Scan ChatGPT export directory and generate mapping CSV")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-write_exchange.py - Live exchange writer for claude-brain.
+write_exchange.py - Live exchange writer for claude_remembers.
 
 Captures new messages from the current session's JSONL file into the database.
 Called by hooks/stop.py after every Claude response.
@@ -377,7 +377,7 @@ def write_exchange(session_id, jsonl_path, root_path=None, config=None):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Write live exchanges to claude-brain DB")
+    parser = argparse.ArgumentParser(description="Write live exchanges to claude_remembers DB")
     parser.add_argument("--session-id", required=True, help="Current session UUID")
     parser.add_argument("--jsonl-path", required=True, help="Path to current session JSONL")
     args = parser.parse_args()

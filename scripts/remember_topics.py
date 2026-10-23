@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-brain_topics.py - Browse sessions grouped by tag.
+remember_topics.py - Browse sessions grouped by tag.
 
-Shows all tags in the brain with session counts, then lets you drill
+Shows all tags in memory with session counts, then lets you drill
 into a specific tag to see the sessions under it.
 
 Usage:
-  python3 scripts/brain_topics.py                  # Show all tags
-  python3 scripts/brain_topics.py "finance"        # Show sessions tagged 'finance'
-  python3 scripts/brain_topics.py --project jg     # Tags for JG project only
+  python3 scripts/remember_topics.py                  # Show all tags
+  python3 scripts/remember_topics.py "finance"        # Show sessions tagged 'finance'
+  python3 scripts/remember_topics.py --project jg     # Tags for JG project only
 
-Usage via slash command: /brain-topics
+Usage via slash command: /remember-topics
 """
 
 import argparse
@@ -36,7 +36,7 @@ def load_config():
     if mode == "synced":
         return os.path.expanduser(storage.get("local_db_path", ""))
     else:
-        return os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude-brain.db")
+        return os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude_remembers.db")
 
 
 def show_all_tags(conn, project=None):
@@ -69,7 +69,7 @@ def show_all_tags(conn, project=None):
     if not tag_counts:
         print("No tagged sessions found.")
         if not project:
-            print("Run /brain-tag-review to tag your sessions.")
+            print("Run /remember-tag-review to tag your sessions.")
         return
 
     # Print summary
@@ -77,7 +77,7 @@ def show_all_tags(conn, project=None):
     total_sessions = conn.execute("SELECT count(*) FROM sys_sessions").fetchone()[0]
     untagged = total_sessions - total_tagged
 
-    title = f"Brain Topics"
+    title = f"Memory Topics"
     if project:
         title += f" (project: {project})"
     print(f"\n{title}")
@@ -93,8 +93,8 @@ def show_all_tags(conn, project=None):
         sources = ", ".join(sorted(tag_sources[tag]))
         print(f"  {tag:<20} {count:>8}  {projects:<20} {sources}")
 
-    print(f"\nTo see sessions for a tag: /brain-topics finance")
-    print(f"To filter by project: /brain-topics --project jg")
+    print(f"\nTo see sessions for a tag: /remember-topics finance")
+    print(f"To filter by project: /remember-topics --project jg")
 
 
 def show_tag_sessions(conn, tag, project=None):
@@ -149,7 +149,7 @@ def show_tag_sessions(conn, tag, project=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Browse brain sessions by tag")
+    parser = argparse.ArgumentParser(description="Browse memory sessions by tag")
     parser.add_argument("tag", nargs="?", help="Show sessions for this tag")
     parser.add_argument("--project", metavar="PREFIX", help="Filter to one project")
 

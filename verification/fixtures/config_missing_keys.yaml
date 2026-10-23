@@ -1,5 +1,5 @@
 meta:
-  project_name: "claude-brain"
+  project_name: "claude_remembers"
   version: "0.1.0"
 
 logging:

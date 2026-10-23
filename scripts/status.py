@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-status.py - Database stats and health check for claude-brain.
+status.py - Database stats and health check for claude_remembers.
 
 Displays session counts, message counts, project breakdown, backup info,
 and semantic search status.
@@ -154,7 +154,7 @@ def get_status(root_path=None, config=None):
 # ---------------------------------------------------------------------------
 
 def print_human(data):
-    print("=== Claude Brain Status ===")
+    print("=== Claude Remembers Status ===")
     print(f"Database: {data['db_path']} ({data['db_size_kb']} KB)")
     print(f"Sessions: {data['sessions']} total")
     print(f"Messages: {data['messages']} total")
@@ -183,7 +183,7 @@ def print_human(data):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Claude Brain status and health check")
+    parser = argparse.ArgumentParser(description="Claude Remembers status and health check")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 

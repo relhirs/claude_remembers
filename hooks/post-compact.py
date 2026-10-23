@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""post-compact.py - Claude Code PostCompact hook for claude-brain.
+"""post-compact.py - Claude Code PostCompact hook for claude_remembers.
 
 Fires after context compaction completes.
-Re-injects brain context (recent session notes, project summary)
+Re-injects memory context (recent session notes, project summary)
 so Claude immediately has memory after losing it to compaction.
 
 Reuses the same DB queries as session-start.py but returns a
@@ -39,8 +39,8 @@ def main():
         conn.execute("PRAGMA busy_timeout=5000;")
 
         lines = []
-        lines.append("## Post-Compaction Brain Context")
-        lines.append("Context was just compacted. Here is what the brain remembers:")
+        lines.append("## Post-Compaction Memory Context")
+        lines.append("Context was just compacted. Here is what is remembered so far:")
         lines.append("")
 
         # Current project summary

@@ -1,18 +1,18 @@
 storage:
   mode: "synced"
-  root_path: "/tmp/claude-brain-test"
-  local_db_path: "/tmp/claude-brain-test/test.db"
+  root_path: "/tmp/claude_remembers-test"
+  local_db_path: "/tmp/claude_remembers-test/test.db"
 
 jsonl:
   source_paths:
-    - "/tmp/claude-brain-test/jsonl"
+    - "/tmp/claude_remembers-test/jsonl"
   ingest_subagents: true
   ingest_tool_results: true
 
 jsonl_project_mapping:
   "johnny-goods-assistant": "jga"
   "johnny-goods": "jg"
-  "claude-brain": "mb"
+  "claude_remembers": "mb"
   "general": "gen"
 
 projects:

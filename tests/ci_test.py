@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CI test suite for claude-brain.
+CI test suite for claude_remembers.
 
 Verifies cross-platform compatibility:
 1. All Python scripts compile
@@ -84,16 +84,16 @@ def test_database_creation():
     """Create a fresh database with the full schema and verify all tables."""
     print("\n--- Database Creation ---")
 
-    # Read DDL from brain-setup.py source to stay in sync
-    setup_path = ROOT / "scripts" / "brain-setup.py"
-    check("brain-setup.py exists", setup_path.exists())
+    # Read DDL from remember-setup.py source to stay in sync
+    setup_path = ROOT / "scripts" / "remember-setup.py"
+    check("remember-setup.py exists", setup_path.exists())
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test-brain.db"
+        db_path = Path(tmpdir) / "test-remember.db"
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
 
-        # Create all tables using the same DDL as brain-setup.py
+        # Create all tables using the same DDL as remember-setup.py
         ddl_statements = [
             """CREATE TABLE IF NOT EXISTS sys_sessions (
                 session_id TEXT PRIMARY KEY, project TEXT, started_at TEXT,
@@ -124,12 +124,12 @@ def test_database_creation():
                 project TEXT, tool_use_id TEXT, content TEXT,
                 source_file TEXT, created_at TEXT
             )""",
-            """CREATE TABLE IF NOT EXISTS brain_facts (
+            """CREATE TABLE IF NOT EXISTS remember_facts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT,
                 key TEXT, value TEXT, source TEXT, source_session TEXT,
                 confidence TEXT, created_at TEXT, updated_at TEXT
             )""",
-            """CREATE TABLE IF NOT EXISTS brain_preferences (
+            """CREATE TABLE IF NOT EXISTS remember_preferences (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT,
                 preference TEXT, source TEXT, created_at TEXT, updated_at TEXT
             )""",
@@ -190,7 +190,7 @@ def test_database_creation():
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         tables = [r[0] for r in cursor.fetchall()]
         expected = [
-            "brain_facts", "brain_preferences", "decisions", "facts",
+            "remember_facts", "remember_preferences", "decisions", "facts",
             "project_registry", "sys_ingest_log", "sys_sessions",
             "tool_results", "transcript_embeddings", "transcripts",
             "transcripts_fts",
@@ -252,7 +252,7 @@ def test_file_structure():
         check(f"{d}/ exists", (ROOT / d).exists())
 
     expected_files = [
-        "README.md", "CLAUDE_BRAIN_HOW_TO.md", "LICENSE",
+        "README.md", "GO_DEEPER.md",
         "requirements.txt", "config.yaml.example",
         "mcp/server.py", "hooks/session-start.py",
         "hooks/session-end.py", "hooks/stop.py",
@@ -264,7 +264,7 @@ def test_file_structure():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  claude-brain CI Test Suite")
+    print("  claude_remembers CI Test Suite")
     print(f"  Python {sys.version}")
     print(f"  Platform: {sys.platform}")
     print("=" * 60)

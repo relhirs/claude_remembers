@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-brain_search.py - Raw transcript search against the brain database.
+remember_search.py - Raw transcript search against the memory database.
 
 Returns matching results like a search engine: timestamp, session ID,
 project prefix, and excerpt. No synthesis, no AI summary.
@@ -9,9 +9,9 @@ Uses FTS5 for keyword search. If semantic search is enabled in config,
 includes semantic results in a separate section.
 
 Usage:
-    python3 brain_search.py "ASUS laptop"
-    python3 brain_search.py "hooks" --project mb
-    python3 brain_search.py "Fat Tony" --project jg
+    python3 remember_search.py "ASUS laptop"
+    python3 remember_search.py "hooks" --project mb
+    python3 remember_search.py "Fat Tony" --project jg
 
 Exit codes: 0 success, 1 error
 """
@@ -246,8 +246,8 @@ def format_timestamp(ts):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Raw transcript search against the brain database",
-        usage="python3 brain_search.py QUERY [--project PREFIX]"
+        description="Raw transcript search against the memory database",
+        usage="python3 remember_search.py QUERY [--project PREFIX]"
     )
     parser.add_argument("query", nargs="*", help="Search query")
     parser.add_argument("--project", "-p", default=None,
@@ -261,12 +261,12 @@ def main():
     # Handle empty query
     query = " ".join(args.query).strip()
     if not query:
-        print("Usage: /brain-search QUERY [--project PREFIX]")
+        print("Usage: /remember-search QUERY [--project PREFIX]")
         print()
         print("Examples:")
-        print('  /brain-search ASUS laptop')
-        print('  /brain-search hooks --project mb')
-        print('  /brain-search "Fat Tony" --project jg')
+        print('  /remember-search ASUS laptop')
+        print('  /remember-search hooks --project mb')
+        print('  /remember-search "Fat Tony" --project jg')
         sys.exit(0)
 
     root_path = get_root_path()

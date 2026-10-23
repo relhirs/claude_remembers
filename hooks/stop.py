@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""stop.py - Claude Code Stop hook for claude-brain.
+"""stop.py - Claude Code Stop hook for claude_remembers.
 
 Fires after every Claude response completes.
 1. Determines current session ID and JSONL path
 2. Calls write_exchange.py to capture new messages to DB
-3. If backup is older than 12 hours, triggers brain_sync.py (detached)
+3. If backup is older than 12 hours, triggers remember_sync.py (detached)
 4. Returns {} (no additional context needed)
 
 RULE: stdout is SACRED. Only valid JSON goes to stdout.
@@ -55,7 +55,7 @@ def main():
 
     # Auto-backup if last backup is older than 12 hours
     try:
-        backup_path = os.path.join(root, "db-backup", "claude-brain.db.bak1")
+        backup_path = os.path.join(root, "db-backup", "claude_remembers.db.bak1")
         run_backup = False
         if not os.path.exists(backup_path):
             run_backup = True
@@ -66,7 +66,7 @@ def main():
 
         if run_backup:
             subprocess.Popen(
-                [sys.executable, os.path.join(root, "scripts", "brain_sync.py")],
+                [sys.executable, os.path.join(root, "scripts", "remember_sync.py")],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )

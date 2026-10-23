@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""brain_sync.py - Rotating backup of SQLite database for claude-brain.
+"""remember_sync.py - Rotating backup of SQLite database for claude_remembers.
 
 Rotation: max 2 copies. .bak2 deleted, .bak1 renamed to .bak2, new copy to .bak1.
 Verifies backup with sqlite3 integrity_check.
 
-Usage:  python3 brain_sync.py
+Usage:  python3 remember_sync.py
 Exit codes: 0 = success, 1 = failure
 """
 
@@ -22,7 +22,7 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     hostname = socket.gethostname()
     log_dir = os.path.join(root, "logs", hostname)
-    log_file = os.path.join(log_dir, "brain_sync.log")
+    log_file = os.path.join(log_dir, "remember_sync.log")
 
     # Source: read DB path from config.yaml
     config_file = os.path.join(root, "config.yaml")
@@ -38,7 +38,7 @@ def main():
     if mode == "synced":
         db_source = storage["local_db_path"]
     else:
-        db_source = os.path.join(storage["root_path"], "claude-brain.db")
+        db_source = os.path.join(storage["root_path"], "claude_remembers.db")
 
     backup_dir = os.path.join(root, "db-backup")
     db_name = os.path.basename(db_source)

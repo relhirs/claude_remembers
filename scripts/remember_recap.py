@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-brain_recap.py - Progress report for a time range.
+remember_recap.py - Progress report for a time range.
 
 Pulls session notes and produces a narrative organized by project:
 what was worked on, what was completed, key decisions, what's next.
 
 Usage:
-    python3 brain_recap.py              # today (default)
-    python3 brain_recap.py --week       # last 7 days
-    python3 brain_recap.py --days 3 --project mb
+    python3 remember_recap.py              # today (default)
+    python3 remember_recap.py --week       # last 7 days
+    python3 remember_recap.py --days 3 --project mb
 
 Exit codes: 0 success, 1 error
 """
@@ -120,7 +120,7 @@ def extract_section(notes, header):
 def main():
     parser = argparse.ArgumentParser(
         description="Progress report for a time range",
-        usage="python3 brain_recap.py [--today|--week|--days N] [--project PREFIX]"
+        usage="python3 remember_recap.py [--today|--week|--days N] [--project PREFIX]"
     )
     parser.add_argument("--today", action="store_true", default=False,
                         help="Show today's sessions (default)")
@@ -136,12 +136,12 @@ def main():
     now = datetime.now()
     if args.days is not None:
         if args.days <= 0:
-            print("Usage: /brain-recap [--today|--week|--days N] [--project PREFIX]")
+            print("Usage: /remember-recap [--today|--week|--days N] [--project PREFIX]")
             print()
             print("Examples:")
-            print("  /brain-recap              # today")
-            print("  /brain-recap --week       # last 7 days")
-            print("  /brain-recap --days 3 --project mb")
+            print("  /remember-recap              # today")
+            print("  /remember-recap --week       # last 7 days")
+            print("  /remember-recap --days 3 --project mb")
             sys.exit(0)
         num_days = args.days
     elif args.week:

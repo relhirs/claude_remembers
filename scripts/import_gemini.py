@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-import_gemini.py - Import Google Gemini conversation exports into the brain database.
+import_gemini.py - Import Google Gemini conversation exports into the memory database.
 
 Supports Google Takeout exports (My Activity > Gemini Apps > MyActivity.html).
 Text conversations only -- images, audio, and attachments are skipped.
@@ -96,7 +96,7 @@ def load_config():
     """Load config.yaml to get database path."""
     config_path = ROOT_DIR / "config.yaml"
     if not config_path.exists():
-        print(red("config.yaml not found. Run brain-setup.py first."))
+        print(red("config.yaml not found. Run remember-setup.py first."))
         sys.exit(1)
 
     import yaml
@@ -108,7 +108,7 @@ def load_config():
     if mode == "synced":
         db_path = os.path.expanduser(storage.get("local_db_path", ""))
     else:
-        db_path = os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude-brain.db")
+        db_path = os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude_remembers.db")
 
     return db_path
 
@@ -690,7 +690,7 @@ def cmd_import(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Import Gemini conversations into the brain database"
+        description="Import Gemini conversations into the memory database"
     )
     parser.add_argument("--scan", dest="scan_dir", metavar="DIR",
                         help="Scan Gemini export directory and generate mapping xlsx")

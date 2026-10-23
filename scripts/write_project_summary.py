@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-write_project_summary.py - Update project summary in the brain database.
+write_project_summary.py - Update project summary in the memory database.
 
 Writes to project_registry.summary and updates summary_updated_at.
 Called by Claude at end-of-session as part of the end-session protocol.
@@ -92,7 +92,7 @@ def read_summary(prefix, db_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Write project summary to brain DB")
+    parser = argparse.ArgumentParser(description="Write project summary to memory DB")
     parser.add_argument("--prefix", required=True, help="Project prefix (e.g., mb, jg)")
     parser.add_argument("--summary", help="Project summary text")
     parser.add_argument("--summary-file", help="Read summary from file")

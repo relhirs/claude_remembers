@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-startup_check.py - Session start orchestrator for claude-brain.
+startup_check.py - Session start orchestrator for claude_remembers.
 
 Scans for new JSONL files, calls ingest_jsonl.ingest() for each,
 verifies required folders, triggers DB backup, prints summary.
@@ -86,6 +86,34 @@ def connect_db(db_path):
 
 
 # ---------------------------------------------------------------------------
+# Schema migration
+# ---------------------------------------------------------------------------
+# Self-healing column additions. SQLite has no "ADD COLUMN IF NOT EXISTS",
+# so each column is guarded by a PRAGMA table_info check. Safe to run on
+# every startup.
+
+SYS_SESSIONS_MIGRATIONS = [
+    # (column_name, column_ddl)
+    ("end_reason", "end_reason TEXT"),
+    ("clear_recovery_shown", "clear_recovery_shown INTEGER DEFAULT 0"),
+]
+
+
+def migrate_schema(conn, logger):
+    """Add any missing columns to sys_sessions. Idempotent."""
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(sys_sessions)").fetchall()}
+    added = 0
+    for col_name, col_ddl in SYS_SESSIONS_MIGRATIONS:
+        if col_name not in existing_cols:
+            conn.execute(f"ALTER TABLE sys_sessions ADD COLUMN {col_ddl}")
+            logger.info("Migration: added sys_sessions.%s", col_name)
+            added += 1
+    if added:
+        conn.commit()
+    return added
+
+
+# ---------------------------------------------------------------------------
 # Folder verification
 # ---------------------------------------------------------------------------
 
@@ -133,6 +161,7 @@ def discover_files(source_paths, config, logger):
     discovered = []
 
     for source_path in source_paths:
+        source_path = os.path.expanduser(source_path)
         if not os.path.isdir(source_path):
             logger.warning("Source path does not exist: %s", source_path)
             continue
@@ -167,7 +196,7 @@ def discover_files(source_paths, config, logger):
 def run_backup(root_path, config, logger):
     """Run database backup with rotation.
 
-    Inline implementation (separate from brain_sync.py).
+    Inline implementation (separate from remember_sync.py).
     Rotation: max 2 copies. .bak2 deleted, .bak1 renamed to .bak2, new copy to .bak1.
     """
     db_path = config["storage"]["local_db_path"]
@@ -259,6 +288,9 @@ def startup_check(root_path=None, config=None):
                 "exit_code": 2}
 
     try:
+        # 2b. Migrate schema (self-healing, idempotent)
+        migrate_schema(conn, logger)
+
         # 3. Get already-ingested files
         ingested = get_ingested_files(conn)
 
@@ -320,7 +352,7 @@ def main():
 
     backup_status = f"OK ({result['backup_size']} bytes)" if result["backup_ok"] else "FAILED"
 
-    print("=== Claude Brain Startup Check ===")
+    print("=== Claude Remembers Startup Check ===")
     print(f"Source paths scanned: {result['source_paths_scanned']}")
     print(f"New files found: {result['new_files']}")
     print(f"Records ingested: {result['records_ingested']}")

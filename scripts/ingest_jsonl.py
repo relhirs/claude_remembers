@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ingest_jsonl.py - Core JSONL ingestion engine for claude-brain.
+ingest_jsonl.py - Core JSONL ingestion engine for claude_remembers.
 
 Parses Claude Code JSONL session files, maps projects, deduplicates,
 and writes to SQLite (sys_sessions, transcripts, sys_ingest_log, tool_results).
@@ -523,7 +523,7 @@ def ingest(file_path, project_override=None, type_override=None,
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Ingest JSONL/tool-result files into claude-brain DB")
+    parser = argparse.ArgumentParser(description="Ingest JSONL/tool-result files into claude_remembers DB")
     parser.add_argument("file_path", help="Path to JSONL file or tool-result .txt file")
     parser.add_argument("--project", default=None, help="Project prefix override (default: auto-detect)")
     parser.add_argument("--type", dest="file_type", default=None,

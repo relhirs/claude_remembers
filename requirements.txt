@@ -1,6 +1,9 @@
-# claude-brain core dependencies
+# claude_remembers core dependencies
 PyYAML>=6.0
 mcp>=1.0
+
+# Session summarization (Haiku 4.5 call at session-end)
+anthropic>=0.40
 
 # Semantic search (optional but recommended)
 # Enables meaning-based search across your conversations.

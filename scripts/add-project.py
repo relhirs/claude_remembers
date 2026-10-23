@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-add-project.py - Add a new project to an existing claude-brain installation.
+add-project.py - Add a new project to an existing claude_remembers installation.
 
 Reads your existing config.yaml, asks for the new project details, and does
 only what's needed: config update, folder creation, CLAUDE.md, DB registration,
@@ -95,7 +95,7 @@ def load_config():
 
     if not config_path.exists():
         fail(f"config.yaml not found at {config_path}")
-        info("Run brain-setup.py first to create your initial installation.")
+        info("Run remember-setup.py first to create your initial installation.")
         sys.exit(1)
 
     import yaml
@@ -114,7 +114,7 @@ def generate_claude_md(project, cfg):
     if cfg["storage"]["mode"] == "synced":
         db_path = cfg["storage"]["local_db_path"]
     else:
-        db_path = os.path.join(root, "claude-brain.db")
+        db_path = os.path.join(root, "claude_remembers.db")
 
     return textwrap.dedent(f"""\
         # {project['label']}
@@ -122,20 +122,26 @@ def generate_claude_md(project, cfg):
         PROJECT: {project['folder_name']}
         PREFIX: {project['prefix']}
 
-        ## RULE #1 - USE THE BRAIN FIRST. ALWAYS.
-        **You have a brain with persistent memory across sessions. USE IT before doing anything substantive.**
-        - Before proposing a plan, starting a task, debugging, answering questions, or suggesting changes: **search the brain.**
+        ## RULE #1 - USE THE MEMORY FIRST. ALWAYS.
+        **You have persistent memory across sessions. USE IT before doing anything substantive.**
+        - Before proposing a plan, starting a task, debugging, answering questions, or suggesting changes: **search the memory.**
         - Use `search_transcripts`, `search_semantic`, `get_recent_summaries`, `lookup_decision`, `lookup_fact`.
-        - Files tell you WHAT exists. The brain tells you WHY -- strategic context, prior decisions, rejected approaches.
-        - Not using the brain is the same as not having it.
-        - If you have a web search MCP available, use it alongside the brain for external context.
+        - Files tell you WHAT exists. The memory tells you WHY -- strategic context, prior decisions, rejected approaches.
+        - Not using the memory is the same as not having it.
+        - If you have a web search MCP available, use it alongside the memory for external context.
 
-        ## BRAIN CONNECTION
-        MCP server "brain-server" provides persistent memory.
+        ## RULE #1B - NARRATE FINDINGS, DON'T WAIT TO BE ASKED
+        Tool calls and their raw outputs are never captured by the memory - only your own text replies
+        are. After running code or a computation that produces a real finding - a metric, a root
+        cause, a decision about which approach to use - state it concisely in your reply as a matter
+        of course. If you don't say it in text, it does not exist in memory.
+
+        ## MEMORY CONNECTION
+        MCP server "remember-server" provides persistent memory.
         Database: {db_path}
 
         ## SESSION START
-        1. **Search the brain** -- query search_transcripts + get_recent_summaries for this project. This is step ONE.
+        1. **Search the memory** -- query search_transcripts + get_recent_summaries for this project. This is step ONE.
         2. Call get_profile() and get_project_state('{project['prefix']}') to load working context.
         3. Hooks handle startup check and context injection automatically.
 
@@ -149,7 +155,7 @@ def generate_claude_md(project, cfg):
         - "Recent sessions" -> get_recent_sessions
         - "My preferences" / "My profile" -> get_profile
         - "Project status" -> get_project_state
-        - "Brain status" / "How many sessions" -> get_status
+        - "Memory status" / "How many sessions" -> get_status
 
         ## SEARCH PRIORITY
         1. Structured tables (decisions, facts) via MCP
@@ -161,14 +167,14 @@ def generate_claude_md(project, cfg):
         ## SESSION START PROTOCOL
         When a session starts, you receive automatic context from the session-start hook
         (last session notes, NEXT_SESSION.md, recent summaries). Before responding to the user:
-        1. Search the brain: search_transcripts + get_recent_summaries for project '{project['prefix']}'
+        1. Search the memory: search_transcripts + get_recent_summaries for project '{project['prefix']}'
         2. Review the injected context (last session notes, NEXT_SESSION.md if present)
         3. SHOW unfinished items and next-session notes to the user prominently (they must SEE and react)
         4. Output this checklist (every row must show DONE):
 
         | Start-Session Checklist              | Status   |
         |--------------------------------------|----------|
-        | Brain searched                       | DONE     |
+        | Memory searched                      | DONE     |
         | Last session notes reviewed          | DONE     |
         | Unfinished items SHOWN to user       | DONE     |
         | Next-session notes SHOWN to user     | DONE     |
@@ -176,8 +182,11 @@ def generate_claude_md(project, cfg):
         If any row cannot show DONE, stop and fix it before proceeding.
 
         ## SESSION END PROTOCOL
+        scripts/summarize_session.py now runs automatically at session-end (generates notes + tags +
+        lessons, with a safe fallback if it fails) - step 1 below is optional, your manual version
+        will just get overwritten by the automatic one.
         When the user says "end session" (or similar), complete ALL steps:
-        1. Write session notes + tags to the database:
+        1. (Optional - automatic as of session-end) Write session notes + tags to the database:
            python3 {root}/scripts/write_session_notes.py --notes "<what was done, decisions, next steps>" --tags "<1-3 comma-separated tags>"
         2. Update project summary (if significant progress):
            python3 {root}/scripts/write_project_summary.py --prefix {project['prefix']} --summary "<current state>"
@@ -195,9 +204,9 @@ def generate_claude_md(project, cfg):
 
         ## SLASH COMMANDS
         Type these in Claude Code for direct access:
-        /brain-question, /brain-search, /brain-history, /brain-recap, /brain-decide,
-        /brain-health, /brain-status, /brain-import, /brain-questionnaire, /brain-setup,
-        /brain-export
+        /remember-question, /remember-search, /remember-history, /remember-recap, /remember-decide,
+        /remember-health, /remember-status, /remember-import, /remember-questionnaire, /remember-setup,
+        /remember-export
 
         ## FILE VERSIONING
         After creating or modifying any file, run:
@@ -210,8 +219,8 @@ def generate_claude_md(project, cfg):
 # ---------------------------------------------------------------------------
 
 def main():
-    print(f"\n{bold('claude-brain -- Add Project')}")
-    print("Add a new project to your existing brain installation.\n")
+    print(f"\n{bold('claude_remembers -- Add Project')}")
+    print("Add a new project to your existing memory installation.\n")
 
     # Step 1: Load existing config
     cfg, config_path = load_config()
@@ -292,7 +301,7 @@ def main():
     cfg["jsonl_project_mapping"][name] = prefix
 
     with open(config_path, "w") as f:
-        f.write("# claude-brain Configuration File\n")
+        f.write("# claude_remembers Configuration File\n")
         f.write("# Last updated by add-project.py on " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
         f.write("# See config.yaml.example for documentation of all options.\n\n")
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -302,7 +311,7 @@ def main():
     if cfg["storage"]["mode"] == "synced":
         db_path = cfg["storage"]["local_db_path"]
     else:
-        db_path = os.path.join(cfg["storage"]["root_path"], "claude-brain.db")
+        db_path = os.path.join(cfg["storage"]["root_path"], "claude_remembers.db")
 
     db_path = os.path.expanduser(db_path)
 
@@ -319,7 +328,7 @@ def main():
             ok(f"project_registry updated (prefix: {prefix})")
         except Exception as e:
             warn(f"DB registration failed: {e}")
-            info("  You can fix this later by re-running brain-setup.py")
+            info("  You can fix this later by re-running remember-setup.py")
         finally:
             conn.close()
     else:
@@ -338,7 +347,7 @@ def main():
 
     projects_section = claude_json.get("projects", {})
     server_path = str(root / "mcp" / "server.py")
-    brain_mcp_entry = {
+    remember_mcp_entry = {
         "type": "stdio",
         "command": "python3",
         "args": [server_path],
@@ -356,14 +365,14 @@ def main():
             "hasTrustDialogAccepted": False,
         }
 
-    # Register brain-server
+    # Register remember-server
     mcp_servers = projects_section[project_path_str].get("mcpServers", {})
-    if "brain-server" not in mcp_servers:
-        mcp_servers["brain-server"] = brain_mcp_entry
+    if "remember-server" not in mcp_servers:
+        mcp_servers["remember-server"] = remember_mcp_entry
         projects_section[project_path_str]["mcpServers"] = mcp_servers
-        ok("brain-server MCP registered")
+        ok("remember-server MCP registered")
     else:
-        ok("brain-server MCP already registered")
+        ok("remember-server MCP already registered")
 
     # Step 8: Detect and offer other MCP servers from root path
     root_str = str(root)
@@ -371,7 +380,7 @@ def main():
     if root_str in projects_section:
         root_mcp = projects_section[root_str].get("mcpServers", {})
         for mcp_name, mcp_config in root_mcp.items():
-            if mcp_name != "brain-server":
+            if mcp_name != "remember-server":
                 other_mcps[mcp_name] = mcp_config
 
     if other_mcps:
@@ -396,12 +405,12 @@ def main():
 
     # Done
     print(f"\n{'='*60}")
-    print(f"  {green('Done!')} Project '{name}' added to claude-brain.")
+    print(f"  {green('Done!')} Project '{name}' added to claude_remembers.")
     print(f"{'='*60}")
-    print(f"\n  To use the brain from this project:")
+    print(f"\n  To use the memory from this project:")
     print(f"    cd {project_dir}")
     print(f"    claude")
-    print(f"\n  The brain will work automatically -- hooks capture data,")
+    print(f"\n  The memory will work automatically -- hooks capture data,")
     print(f"  MCP tools let Claude query your memory, CLAUDE.md provides")
     print(f"  instructions. Just start working.\n")
 

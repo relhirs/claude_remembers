@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pre-compact.py - Claude Code PreCompact hook for claude-brain.
+"""pre-compact.py - Claude Code PreCompact hook for claude_remembers.
 
 Fires before context compaction (manual /compact or auto-compact).
 Safety net: calls write_exchange.py one final time to ensure all

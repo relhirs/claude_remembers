@@ -1,8 +1,8 @@
-"""Fuzzy search module for claude-brain.
+"""Fuzzy search module for claude_remembers.
 
 Provides vocabulary extraction from the FTS5 index and fuzzy matching
-using difflib.get_close_matches(). Used by mcp/server.py, brain_search.py,
-and brain_query.py to correct typos BEFORE the FTS query runs.
+using difflib.get_close_matches(). Used by mcp/server.py, remember_search.py,
+and remember_query.py to correct typos BEFORE the FTS query runs.
 
 Correction rules:
 1. Terms not in the FTS index at all → corrected to best close match (doc >= 10)
@@ -148,7 +148,7 @@ def fuzzy_correct(terms: list[str], db_path: str) -> tuple[list[str], dict[str, 
 
     Args:
         terms: List of search keywords (lowercase).
-        db_path: Path to the brain database.
+        db_path: Path to the memory database.
 
     Returns:
         (corrected_terms, corrections_map)
