@@ -17,7 +17,7 @@ This project gets around that by not trying to cram everything into one file at 
 You need Python 3.10+, Claude Code, and pip.
 
 ```bash
-git clone <your repo url> claude_remembers
+git clone https://github.com/relhirs/claude_remembers.git claude_remembers
 cd claude_remembers
 python3 scripts/remember-setup.py
 ```
