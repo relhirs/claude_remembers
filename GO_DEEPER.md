@@ -39,7 +39,32 @@ The catch here is it only works off what gets said, not what actually gets run. 
 
 ## If you want to poke around directly
 
-Anything in `scripts/` that starts with `brain_` is just a plain script you can run yourself, like `python3 scripts/remember_search.py`, `remember_health.py`, `remember_history.py`, stuff like that. Useful if you just want to check something without going through a whole conversation.
+Anything in `scripts/` that starts with `remember_` is just a plain script you can run yourself, like `python3 scripts/remember_search.py`, `remember_health.py`, `remember_history.py`, stuff like that. Useful if you just want to check something without going through a whole conversation.
+
+Day to day you don't need any of this, the hooks and the four `/remember-*` slash commands cover normal use. These are for when you want something faster than a conversation, a maintenance check, or to change the setup itself.
+
+**Quick lookups, no conversation needed.** Same database the MCP tools query, just from your terminal:
+- `python3 scripts/remember_search.py "<keyword>"` -- raw keyword search. Flags: `--project`/`-p` to filter to one project, `--limit`/`-l` for how many results (default 10), `--no-semantic` to skip the meaning based fallback and keep it fast.
+- `python3 scripts/remember_query.py "<question>"` -- same idea, phrased as a natural language question instead of keywords. Same `--project`, `--limit`, `--no-semantic` flags.
+- `python3 scripts/remember_decide.py "<number or keyword>"` -- fast lookup into just the decisions table, skip everything else.
+- `python3 scripts/remember_history.py` -- session timeline. `--project`/`-p` to filter, `--count`/`-c` for how many sessions back (default 10).
+- `python3 scripts/remember_recap.py` -- a progress report for a stretch of time. `--today`, `--week`, or `--days <n>` for the range, `--project`/`-p` to scope it to one project.
+- `python3 scripts/remember_topics.py [tag]` -- browse sessions by tag, or list all tags if you leave `[tag]` off. `--project` to scope it.
+
+**Maintenance, worth running every so often rather than every session:**
+- `python3 scripts/remember_health.py` -- the full 9 point dashboard: database integrity, backup status, embedding coverage, hook and MCP registration, config validity. More detail than `/remember-status`. Add `--json` if you want to pipe the output somewhere instead of reading the table.
+- `python3 scripts/batch_embed.py` -- catches up anything that didn't get embedded for meaning based search. No flags, just run it. Takes a few seconds even for thousands of messages.
+- `python3 scripts/remember_tag_review.py --generate` -- builds a spreadsheet of suggested tags for review (tags are keyword-suggested, meant to be checked by a human, not trusted blindly forever). Review and edit it, then `--update --map <the xlsx file>` writes your changes back. `--all` includes sessions that already have tags, `--project` scopes it, `--output` picks where the spreadsheet goes.
+
+**Changing the setup itself.** These are plain scripts instead of slash commands on purpose, since they touch `config.yaml` and are infrequent, higher stakes actions compared to normal chat:
+- `python3 scripts/add-project.py` -- add a new project: folder, `CLAUDE.md`, config entry, database registration, MCP registration, all in one pass.
+- `python3 scripts/remove-project.py` -- the reverse. Stops tracking a project (config, database registration, MCP registration) but keeps your actual conversation history by default. Deleting that history is a separate, explicitly confirmed, irreversible step inside the same script, not something that happens automatically.
+
+**Getting data out:**
+- `python3 scripts/remember_export.py` -- dumps memory data to plain text files. `--profile` for your facts/preferences, `--decisions` for the decisions table, `--session <id>` for one full transcript, `--search "<query>"` for a set of search results, `--recap-week` for the week's recap.
+- `python3 scripts/remember_digest.py` -- only relevant if you've set up the email digest feature in `config.yaml`. Triggers one on demand instead of waiting for its cron schedule: `--daily` for the compact standup, `--project <prefix>` for a project deep dive, `--days <n>` for a custom lookback window, `--dry-run` to see the email on your screen instead of actually sending it, `--test` for a short test send.
+
+What you won't find a reason to run yourself: `write_exchange.py`, `ingest_jsonl.py`, `startup_check.py`, `summarize_session.py`. These are the internals the hooks already trigger automatically at the right moments. Running them by hand wouldn't break anything, they're all deduplicated and safe to re-run, there's just nothing to gain from doing it out of band.
 
 ## Bringing in history from other AI tools
 
@@ -50,12 +75,12 @@ What did change is how the import figures out which project a conversation belon
 The catch: this only works if a project already has something embedded in it to compare against. A brand new project that's never had anything imported or chatted about yet has nothing to compare against, so there's no suggestion for it, full stop, no fake guess either. It falls back to asking you outright instead of pretending it knows. And either way this is still just a suggestion sitting in front of you, never something that gets written to the database on its own. You're always the one confirming or overriding it before anything actually gets filed.
 
 **Claude:**
-1. Install a chat export browser extension and export a conversation as a JSON file.
+1. In Claude go to settings, Privacy, Export Data. You'll get an email with a download link, ready within a couple hours 
 2. Optional: run `python3 scripts/import_claude_ai.py <path-to-json>` with no `--project` flag. This doesn't import anything, it just prints the ranked suggestions so you know where it thinks the conversation belongs before you commit.
 3. Run: `python3 scripts/import_claude_ai.py <path-to-json> --project <your-project-prefix>` to actually import it. You can skip straight to this step and leave out step 2 entirely if you already know which project it's going in.
 
 **ChatGPT:**
-1. In ChatGPT go to Settings, Data Controls, Export. You'll get an email with a download link, usually within a day or two.
+1. In ChatGPT go to Settings, Data Controls, Export. You'll get an email with a download link, ready within a day or two.
 2. Extract the zip somewhere, like `imports/chatgpt-export/`.
 3. Scan it first, this just builds a spreadsheet, nothing actually gets imported yet: `python3 scripts/import_chatgpt.py --scan imports/chatgpt-export/`
 4. Open up the `chatgpt_import_map.xlsx` it makes. Each row has a project column (now filled in by the meaning based suggester above, not a keyword guess) and a confidence column sitting right next to it showing the similarity score. Check whatever it guessed, fix whatever's wrong, delete any rows you don't want brought in.
