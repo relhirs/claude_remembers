@@ -29,6 +29,7 @@ from mcp.server.fastmcp import FastMCP
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from scripts.fuzzy_search import fuzzy_correct
 from scripts.semantic_search import semantic_search as _semantic_search
+from scripts.config_utils import resolve_db_path
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -42,7 +43,7 @@ def load_config():
         return yaml.safe_load(f)
 
 CONFIG = load_config()
-DB_PATH = CONFIG["storage"]["local_db_path"]
+DB_PATH = resolve_db_path(CONFIG)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)

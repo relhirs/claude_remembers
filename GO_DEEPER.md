@@ -34,7 +34,7 @@ The catch here is it only works off what gets said, not what actually gets run. 
 
 - **Set up the API key.** Without it the session summaries are pretty plain and mechanical. With it they're more useful, providing real reasoning about what happened instead of just a message count.
 - **Add your real projects.** Run `python3 scripts/add-project.py` from the root folder for each project you're working in. Without doing this everything just gets dumped into one generic bucket instead of getting its own tracked history and project specific context.
-- **Every once in a while run `python3 scripts/batch_embed.py`.** New messages get embedded for meaning based search automatically as they come in. But if you ever bulk import old conversations, those skip that step, so this catches them up. It's pretty quick, like a few seconds for thousands of messages.
+- **Running `python3 scripts/batch_embed.py` every once in a while is still worth it.** New messages, including imported ones, get embedded automatically as they come in now. This script is just a catch up pass for anything that slipped through, like if semantic search was turned off in `config.yaml` during an import and you've since turned it back on. It's pretty quick, like a few seconds for thousands of messages.
 - **Just talk normally.** You don't need slash commands or any special phrasing. Just ask "what did we decide about the database schema" the same way you'd ask a person.
 
 ## If you want to poke around directly
@@ -43,28 +43,35 @@ Anything in `scripts/` that starts with `brain_` is just a plain script you can 
 
 ## Bringing in history from other AI tools
 
-If you were talking to Claude, ChatGPT, or Gemini before setting this up, you can pull that history in too. None of it is automatic though, this project only auto captures Claude Code itself. Each platform needs a manual export and then a one time import you run from the terminal.
+If you were talking to Claude, ChatGPT, or Gemini before setting this up, you can pull that history in too. None of it is automatic though, this project only auto captures Claude Code itself. Each platform still needs a manual export and then a one time import you run from the terminal, exactly like before. Nothing about that part changed.
+
+What did change is how the import figures out which project a conversation belongs to. It used to be a hardcoded list of keywords, stuff like "if the title has the word 'resume' in it, guess the job search project." That's gone now. Instead it takes the conversation's text (title plus a handful of actual messages, not just the title) and compares it, using the same meaning based embeddings this whole system already relies on for search, against everything that's already sitting in each existing project. Whichever project reads as the closest match gets suggested, along with a similarity score so you can see how confident the guess actually is, something like `oth (similarity 0.36)`. Low score, trust it less.
+
+The catch: this only works if a project already has something embedded in it to compare against. A brand new project that's never had anything imported or chatted about yet has nothing to compare against, so there's no suggestion for it, full stop, no fake guess either. It falls back to asking you outright instead of pretending it knows. And either way this is still just a suggestion sitting in front of you, never something that gets written to the database on its own. You're always the one confirming or overriding it before anything actually gets filed.
 
 **Claude:**
 1. Install a chat export browser extension and export a conversation as a JSON file.
-2. Run: `python3 scripts/import_claude_ai.py <path-to-json> --project <your-project-prefix>`
+2. Optional: run `python3 scripts/import_claude_ai.py <path-to-json>` with no `--project` flag. This doesn't import anything, it just prints the ranked suggestions so you know where it thinks the conversation belongs before you commit.
+3. Run: `python3 scripts/import_claude_ai.py <path-to-json> --project <your-project-prefix>` to actually import it. You can skip straight to this step and leave out step 2 entirely if you already know which project it's going in.
 
 **ChatGPT:**
 1. In ChatGPT go to Settings, Data Controls, Export. You'll get an email with a download link, usually within a day or two.
 2. Extract the zip somewhere, like `imports/chatgpt-export/`.
 3. Scan it first, this just builds a spreadsheet, nothing actually gets imported yet: `python3 scripts/import_chatgpt.py --scan imports/chatgpt-export/`
-4. Open up the `chatgpt_import_map.csv` it makes. Check the project it guessed for each conversation, fix whatever's wrong, delete any rows you don't want brought in.
-5. Preview the import without touching the database: `python3 scripts/import_chatgpt.py --import imports/chatgpt-export/ --map chatgpt_import_map.csv --dry-run`
+4. Open up the `chatgpt_import_map.xlsx` it makes. Each row has a project column (now filled in by the meaning based suggester above, not a keyword guess) and a confidence column sitting right next to it showing the similarity score. Check whatever it guessed, fix whatever's wrong, delete any rows you don't want brought in.
+5. Preview the import without touching the database: `python3 scripts/import_chatgpt.py --import imports/chatgpt-export/ --map chatgpt_import_map.xlsx --dry-run`
 6. Looks good? Run the exact same command again minus `--dry-run`.
 
 **Gemini:**
 1. Go to Google Takeout, select only "My Activity" then "Gemini Apps," export it, wait for the email, download the zip.
 2. Extract it, like to `imports/gemini-export/`.
 3. Scan: `python3 scripts/import_gemini.py --scan imports/gemini-export/`
-4. Go through `gemini_import_map.xlsx` the same way you did for ChatGPT.
+4. Go through `gemini_import_map.xlsx` the same way you did for ChatGPT, project column plus a confidence column, both filled in by the same meaning based suggester.
 5. Dry run then the real run, same two commands as ChatGPT, just swap in `import_gemini.py`.
 
 One weird thing about Gemini specifically, its export isn't split into sessions already, it's just a stream of individual exchanges. The import groups anything within 30 minutes of each other into one session automatically so you don't end up with thousands of one message "sessions."
+
+All three of these also embed everything as it gets imported now, the same embedding step that happens automatically for live Claude Code sessions. That used to only happen later, whenever you got around to running `batch_embed.py`. Imported messages don't need that catch up step anymore, they're already embedded and searchable, and already counted toward the project comparisons above, the moment the import finishes.
 
 ## What this doesn't do
 

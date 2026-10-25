@@ -63,13 +63,18 @@ def warn(msg):
 def info(msg):
     print(f"  {msg}")
 
+def sep():
+    print("  " + "-" * 60)
+
 def ask(prompt, default=None):
+    sep()
     if default:
         raw = input(f"  {prompt} [{default}]: ").strip()
         return raw if raw else default
     return input(f"  {prompt}: ").strip()
 
 def ask_yn(prompt, default="y"):
+    sep()
     suffix = "[Y/n]" if default == "y" else "[y/N]"
     raw = input(f"  {prompt} {suffix}: ").strip().lower()
     if not raw:
@@ -78,25 +83,25 @@ def ask_yn(prompt, default="y"):
 
 def generate_prefix(name, existing_prefixes):
     """Generate a 2-3 char prefix from a project name, avoiding collisions."""
-    parts = name.split("-")
+    flat_name = re.sub(r"[-_ ]+", "", name).lower()
+    parts = [p for p in re.split(r"[-_ ]+", name.lower()) if p]
     # Try first letters of each word (2-3 chars)
     if len(parts) >= 2:
         candidate = "".join(p[0] for p in parts[:3])
     else:
-        candidate = name[:3]
+        candidate = flat_name[:3]
 
     if candidate not in existing_prefixes:
         return candidate
 
     # Collision - try adding more letters
-    for length in range(2, min(len(name.replace("-", "")), 5)):
-        flat = name.replace("-", "")
-        candidate = flat[:length]
+    for length in range(2, min(len(flat_name), 5)):
+        candidate = flat_name[:length]
         if candidate not in existing_prefixes:
             return candidate
 
     # Last resort - append digit
-    base = name.replace("-", "")[:2]
+    base = flat_name[:2]
     for i in range(2, 100):
         candidate = f"{base}{i}"
         if candidate not in existing_prefixes:
@@ -108,7 +113,7 @@ def generate_prefix(name, existing_prefixes):
 # ---------------------------------------------------------------------------
 
 def phase_preflight():
-    phase_header(1, 9, "PRE-FLIGHT CHECKS")
+    phase_header(1, 9, "PRELIMINARY CHECKS")
     errors = []
 
     # Python version
@@ -197,10 +202,12 @@ def phase_projects():
     phase_header(3, 9, "PROJECT SETUP")
 
     # --- Storage mode ---
-    print("\n  Storage mode:")
-    print("    synced - Root folder in a sync service (Dropbox, OneDrive, etc.)")
-    print("             Database stored separately on local disk.")
-    print("    local  - Everything in one folder. Single computer setup.")
+    print("\n  Storage mode - where your memory lives:")
+    print("    synced - Root folder inside Dropbox/OneDrive/etc. so the SAME memory")
+    print("             follows you to other computers. The database file itself is")
+    print("             kept OUTSIDE the synced folder (sync + SQLite don't mix).")
+    print("    local  - Everything in one plain folder, this computer only.")
+    print("  Pick 'local' unless you actively use Claude Code on more than one machine.")
     storage_mode = ask("Storage mode", "synced").lower()
     while storage_mode not in ("synced", "local"):
         storage_mode = ask("Enter 'synced' or 'local'", "synced").lower()
@@ -226,11 +233,15 @@ def phase_projects():
             else:
                 default_root = str(home / "Dropbox" / "claude_remembers")
 
+        print("\n  This is the one folder everything lives in: the database, project")
+        print("  folders, backups, and logs. Defaults to where you're running this from.")
         root_path = ask("Root folder path", default_root)
         default_db = str(home / "claude_remembers-local" / "claude_remembers.db")
         db_path = ask("Local database path (NOT in sync folder)", default_db)
     else:
         default_root = str(home / "claude_remembers")
+        print("\n  This is the one folder everything lives in: the database, project")
+        print("  folders, backups, and logs. Defaults to where you're running this from.")
         root_path = ask("Root folder path", default_root)
         root_path = os.path.expanduser(root_path)
         db_path = os.path.join(root_path, "claude_remembers.db")
@@ -240,19 +251,55 @@ def phase_projects():
     db_path = os.path.expanduser(db_path)
 
     # --- Projects ---
-    print("\n  Define your projects. Each project gets its own folder.")
-    print("  Names must be lowercase with hyphens only (e.g., 'my-project').")
-    print("  Press Enter with no name when done. At least 1 required.")
+    print("\n  PROJECTS - what this means:")
+    print("  A 'project' is one body of work (a real repo, a client, or just 'general'")
+    print("  for everything else). Whenever you later run 'claude' from inside a folder")
+    print("  whose path contains the project name you type below, that session is")
+    print("  AUTOMATICALLY tagged with its prefix - no manual categorizing. It does NOT")
+    print("  have to be a folder created by this script; it can be any real repo")
+    print("  anywhere on disk. No match found anywhere? Defaults to 'oth'.")
+    print()
+    print("  HOW TO PICK THE NAME: type it exactly as the real folder's name appears -")
+    print("  e.g. for a repo at '~/code/Listing Checker', type 'Listing Checker' with")
+    print("  the same case and spacing. This is an EXACT, case-sensitive match against")
+    print("  the folder name, so 'Listing Checker' will NOT match a folder named")
+    print("  'listing-checker' or 'listing_checker' - type it precisely.")
+    print()
+    print("  After the name, you'll also be asked for a DISPLAY NAME and a PREFIX:")
+    print("    - Display name: a human-readable title, shown as the heading in that")
+    print("      project's CLAUDE.md and in summaries/pickers. Purely cosmetic - it")
+    print("      plays no part in matching your folder. Defaults to the name you just")
+    print("      typed with hyphens/underscores turned into spaces and Title Cased;")
+    print("      press Enter to accept that, or type your own.")
+    print("    - Prefix: the short permanent code (2-4 letters) used internally to")
+    print("      tag sessions and facts for this project in the database.")
+    print()
+    print("  That prefix then lets Claude scope its own memory lookups to just this")
+    print("  project automatically - wired into its CLAUDE.md, nothing you manage.")
+    print("  It's effectively permanent once sessions are tagged with it, so pick a")
+    print("  word you'll keep using for that folder.")
+    print()
+    print("  You'll add projects ONE AT A TIME below (type a name, Enter, repeat) -")
+    print("  there's no comma-separated shortcut for adding several at once.")
+    print()
+    print("  Not sure? Just add one project called 'general' and move on - sessions run")
+    print("  from inside this script's own 'general' folder will tag themselves 'gen'")
+    print("  automatically. Add more anytime by rerunning this script or /remember-setup.")
+    print()
+    print("  Type it exactly as the real folder appears (any case, spaces allowed).")
+    print("  Just avoid slashes ('/' or '\\\\') and leading/trailing spaces.")
+    print("  Press Enter with no name when done. At least 1 project is required.")
     print()
 
     projects = []
     prefixes_used = set()
-    pattern = re.compile(r'^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$')
+    pattern = re.compile(r'^[^/\\]+$')
 
     while True:
         default_hint = "general" if not projects else ""
         prompt = "Project name" + (f" (default: {default_hint})" if default_hint else " (Enter to finish)")
-        name = input(f"  {prompt}: ").strip().lower()
+        sep()
+        name = input(f"  {prompt}: ").strip()
 
         if not name:
             if not projects:
@@ -262,7 +309,7 @@ def phase_projects():
                 break
 
         if not pattern.match(name):
-            warn("Invalid name. Use lowercase letters, numbers, hyphens. Must start with a letter.")
+            warn("Invalid name. Avoid slashes.")
             continue
 
         if name in [p["folder_name"] for p in projects]:
@@ -270,8 +317,8 @@ def phase_projects():
             continue
 
         prefix = generate_prefix(name, prefixes_used)
-        label = ask(f"  Label for '{name}'", name.replace("-", " ").title())
-        shown_prefix = ask(f"  Prefix for '{name}'", prefix)
+        label = ask(f"  Display name for '{name}'", name.replace("-", " ").title())
+        shown_prefix = ask(f"  Database prefix for '{name}' (2-4 letters, permanent)", prefix)
         if shown_prefix != prefix:
             if shown_prefix in prefixes_used:
                 warn(f"Prefix '{shown_prefix}' already in use. Using '{prefix}'.")
@@ -298,8 +345,8 @@ def phase_projects():
         ok(f"Auto-added: other (prefix: {oth_prefix}) - catch-all for unmatched sessions")
 
     # --- Quick identity questions ---
-    print("\n  Quick identity setup (seeds your memory profile):")
-    print("  Press Enter to skip any question.\n")
+    print("\n  OPTIONAL - lets Claude recall who you are automatically every session.")
+    print("  Skip anything with Enter; fill it in anytime later via /remember-questionnaire.\n")
     identity = {}
     name_answer = ask("Your name")
     if name_answer:
@@ -315,7 +362,9 @@ def phase_projects():
     claude_md_path = home / ".claude" / "CLAUDE.md"
     claude_md_content = None
     if claude_md_path.exists():
-        info(f"\nFound personal CLAUDE.md at {claude_md_path}")
+        info(f"\nFound your global CLAUDE.md at {claude_md_path}")
+        info("Importing copies that text into the memory database too, so it's")
+        info("searchable alongside everything else. Your file itself is untouched.")
         if ask_yn("Import its contents as remembered preferences?"):
             claude_md_content = claude_md_path.read_text(encoding="utf-8")
             ok("Will import CLAUDE.md preferences")
@@ -905,16 +954,17 @@ def phase_email(cfg):
     phase_header(7, 9, "EMAIL DIGESTS (optional)")
 
     print("""
-  The memory system can email you proactive status reports:
-    - Daily standup at 8am (what to work on today)
-    - Weekly portfolio digest (Monday mornings)
-    - Project deep dives (on demand)
+  EMAIL DIGESTS (fully optional - safe to skip):
+  Schedules a job that emails YOU a summary pulled from your own memory database -
+  what's pending, what happened recently - without opening Claude Code to ask.
+  Daily weekday morning standup, or a Monday weekly recap. Nothing else in this
+  tool depends on this; skipping it changes nothing else.
 
-  Requires a Gmail account with an App Password.
-  (Not your regular password - a 16-character App Password from Google.)
+  Requires a Gmail account and a 16-character Gmail "App Password" (NOT your
+  normal password - you'll be walked through generating one if you continue).
 """)
 
-    if not ask_yn("Do you want to set up email digests?", "n"):
+    if not ask_yn("Set up email digests now? (can add later via config.yaml)", "n"):
         info("Skipped. You can set this up later in config.yaml.")
         cfg["email_enabled"] = False
         return
@@ -922,6 +972,7 @@ def phase_email(cfg):
     # Get email address
     from_addr = ""
     while not from_addr:
+        sep()
         from_addr = input("  Gmail address: ").strip()
         if "@" not in from_addr:
             warn("That doesn't look like an email address.")
@@ -931,6 +982,7 @@ def phase_email(cfg):
     if ask_yn(f"  Send digests to the same address ({from_addr})?"):
         pass
     else:
+        sep()
         to_addr = input("  Recipient email address: ").strip() or from_addr
 
     # Get app password
@@ -941,7 +993,19 @@ def phase_email(cfg):
     2. At the bottom, click "App passwords"
     3. Create one for "Mail" / "Other" -> name it "claude_remembers"
     4. Copy the 16-character password
+
+  WHERE THIS GOES, SO YOU KNOW IT'S SAFE:
+  - It's saved in plain text in your local config.yaml - nowhere else. It never
+    leaves this machine, is never uploaded anywhere, and config.yaml is in
+    .gitignore so it can't accidentally get committed or pushed to GitHub.
+  - It's used for exactly one thing: logging into smtp.gmail.com over an
+    encrypted (TLS) connection to send the digest email, same as any mail app.
+  - An App Password is NOT your real Google password - it's a separate token
+    scoped only to mail sending. If you ever want to shut this off, revoke it
+    at myaccount.google.com -> Security -> App Passwords; your real login is
+    never affected either way.
 """)
+    sep()
     app_password = input("  Gmail App Password: ").strip()
     if not app_password:
         warn("No password entered. Email will be disabled.")
@@ -988,6 +1052,9 @@ def phase_email(cfg):
     log_dir = os.path.dirname(cfg["db_path"])
     daily_cron = f'0 8 * * 1-5 /usr/bin/python3 {digest_script} --daily >> {log_dir}/digest.log 2>&1'
     weekly_cron = f'0 8 * * 1 /usr/bin/python3 {digest_script} >> {log_dir}/digest.log 2>&1'
+
+    info("The cron job is what actually triggers the digest on a schedule - without")
+    info("it, the digest script exists but nothing runs it automatically.")
 
     if ask_yn("  Set up daily standup cron (weekdays 8am)?", "y"):
         try:
@@ -1070,6 +1137,8 @@ def phase_registration(cfg):
     if hooks_added > 0:
         settings["hooks"] = hooks
         info(f"Will add {hooks_added} hook(s) to {settings_path}")
+        info("Hooks are what capture sessions automatically (start/end/compact) -")
+        info("without them, nothing gets saved to memory on its own.")
         if ask_yn("Register hooks?"):
             with open(settings_path, "w") as f:
                 json.dump(settings, f, indent=4)
@@ -1134,6 +1203,8 @@ def phase_registration(cfg):
     if mcp_added > 0:
         claude_json["projects"] = projects_section
         info(f"Will register MCP server for {mcp_added} project path(s)")
+        info("This is what lets Claude QUERY memory during a session (search,")
+        info("lookup_fact, etc.) - without it, sessions get captured but not searchable.")
         if ask_yn("Register MCP server?"):
             with open(claude_json_path, "w") as f:
                 json.dump(claude_json, f, indent=4)
@@ -1169,8 +1240,15 @@ def phase_registration(cfg):
             Step 2: If files ARE found, show the user a numbered list of filenames.
             Ask: "Which file do you want to import?" (they can say a number or filename)
 
-            Step 3: Ask which project to assign it to. Show the available projects by running:
-              python3 -c "import sqlite3; conn=sqlite3.connect('{cfg['db_path']}'); [print(f'  {{r[1]}} - {{r[2]}}') for r in conn.execute('SELECT folder_name, prefix, label FROM project_registry ORDER BY folder_name')]"
+            Step 3: Get a project suggestion, then ask which project to assign it to.
+              First run (no --project, this only suggests, it does not import anything):
+                python3 {root}/scripts/import_claude_ai.py "<chosen_file_path>"
+              This prints ranked project suggestions with a similarity score (e.g. "oth  (similarity 0.36)"),
+              or says no suggestion is available yet if nothing has been embedded for any project.
+              Then show the available projects by running:
+                python3 -c "import sqlite3; conn=sqlite3.connect('{cfg['db_path']}'); [print(f'  {{r[1]}} - {{r[2]}}') for r in conn.execute('SELECT folder_name, prefix, label FROM project_registry ORDER BY folder_name')]"
+              Present the top suggestion (if any) as the recommended default, alongside the full list, and ask
+              the user to confirm it or pick a different project. Never assign a project without them confirming.
 
             Step 4: Run the import with their choices:
               python3 {root}/scripts/import_claude_ai.py "<chosen_file_path>" --project <chosen_prefix>
@@ -1236,6 +1314,8 @@ def phase_registration(cfg):
         jsonl_files = list(jsonl_dir.rglob("*.jsonl"))
         if jsonl_files:
             info(f"\nFound {len(jsonl_files)} JSONL session files in {jsonl_dir}")
+            info("These are your past Claude Code sessions - importing now pulls them")
+            info("into memory immediately instead of waiting for your next session.")
             ingest_script = root / "scripts" / "ingest_jsonl.py"
             startup_script = root / "scripts" / "startup_check.py"
 
@@ -1316,10 +1396,10 @@ def phase_health_check(cfg):
         with open(settings_path) as f:
             settings = json.load(f)
         registered = sum(1 for e in HOOK_EVENTS if e in settings.get("hooks", {}))
-        if registered == 4:
+        if registered == len(HOOK_EVENTS):
             checks.append(("Hooks", True, f"all {registered} registered"))
         else:
-            checks.append(("Hooks", False, f"only {registered}/4 registered"))
+            checks.append(("Hooks", False, f"only {registered}/{len(HOOK_EVENTS)} registered"))
     else:
         checks.append(("Hooks", False, "settings.json not found"))
 

@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 
 import yaml
 
+from config_utils import resolve_db_path
+
 
 def get_root_path():
     return str(pathlib.Path(__file__).resolve().parent.parent)
@@ -101,7 +103,7 @@ def main():
 
     root_path = get_root_path()
     config = load_config(root_path)
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
 
     if args.read:
         read_summary(args.prefix, db_path)

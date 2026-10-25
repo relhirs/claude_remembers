@@ -17,12 +17,15 @@ import json
 import logging
 import os
 import pathlib
+import re
 import socket
 import sqlite3
 import sys
 import time
 
 import yaml
+
+from config_utils import resolve_db_path
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -49,7 +52,7 @@ def load_config(root_path):
         config = yaml.safe_load(f)
     # Validate required keys
     for key_path in [
-        ("storage", "local_db_path"),
+        ("storage", "root_path"),
         ("jsonl_project_mapping",),
     ]:
         obj = config
@@ -109,15 +112,28 @@ def connect_db(db_path):
 # Project detection
 # ---------------------------------------------------------------------------
 
+def normalize_for_match(s):
+    """Lowercase and strip everything except letters/digits/slashes.
+
+    Makes folder-name matching robust to however the real folder is actually
+    spelled - spaces, hyphens, underscores, commas, mixed case, any symbol -
+    by collapsing all of that down to one canonical form before comparing.
+    Path separators are kept (not stripped) so segment boundaries still mean
+    something; backslashes are normalized to forward slashes first.
+    """
+    return re.sub(r'[^a-z0-9/]', '', s.replace('\\', '/').lower())
+
+
 def build_project_mappings(config):
-    """Build ordered list of (pattern, prefix) for project detection.
+    """Build ordered list of (normalized_pattern, prefix) for project detection.
 
     Longer patterns sort first so 'johnny-goods-assistant' matches before
     'johnny-goods'. This handles both Windows folder names and Fedora cwd paths.
     """
     raw = config.get("jsonl_project_mapping", {})
+    normalized = [(normalize_for_match(pattern), prefix) for pattern, prefix in raw.items()]
     # Sort by length descending so longer/more-specific patterns match first
-    return sorted(raw.items(), key=lambda x: len(x[0]), reverse=True)
+    return sorted(normalized, key=lambda x: len(x[0]), reverse=True)
 
 
 def detect_project(file_path, first_line_data, mappings, override=None):
@@ -132,8 +148,8 @@ def detect_project(file_path, first_line_data, mappings, override=None):
     if override:
         return override
 
-    # Normalize path separators for matching
-    norm_path = file_path.replace("\\", "/")
+    # Normalize for matching: case, separators, and symbols all collapse away
+    norm_path = normalize_for_match(file_path)
 
     # Check folder name / path fragment match
     for pattern, prefix in mappings:
@@ -144,7 +160,7 @@ def detect_project(file_path, first_line_data, mappings, override=None):
     if first_line_data:
         cwd = first_line_data.get("cwd", "")
         if cwd:
-            norm_cwd = cwd.replace("\\", "/")
+            norm_cwd = normalize_for_match(cwd)
             for pattern, prefix in mappings:
                 if pattern in norm_cwd:
                     return prefix
@@ -411,7 +427,7 @@ def ingest(file_path, project_override=None, type_override=None,
         config = load_config(root_path)
 
     logger = setup_logging(root_path)
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
 
     # Resolve to absolute path
     file_path = os.path.abspath(file_path)

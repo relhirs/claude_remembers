@@ -22,11 +22,20 @@ Workflow:
 import argparse
 import csv
 import json
+import logging
 import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config_utils import resolve_db_path
+from project_classifier import (
+    suggest_project as suggest_project_semantic,
+    compute_project_centroids,
+)
+from write_exchange import embed_message, SEMANTIC_AVAILABLE
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -35,16 +44,6 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SCRIPT_DIR.parent
 
-# Project keyword suggestions for auto-tagging
-PROJECT_KEYWORDS = {
-    "jg": ["johnny", "goods", "memoir", "chapter", "ch1", "ch2", "ch3", "ch4",
-            "ch5", "ch6", "ch7", "ch8", "ch9", "ch10", "ch11", "polish",
-            "manuscript", "mob", "harlem", "mafia", "maffia", "three fingers",
-            "gangster", "dialogue", "copyedit", "proofread", "book edit",
-            "edit instructions", "summary deliverable"],
-    "js": ["resume", "job", "interview", "career", "hiring", "salary",
-           "linkedin", "cover letter", "recruiter"],
-}
 DEFAULT_PROJECT = "gen"
 
 # Tag keyword suggestions for auto-tagging (broad topics, ~20-30 total)
@@ -168,18 +167,6 @@ def extract_messages(conversation):
     return messages
 
 
-def suggest_project(title):
-    """Auto-suggest a project based on conversation title keywords."""
-    if not title:
-        return DEFAULT_PROJECT
-
-    title_lower = title.lower()
-    for project, keywords in PROJECT_KEYWORDS.items():
-        if any(kw in title_lower for kw in keywords):
-            return project
-    return DEFAULT_PROJECT
-
-
 def suggest_tags(title, messages=None):
     """Auto-suggest tags based on title and optionally first few messages."""
     if not title:
@@ -202,7 +189,7 @@ def suggest_tags(title, messages=None):
 
 
 def load_config():
-    """Load config.yaml to get database path."""
+    """Load config.yaml. Returns (config_dict, db_path)."""
     config_path = ROOT_DIR / "config.yaml"
     if not config_path.exists():
         print(red("config.yaml not found. Run remember-setup.py first."))
@@ -212,14 +199,27 @@ def load_config():
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    storage = config.get("storage", {})
-    mode = storage.get("mode", "local")
-    if mode == "synced":
-        db_path = os.path.expanduser(storage.get("local_db_path", ""))
-    else:
-        db_path = os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude_remembers.db")
+    return config, resolve_db_path(config)
 
-    return db_path
+
+def suggest_project(config, conn, title, messages, centroids=None):
+    """Rank existing projects by semantic similarity to this conversation's
+    title + first few user messages. Falls back to DEFAULT_PROJECT with no
+    confidence score if there isn't enough embedded content yet to compare
+    against (cold start)."""
+    samples = [title] if title else []
+    for role, content, _, _ in (messages or [])[:20]:
+        if role == "user" and content:
+            samples.append(content[:1000])
+
+    try:
+        ranked = suggest_project_semantic(config, conn, samples, centroids=centroids)
+    except Exception:
+        ranked = []
+
+    if not ranked:
+        return DEFAULT_PROJECT, None
+    return ranked[0]
 
 
 # ---------------------------------------------------------------------------
@@ -233,16 +233,21 @@ def cmd_scan(args):
 
     convos = load_conversations(args.directory)
 
-    # Check DB for already-imported conversations
+    # Check DB for already-imported conversations, and open a connection for
+    # project-suggestion (re-closed by the caller below)
+    config, db_path = load_config()
     existing_ids = set()
+    conn = None
     try:
-        db_path = load_config()
         conn = sqlite3.connect(db_path)
         for row in conn.execute("SELECT session_id FROM sys_sessions WHERE source = 'chatgpt_import'"):
             existing_ids.add(row[0].replace("chatgpt_", ""))
-        conn.close()
     except Exception:
         pass  # DB not available, all will show as NEW
+
+    # Precompute centroids once - avoids rescanning transcript_embeddings
+    # for every conversation in the loop below.
+    centroids = compute_project_centroids(conn) if conn else {}
 
     # Generate mapping
     rows = []
@@ -253,7 +258,10 @@ def cmd_scan(args):
         messages = extract_messages(c)
         msg_count = len(messages)
         date_str = datetime.fromtimestamp(create_time).strftime("%Y-%m-%d") if create_time else "unknown"
-        suggested_project = suggest_project(title)
+        suggested_project, confidence = (
+            suggest_project(config, conn, title, messages, centroids=centroids)
+            if conn else (DEFAULT_PROJECT, None)
+        )
         suggested_tags = suggest_tags(title, messages)
         status = "IMPORTED" if conv_id in existing_ids else "NEW"
 
@@ -262,10 +270,14 @@ def cmd_scan(args):
             "date": date_str,
             "messages": msg_count,
             "project": suggested_project,
+            "confidence": f"{confidence:.2f}" if confidence is not None else "",
             "tags": suggested_tags,
             "status": status,
             "title": title,
         })
+
+    if conn:
+        conn.close()
 
     # Sort by date
     rows.sort(key=lambda x: x["date"])
@@ -285,7 +297,7 @@ def cmd_scan(args):
     edit_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     new_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 
-    headers = ["conversation_id", "date", "messages", "project", "tags", "status", "title"]
+    headers = ["conversation_id", "date", "messages", "project", "confidence", "tags", "status", "title"]
     for col, h in enumerate(headers, 1):
         cell = ws1.cell(row=1, column=col, value=h)
         cell.fill = header_fill
@@ -297,20 +309,22 @@ def cmd_scan(args):
         ws1.cell(row=row_num, column=3, value=r["messages"])
         cell_proj = ws1.cell(row=row_num, column=4, value=r["project"])
         cell_proj.fill = edit_fill
-        cell_tags = ws1.cell(row=row_num, column=5, value=r["tags"])
+        ws1.cell(row=row_num, column=5, value=r["confidence"])
+        cell_tags = ws1.cell(row=row_num, column=6, value=r["tags"])
         cell_tags.fill = edit_fill
-        cell_status = ws1.cell(row=row_num, column=6, value=r["status"])
+        cell_status = ws1.cell(row=row_num, column=7, value=r["status"])
         if r["status"] == "NEW":
             cell_status.fill = new_fill
-        ws1.cell(row=row_num, column=7, value=r["title"])
+        ws1.cell(row=row_num, column=8, value=r["title"])
 
     ws1.column_dimensions["A"].width = 40
     ws1.column_dimensions["B"].width = 12
     ws1.column_dimensions["C"].width = 10
     ws1.column_dimensions["D"].width = 10
-    ws1.column_dimensions["E"].width = 30
-    ws1.column_dimensions["F"].width = 12
-    ws1.column_dimensions["G"].width = 60
+    ws1.column_dimensions["E"].width = 10
+    ws1.column_dimensions["F"].width = 30
+    ws1.column_dimensions["G"].width = 12
+    ws1.column_dimensions["H"].width = 60
 
     # --- Tab 2: Project Reference ---
     ws2 = wb.create_sheet("Project Reference")
@@ -324,7 +338,7 @@ def cmd_scan(args):
         cell.font = header_font
 
     try:
-        db_path = load_config()
+        _, db_path = load_config()
         conn = sqlite3.connect(db_path)
         proj_rows = conn.execute("SELECT prefix, folder_name, label, status FROM project_registry ORDER BY folder_name").fetchall()
         for row_num, r in enumerate(proj_rows, 4):
@@ -483,7 +497,7 @@ def cmd_import(args):
         return
 
     # Actually import
-    db_path = load_config()
+    config, db_path = load_config()
     conn = sqlite3.connect(db_path)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -528,7 +542,7 @@ def cmd_import(args):
             ts = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%dT%H:%M:%SZ") if timestamp else now
             sender = "human" if role == "user" else "assistant"
 
-            conn.execute(
+            cur = conn.execute(
                 """INSERT INTO transcripts
                    (session_id, project, uuid, type, role, content, timestamp, source, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -536,6 +550,8 @@ def cmd_import(args):
                  "text", sender, content, ts, "chatgpt", now)
             )
             total_transcripts += 1
+            if SEMANTIC_AVAILABLE:
+                embed_message(config, conn, cur.lastrowid, content, logging.getLogger("import_chatgpt"))
 
         imported += 1
 

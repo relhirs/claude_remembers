@@ -25,6 +25,7 @@ import sys
 import yaml
 
 from fuzzy_search import fuzzy_correct
+from config_utils import resolve_db_path
 
 # Suppress HuggingFace model-loading noise (must be before any HF imports)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -271,7 +272,7 @@ def main():
 
     root_path = get_root_path()
     config = load_config(root_path)
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     conn = connect_db(db_path)
 
     try:

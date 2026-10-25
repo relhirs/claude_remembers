@@ -25,12 +25,21 @@ Workflow:
 import argparse
 import csv
 import json
+import logging
 import os
 import re
 import sqlite3
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config_utils import resolve_db_path
+from project_classifier import (
+    suggest_project as suggest_project_semantic,
+    compute_project_centroids,
+)
+from write_exchange import embed_message, SEMANTIC_AVAILABLE
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -42,17 +51,6 @@ ROOT_DIR = SCRIPT_DIR.parent
 # Session grouping: exchanges within this many minutes = same session
 SESSION_GAP_MINUTES = 30
 
-# Project keyword suggestions (same as ChatGPT import)
-PROJECT_KEYWORDS = {
-    "jg": ["johnny", "goods", "memoir", "chapter", "ch1", "ch2", "ch3", "ch4",
-            "ch5", "ch6", "ch7", "ch8", "ch9", "ch10", "ch11", "polish",
-            "manuscript", "mob", "harlem", "mafia", "maffia", "three fingers",
-            "gangster", "dialogue", "copyedit", "proofread", "book edit",
-            "edit instructions", "summary deliverable", "pleasant avenue",
-            "east harlem", "john maffia"],
-    "js": ["resume", "job", "interview", "career", "hiring", "salary",
-           "linkedin", "cover letter", "recruiter"],
-}
 DEFAULT_PROJECT = "gen"
 
 # Tag keyword suggestions (same as ChatGPT import)
@@ -93,7 +91,7 @@ def red(text):
 
 
 def load_config():
-    """Load config.yaml to get database path."""
+    """Load config.yaml. Returns (config_dict, db_path)."""
     config_path = ROOT_DIR / "config.yaml"
     if not config_path.exists():
         print(red("config.yaml not found. Run remember-setup.py first."))
@@ -103,25 +101,22 @@ def load_config():
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    storage = config.get("storage", {})
-    mode = storage.get("mode", "local")
-    if mode == "synced":
-        db_path = os.path.expanduser(storage.get("local_db_path", ""))
-    else:
-        db_path = os.path.join(os.path.expanduser(storage.get("root_path", "")), "claude_remembers.db")
-
-    return db_path
+    return config, resolve_db_path(config)
 
 
-def suggest_project(text):
-    """Auto-suggest a project based on text keywords."""
-    if not text:
-        return DEFAULT_PROJECT
-    text_lower = text.lower()
-    for project, keywords in PROJECT_KEYWORDS.items():
-        if any(kw in text_lower for kw in keywords):
-            return project
-    return DEFAULT_PROJECT
+def suggest_project(config, conn, text, centroids=None):
+    """Rank existing projects by semantic similarity to text. Falls back
+    to DEFAULT_PROJECT with no confidence score if there isn't enough
+    embedded content yet to compare against (cold start)."""
+    samples = [text[:2000]] if text else []
+    try:
+        ranked = suggest_project_semantic(config, conn, samples, centroids=centroids)
+    except Exception:
+        ranked = []
+
+    if not ranked:
+        return DEFAULT_PROJECT, None
+    return ranked[0]
 
 
 def suggest_tags(text):
@@ -345,16 +340,21 @@ def cmd_scan(args):
     sessions = group_into_sessions(exchanges)
     print(f"  Grouped into: {len(sessions)} sessions ({SESSION_GAP_MINUTES}-min gap)")
 
-    # Check DB for already-imported sessions
+    # Check DB for already-imported sessions, and keep a connection open
+    # for project-suggestion (closed further below)
+    config, db_path = load_config()
     existing_ids = set()
+    conn = None
     try:
-        db_path = load_config()
         conn = sqlite3.connect(db_path)
         for row in conn.execute("SELECT session_id FROM sys_sessions WHERE source = 'gemini_import'"):
             existing_ids.add(row[0])
-        conn.close()
     except Exception:
         pass
+
+    # Precompute centroids once - avoids rescanning transcript_embeddings
+    # for every session in the loop below.
+    centroids = compute_project_centroids(conn) if conn else {}
 
     # Build session metadata
     rows = []
@@ -374,7 +374,10 @@ def cmd_scan(args):
         # Generate meaningful title from content
         title = generate_title(session)
 
-        suggested_project = suggest_project(combined_text)
+        suggested_project, confidence = (
+            suggest_project(config, conn, combined_text, centroids=centroids)
+            if conn else (DEFAULT_PROJECT, None)
+        )
         suggested_tags = suggest_tags(combined_text)
         status = "IMPORTED" if session_id in existing_ids else "NEW"
 
@@ -385,10 +388,14 @@ def cmd_scan(args):
             "exchanges": len(session),
             "messages": msg_count,
             "project": suggested_project,
+            "confidence": f"{confidence:.2f}" if confidence is not None else "",
             "tags": suggested_tags,
             "status": status,
             "title": title,
         })
+
+    if conn:
+        conn.close()
 
     # Write xlsx
     from openpyxl import Workbook
@@ -405,7 +412,7 @@ def cmd_scan(args):
     edit_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     new_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 
-    headers = ["session_id", "date", "time", "exchanges", "messages", "project", "tags", "status", "title"]
+    headers = ["session_id", "date", "time", "exchanges", "messages", "project", "confidence", "tags", "status", "title"]
     for col, h in enumerate(headers, 1):
         cell = ws1.cell(row=1, column=col, value=h)
         cell.fill = header_fill
@@ -419,12 +426,13 @@ def cmd_scan(args):
         ws1.cell(row=row_num, column=5, value=r["messages"])
         cell_proj = ws1.cell(row=row_num, column=6, value=r["project"])
         cell_proj.fill = edit_fill
-        cell_tags = ws1.cell(row=row_num, column=7, value=r["tags"])
+        ws1.cell(row=row_num, column=7, value=r["confidence"])
+        cell_tags = ws1.cell(row=row_num, column=8, value=r["tags"])
         cell_tags.fill = edit_fill
-        cell_status = ws1.cell(row=row_num, column=8, value=r["status"])
+        cell_status = ws1.cell(row=row_num, column=9, value=r["status"])
         if r["status"] == "NEW":
             cell_status.fill = new_fill
-        ws1.cell(row=row_num, column=9, value=r["title"])
+        ws1.cell(row=row_num, column=10, value=r["title"])
 
     ws1.column_dimensions["A"].width = 28
     ws1.column_dimensions["B"].width = 12
@@ -432,9 +440,10 @@ def cmd_scan(args):
     ws1.column_dimensions["D"].width = 12
     ws1.column_dimensions["E"].width = 10
     ws1.column_dimensions["F"].width = 10
-    ws1.column_dimensions["G"].width = 30
-    ws1.column_dimensions["H"].width = 12
-    ws1.column_dimensions["I"].width = 60
+    ws1.column_dimensions["G"].width = 10
+    ws1.column_dimensions["H"].width = 30
+    ws1.column_dimensions["I"].width = 12
+    ws1.column_dimensions["J"].width = 60
 
     # Tab 2: Project Reference
     ws2 = wb.create_sheet("Project Reference")
@@ -446,7 +455,7 @@ def cmd_scan(args):
         cell.fill = header_fill
         cell.font = header_font
     try:
-        db_path = load_config()
+        _, db_path = load_config()
         conn = sqlite3.connect(db_path)
         proj_rows = conn.execute("SELECT prefix, folder_name, label, status FROM project_registry ORDER BY folder_name").fetchall()
         for row_num, r in enumerate(proj_rows, 4):
@@ -609,9 +618,10 @@ def cmd_import(args):
         return
 
     # Actually import
-    db_path = load_config()
+    config, db_path = load_config()
     conn = sqlite3.connect(db_path)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    import_logger = logging.getLogger("import_gemini")
 
     imported = 0
     skipped_dup = 0
@@ -653,7 +663,7 @@ def cmd_import(args):
             exchange_id = f"{session_id}_{ex_idx:04d}"
 
             if prompt:
-                conn.execute(
+                cur = conn.execute(
                     """INSERT INTO transcripts
                        (session_id, project, uuid, type, role, content, timestamp, source, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -661,9 +671,11 @@ def cmd_import(args):
                      "text", "human", prompt, ts_str, "gemini", now)
                 )
                 total_transcripts += 1
+                if SEMANTIC_AVAILABLE:
+                    embed_message(config, conn, cur.lastrowid, prompt, import_logger)
 
             if response:
-                conn.execute(
+                cur = conn.execute(
                     """INSERT INTO transcripts
                        (session_id, project, uuid, type, role, content, timestamp, source, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -671,6 +683,8 @@ def cmd_import(args):
                      "text", "assistant", response, ts_str, "gemini", now)
                 )
                 total_transcripts += 1
+                if SEMANTIC_AVAILABLE:
+                    embed_message(config, conn, cur.lastrowid, response, import_logger)
 
         imported += 1
 

@@ -21,6 +21,8 @@ import time
 
 import yaml
 
+from config_utils import resolve_db_path
+
 # ---------------------------------------------------------------------------
 # Config / DB
 # ---------------------------------------------------------------------------
@@ -54,7 +56,7 @@ def connect_db(db_path):
 
 def check_database(config):
     """1. DATABASE - file size, integrity_check, WAL status, freelist_count."""
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     details = {"db_path": db_path}
 
     if not os.path.exists(db_path):
@@ -96,7 +98,7 @@ def check_database(config):
 
 def check_space(config):
     """2. SPACE BREAKDOWN - size of raw_json, content, embeddings, tool_results."""
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     details = {}
 
     if not os.path.exists(db_path):
@@ -161,7 +163,7 @@ def check_space(config):
 
 def check_data_health(config):
     """3. DATA HEALTH - FTS5 sync, embedding coverage, summary coverage."""
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     details = {}
 
     if not os.path.exists(db_path):
@@ -270,7 +272,7 @@ def check_backup(config):
         bak_count = bak_conn.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0]
         bak_conn.close()
 
-        db_path = config["storage"]["local_db_path"]
+        db_path = resolve_db_path(config)
         if os.path.exists(db_path):
             main_conn = sqlite3.connect(db_path)
             main_count = main_conn.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0]
@@ -310,7 +312,7 @@ def check_backup(config):
 
 def check_performance(config):
     """5. PERFORMANCE - timed FTS5 query, timed LIKE query, timed COUNT(*)."""
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     details = {}
 
     if not os.path.exists(db_path):
@@ -505,7 +507,10 @@ def check_config():
     # Check storage paths
     storage = config.get("storage", {})
     root = storage.get("root_path", "")
-    db_path = storage.get("local_db_path", "")
+    try:
+        db_path = resolve_db_path(config)
+    except KeyError:
+        db_path = ""
 
     if not os.path.isdir(root):
         status = "FAIL"

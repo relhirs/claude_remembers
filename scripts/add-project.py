@@ -47,13 +47,18 @@ def warn(msg):
 def info(msg):
     print(f"  {msg}")
 
+def sep():
+    print("  " + "-" * 60)
+
 def ask(prompt, default=None):
+    sep()
     if default:
         raw = input(f"  {prompt} [{default}]: ").strip()
         return raw if raw else default
     return input(f"  {prompt}: ").strip()
 
 def ask_yn(prompt, default="y"):
+    sep()
     suffix = "[Y/n]" if default == "y" else "[y/N]"
     raw = input(f"  {prompt} {suffix}: ").strip().lower()
     if not raw:
@@ -238,7 +243,20 @@ def main():
     # Step 2: Get new project details
     name_pattern = re.compile(r'^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$')
 
+    print("  A 'project' is one body of work (a real repo, a client, etc.). Whenever")
+    print("  you later run 'claude' from inside a folder whose path contains the name")
+    print("  you type below, that session is AUTOMATICALLY tagged with its prefix -")
+    print("  it does not have to be this script's own folder, any real repo works.")
+    print()
+    print("  Pick a word from that real folder's name (e.g. 'checker' for")
+    print("  '~/code/listing_checker'). Matching ignores case, spaces, hyphens,")
+    print("  underscores, and any other symbol, so you don't need to match the real")
+    print("  folder's exact punctuation. The prefix is effectively permanent once")
+    print("  sessions are tagged with it, so pick something you'll keep.")
+    print()
+
     while True:
+        sep()
         name = input("  New project folder name: ").strip().lower()
         if not name:
             info("Cancelled.")
@@ -252,8 +270,8 @@ def main():
         break
 
     prefix = generate_prefix(name, existing_prefixes)
-    label = ask(f"Label for '{name}'", name.replace("-", " ").title())
-    shown_prefix = ask(f"Prefix for '{name}'", prefix)
+    label = ask(f"Display name for '{name}'", name.replace("-", " ").title())
+    shown_prefix = ask(f"Database prefix for '{name}' (2-4 letters, permanent)", prefix)
     if shown_prefix != prefix:
         if shown_prefix in existing_prefixes:
             warn(f"Prefix '{shown_prefix}' already in use. Using '{prefix}'.")

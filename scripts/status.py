@@ -20,6 +20,8 @@ import sys
 
 import yaml
 
+from config_utils import resolve_db_path
+
 # ---------------------------------------------------------------------------
 # Config / DB
 # ---------------------------------------------------------------------------
@@ -57,7 +59,7 @@ def get_status(root_path=None, config=None):
     if config is None:
         config = load_config(root_path)
 
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     result = {
         "db_path": db_path,
         "db_size_kb": 0,

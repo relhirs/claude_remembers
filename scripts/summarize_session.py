@@ -38,6 +38,7 @@ ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 sys.path.insert(0, ROOT)
 from scripts.write_session_notes import write_notes          # noqa: E402
 from scripts.write_project_summary import write_summary       # noqa: E402
+from scripts.config_utils import resolve_db_path              # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Config / DB
@@ -220,7 +221,7 @@ def main():
     args = parser.parse_args()
 
     config = load_config()
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     if not os.path.exists(db_path):
         sys.exit(1)
 

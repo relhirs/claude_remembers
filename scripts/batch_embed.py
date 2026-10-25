@@ -26,6 +26,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
 from write_exchange import embed_message, SEMANTIC_AVAILABLE
+from config_utils import resolve_db_path
 import logging
 
 logger = logging.getLogger("batch_embed")
@@ -44,7 +45,7 @@ def main():
         sys.exit(1)
 
     config = load_config()
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     conn = sqlite3.connect(db_path)
 
     # Find un-embedded transcripts with content >= 50 chars

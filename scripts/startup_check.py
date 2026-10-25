@@ -23,6 +23,8 @@ import time
 
 import yaml
 
+from config_utils import resolve_db_path
+
 # ---------------------------------------------------------------------------
 # Config / Logging / DB - same patterns as ingest_jsonl.py
 # ---------------------------------------------------------------------------
@@ -38,7 +40,7 @@ def load_config(root_path):
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     for key_path in [
-        ("storage", "local_db_path"),
+        ("storage", "root_path"),
         ("jsonl", "source_paths"),
     ]:
         obj = config
@@ -199,7 +201,7 @@ def run_backup(root_path, config, logger):
     Inline implementation (separate from remember_sync.py).
     Rotation: max 2 copies. .bak2 deleted, .bak1 renamed to .bak2, new copy to .bak1.
     """
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     backup_dir = os.path.join(root_path, "db-backup")
     os.makedirs(backup_dir, exist_ok=True)
 
@@ -277,7 +279,7 @@ def startup_check(root_path=None, config=None):
     warnings += folder_warnings
 
     # 2. Connect to DB
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     try:
         conn = connect_db(db_path)
     except SystemExit as e:

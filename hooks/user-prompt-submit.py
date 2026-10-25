@@ -26,6 +26,7 @@ import yaml
 
 # Add scripts/ to path for fuzzy_search / semantic_search imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+from config_utils import resolve_db_path
 try:
     from fuzzy_search import fuzzy_correct
 except ImportError:
@@ -90,6 +91,16 @@ FRUSTRATION_WORDS = {
 }
 
 
+def normalize_for_match(s):
+    """Lowercase and strip everything except letters/digits/slashes.
+
+    Makes folder-name matching robust to however the real folder is actually
+    spelled - spaces, hyphens, underscores, commas, mixed case, any symbol -
+    by collapsing all of that down to one canonical form before comparing.
+    """
+    return re.sub(r'[^a-z0-9/]', '', s.replace('\\', '/').lower())
+
+
 def detect_frustration(text):
     """Check if the user's message indicates frustration."""
     text_lower = text.lower()
@@ -137,7 +148,7 @@ def handle_frustration(prompt_text, root):
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
-        db_path = config["storage"]["local_db_path"]
+        db_path = resolve_db_path(config)
         if not os.path.exists(db_path):
             return "\n".join(context_lines)
 
@@ -347,16 +358,17 @@ def main():
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
-        db_path = config["storage"]["local_db_path"]
+        db_path = resolve_db_path(config)
         if not os.path.exists(db_path):
             print("{}")
             return
 
         cwd_project = None
         cwd = os.environ.get("CWD", os.getcwd())
+        norm_cwd = normalize_for_match(cwd)
         mapping = config.get("jsonl_project_mapping", {})
         for folder, prefix in mapping.items():
-            if folder in cwd:
+            if normalize_for_match(folder) in norm_cwd:
                 cwd_project = prefix
                 break
 

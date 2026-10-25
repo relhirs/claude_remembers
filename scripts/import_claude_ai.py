@@ -7,8 +7,11 @@ writes to sys_sessions + transcripts + sys_ingest_log, moves file to completed/.
 
 Usage:
     python3 import_claude_ai.py <json_file> --project <prefix>
+    python3 import_claude_ai.py <json_file>              # prints a ranked
+                                                           # project suggestion
+                                                           # instead of importing
 
-Exit codes: 0 = success, 1 = error
+Exit codes: 0 = success, 1 = error, 2 = no --project given (suggestion printed)
 """
 
 import argparse
@@ -25,6 +28,10 @@ import time
 
 import yaml
 
+from config_utils import resolve_db_path
+from project_classifier import suggest_project
+from write_exchange import embed_message, SEMANTIC_AVAILABLE
+
 # ---------------------------------------------------------------------------
 # Config / Logging / DB
 # ---------------------------------------------------------------------------
@@ -39,8 +46,8 @@ def load_config(root_path):
         raise SystemExit(f"FATAL: config.yaml not found at {config_path}")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    if "storage" not in config or "local_db_path" not in config["storage"]:
-        raise SystemExit("FATAL: Missing config key: storage.local_db_path")
+    if "storage" not in config or "root_path" not in config["storage"]:
+        raise SystemExit("FATAL: Missing config key: storage.root_path")
     return config
 
 
@@ -89,10 +96,38 @@ SENDER_MAP = {
 }
 
 
+def extract_user_text_samples(chat_messages, conversation_name, limit=20):
+    """Pull conversation title + up to `limit` user-message texts, for
+    feeding into the project-suggestion embedding comparison."""
+    samples = [conversation_name] if conversation_name else []
+    count = 0
+    for msg in chat_messages or []:
+        if count >= limit:
+            break
+        if not isinstance(msg, dict) or msg.get("sender") != "human":
+            continue
+        content = ""
+        content_blocks = msg.get("content")
+        if isinstance(content_blocks, list):
+            parts = [b["text"] for b in content_blocks if isinstance(b, dict) and b.get("text")]
+            content = "\n\n".join(parts)
+        if not content:
+            content = msg.get("text", "")
+        if content:
+            samples.append(content[:1000])
+            count += 1
+    return samples
+
+
 def import_export(file_path, project, root_path=None, config=None, move_on_success=True):
     """Import a claude.ai JSON export file.
 
+    If `project` is None, no import is performed - instead, ranked
+    project suggestions are returned for a human to confirm before
+    re-running with an explicit project.
+
     Returns dict: {records_imported, conversation_name, exit_code}
+    (when project is None: {suggestions, conversation_name, exit_code: 2})
     """
     if root_path is None:
         root_path = get_root_path()
@@ -100,7 +135,7 @@ def import_export(file_path, project, root_path=None, config=None, move_on_succe
         config = load_config(root_path)
 
     logger = setup_logging(root_path)
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     file_path = os.path.abspath(file_path)
 
     # Check file exists
@@ -130,6 +165,19 @@ def import_export(file_path, project, root_path=None, config=None, move_on_succe
     conversation_name = data.get("name", "")
     created_at = data.get("created_at", "")
     export_model = data.get("model")
+
+    if project is None:
+        try:
+            conn = connect_db(db_path)
+        except SystemExit as e:
+            logger.error(str(e))
+            return {"suggestions": [], "conversation_name": conversation_name, "exit_code": 1}
+        try:
+            samples = extract_user_text_samples(chat_messages, conversation_name)
+            suggestions = suggest_project(config, conn, samples)
+        finally:
+            conn.close()
+        return {"suggestions": suggestions, "conversation_name": conversation_name, "exit_code": 2}
 
     # Auto-suggest tags from conversation name + first few messages
     tag_keywords = {
@@ -227,7 +275,7 @@ def import_export(file_path, project, root_path=None, config=None, move_on_succe
             raw_json = json.dumps(msg)
 
             changes_before = conn.total_changes
-            conn.execute(
+            cur = conn.execute(
                 """INSERT OR IGNORE INTO transcripts
                    (session_id, project, uuid, parent_uuid, type, role,
                     content, model, timestamp, is_subagent,
@@ -239,6 +287,8 @@ def import_export(file_path, project, root_path=None, config=None, move_on_succe
             )
             if conn.total_changes > changes_before:
                 records_imported += 1
+                if SEMANTIC_AVAILABLE:
+                    embed_message(config, conn, cur.lastrowid, content, logger)
 
         # Update session message count
         total = conn.execute(
@@ -292,11 +342,25 @@ def import_export(file_path, project, root_path=None, config=None, move_on_succe
 def main():
     parser = argparse.ArgumentParser(description="Import claude.ai JSON export into claude_remembers DB")
     parser.add_argument("json_file", help="Path to claude.ai JSON export file")
-    parser.add_argument("--project", required=True, help="Project prefix to assign")
+    parser.add_argument("--project", default=None, help="Project prefix to assign; omit to get a ranked suggestion instead")
     args = parser.parse_args()
 
     result = import_export(args.json_file, args.project)
-    print(f"Imported {result['records_imported']} messages from '{result['conversation_name']}' -> project {args.project}")
+
+    if args.project is None and result["exit_code"] == 2:
+        suggestions = result.get("suggestions", [])
+        if suggestions:
+            print(f"Suggestions for '{result['conversation_name']}':")
+            for prefix, score in suggestions:
+                print(f"  {prefix}  (similarity {score:.2f})")
+        else:
+            print(f"No suggestion available for '{result['conversation_name']}' (not enough embedded content yet).")
+        print("Re-run with --project <prefix> to import.")
+    elif args.project is None:
+        print(f"Could not read '{args.json_file}' - nothing to suggest a project for.")
+    else:
+        print(f"Imported {result['records_imported']} messages from '{result['conversation_name']}' -> project {args.project}")
+
     sys.exit(result["exit_code"])
 
 

@@ -24,6 +24,8 @@ import sys
 
 import yaml
 
+from config_utils import resolve_db_path
+
 # ---------------------------------------------------------------------------
 # Config / DB
 # ---------------------------------------------------------------------------
@@ -156,7 +158,7 @@ def main():
 
     root_path = get_root_path()
     config = load_config(root_path)
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
 
     if args.read_latest:
         result = get_latest_notes(db_path, args.project)

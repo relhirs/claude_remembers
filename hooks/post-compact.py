@@ -13,10 +13,24 @@ RULE: stdout is SACRED. Only valid JSON goes to stdout.
 
 import json
 import os
+import re
 import sqlite3
 import sys
 
 import yaml
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+from config_utils import resolve_db_path
+
+
+def normalize_for_match(s):
+    """Lowercase and strip everything except letters/digits/slashes.
+
+    Makes folder-name matching robust to however the real folder is actually
+    spelled - spaces, hyphens, underscores, commas, mixed case, any symbol -
+    by collapsing all of that down to one canonical form before comparing.
+    """
+    return re.sub(r'[^a-z0-9/]', '', s.replace('\\', '/').lower())
 
 
 def main():
@@ -30,7 +44,7 @@ def main():
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
-        db_path = config["storage"]["local_db_path"]
+        db_path = resolve_db_path(config)
         if not os.path.exists(db_path):
             print("{}")
             return
@@ -46,10 +60,11 @@ def main():
         # Current project summary
         try:
             cwd = os.environ.get("CWD", os.getcwd())
+            norm_cwd = normalize_for_match(cwd)
             mapping = config.get("jsonl_project_mapping", {})
             cwd_project = None
             for folder, prefix in mapping.items():
-                if folder in cwd:
+                if normalize_for_match(folder) in norm_cwd:
                     cwd_project = prefix
                     break
             if cwd_project:

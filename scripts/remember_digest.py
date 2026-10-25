@@ -36,6 +36,8 @@ from email.mime.text import MIMEText
 
 import yaml
 
+from config_utils import resolve_db_path
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -51,7 +53,7 @@ def load_config():
 
 
 def get_db(config):
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA busy_timeout=5000;")
     conn.row_factory = sqlite3.Row

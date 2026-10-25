@@ -17,11 +17,14 @@ import json
 import logging
 import os
 import pathlib
+import re
 import socket
 import sqlite3
 import sys
 import time
 import yaml
+
+from config_utils import resolve_db_path
 
 # Suppress HuggingFace model-loading noise (must be before any HF imports)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -51,7 +54,7 @@ def load_config(root_path):
         raise SystemExit(f"FATAL: config.yaml not found at {config_path}")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    for key_path in [("storage", "local_db_path")]:
+    for key_path in [("storage", "root_path")]:
         obj = config
         for k in key_path:
             if not isinstance(obj, dict) or k not in obj:
@@ -122,19 +125,30 @@ def extract_content(message_data):
 # Project detection
 # ---------------------------------------------------------------------------
 
+def normalize_for_match(s):
+    """Lowercase and strip everything except letters/digits/slashes.
+
+    Makes folder-name matching robust to however the real folder is actually
+    spelled - spaces, hyphens, underscores, commas, mixed case, any symbol -
+    by collapsing all of that down to one canonical form before comparing.
+    """
+    return re.sub(r'[^a-z0-9/]', '', s.replace('\\', '/').lower())
+
+
 def detect_project(config, jsonl_path, cwd):
     """Detect project from path and cwd using config mappings."""
     mappings = config.get("jsonl_project_mapping", {})
+    normalized = [(normalize_for_match(pattern), prefix) for pattern, prefix in mappings.items()]
     # Sort longer patterns first
-    sorted_mappings = sorted(mappings.items(), key=lambda x: len(x[0]), reverse=True)
+    sorted_mappings = sorted(normalized, key=lambda x: len(x[0]), reverse=True)
 
-    norm_path = jsonl_path.replace("\\", "/")
+    norm_path = normalize_for_match(jsonl_path)
     for pattern, prefix in sorted_mappings:
         if pattern in norm_path:
             return prefix
 
     if cwd:
-        norm_cwd = cwd.replace("\\", "/")
+        norm_cwd = normalize_for_match(cwd)
         for pattern, prefix in sorted_mappings:
             if pattern in norm_cwd:
                 return prefix
@@ -208,7 +222,7 @@ def write_exchange(session_id, jsonl_path, root_path=None, config=None):
         config = load_config(root_path)
 
     logger = setup_logging(root_path)
-    db_path = config["storage"]["local_db_path"]
+    db_path = resolve_db_path(config)
 
     jsonl_path = os.path.abspath(jsonl_path)
 
