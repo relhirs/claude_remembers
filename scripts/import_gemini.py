@@ -6,9 +6,15 @@ Supports Google Takeout exports (My Activity > Gemini Apps > MyActivity.html).
 Text conversations only -- images, audio, and attachments are skipped.
 
 Three modes:
-  --scan <dir>     Generate mapping xlsx with suggested project/tag assignments
-  --import <dir>   Import conversations using reviewed mapping xlsx
+  --scan <dir>     Generate mapping xlsx with a descriptive "about" blurb +
+                    suggested tags, for you to type a destination folder into
+  --import <dir>   Import sessions using the reviewed mapping xlsx
   --dry-run        Preview import without touching the database
+
+Nothing auto-assigns a project. You type the folder name yourself in the
+`folder` column -- an existing one (see the Project Reference tab) or a
+brand-new name, which gets created on import. Leave it blank to use the
+default project.
 
 Session grouping: Gemini exports individual exchanges, not sessions.
 Exchanges within 30 minutes of each other are grouped into one session.
@@ -17,31 +23,22 @@ Workflow:
   1. Export from Google Takeout (My Activity > Gemini Apps)
   2. Extract the zip to a folder
   3. Run: python3 scripts/import_gemini.py --scan imports/gemini-export/
-  4. Review gemini_import_map.xlsx -- edit project/tag assignments, delete unwanted rows
+  4. Review gemini_import_map.xlsx -- type folder names, edit tags, delete unwanted rows
   5. Run: python3 scripts/import_gemini.py --import imports/gemini-export/ --map gemini_import_map.xlsx --dry-run
   6. When satisfied: python3 scripts/import_gemini.py --import imports/gemini-export/ --map gemini_import_map.xlsx
 """
 
 import argparse
-import csv
-import importlib.util
-import json
 import logging
-import os
 import re
 import sqlite3
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_utils import resolve_db_path
-from project_classifier import (
-    suggest_project as suggest_project_semantic,
-    compute_project_centroids,
-    slugify,
-    CONFIDENCE_THRESHOLD,
-)
+from import_common import green, yellow, red, TAG_KEYWORDS, suggest_tags, build_about, load_add_project_module, resolve_or_create_project
 from write_exchange import embed_message, SEMANTIC_AVAILABLE
 
 # ---------------------------------------------------------------------------
@@ -56,42 +53,10 @@ SESSION_GAP_MINUTES = 30
 
 DEFAULT_PROJECT = "gen"
 
-# Tag keyword suggestions (same as ChatGPT import)
-TAG_KEYWORDS = {
-    "book-editing": ["edit", "polish", "chapter", "manuscript", "copyedit", "proofread", "rewrite", "revision"],
-    "memoir": ["memoir", "johnny", "goods", "maffia", "mob", "harlem", "gangster", "three fingers", "pleasant avenue"],
-    "dialogue": ["dialogue", "dialog", "conversation", "speech", "quotes"],
-    "job-search": ["resume", "job", "interview", "career", "hiring", "salary", "recruiter", "linkedin"],
-    "finance": ["money", "bank", "invest", "stock", "crypto", "budget", "tax", "financial"],
-    "coding": ["python", "script", "code", "programming", "debug", "function", "api", "github"],
-    "ai-tools": ["chatgpt", "claude", "gpt", "openai", "anthropic", "gemini", "ai model", "llm", "prompt"],
-    "tech-setup": ["linux", "fedora", "install", "setup", "config", "terminal", "laptop", "asus", "ubuntu", "samba"],
-    "family": ["mom", "mother", "father", "wife", "daughter", "son", "family", "sister", "brother", "grandpa"],
-    "health": ["doctor", "medical", "health", "therapy", "leg", "injury", "exercise", "weight"],
-    "legal": ["lawyer", "legal", "court", "contract", "lawsuit", "attorney", "will", "estate"],
-    "home": ["house", "home", "repair", "plumbing", "electric", "hvac", "mortgage", "renovation"],
-    "auto": ["car", "toyota", "highlander", "vehicle", "mechanic", "tire", "oil"],
-    "travel": ["travel", "flight", "hotel", "trip", "vacation", "passport", "airport"],
-    "music": ["music", "song", "guitar", "band", "album", "spotify"],
-    "business": ["business", "company", "startup", "entrepreneur", "marketing", "client", "consultant"],
-    "writing": ["writing", "write", "story", "narrative", "voice", "author", "publisher"],
-    "research": ["research", "compare", "analysis", "review", "best", "recommend", "options"],
-}
-
 
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
-
-def green(text):
-    return f"\033[92m{text}\033[0m"
-
-def yellow(text):
-    return f"\033[93m{text}\033[0m"
-
-def red(text):
-    return f"\033[91m{text}\033[0m"
-
 
 def load_config():
     """Load config.yaml. Returns (config_dict, db_path)."""
@@ -107,44 +72,6 @@ def load_config():
     return config, resolve_db_path(config)
 
 
-def load_add_project_module():
-    """Dynamically load add-project.py (hyphenated filename, not a valid
-    module name for a plain import) to reuse create_project()/generate_prefix()
-    instead of duplicating project-creation logic here."""
-    add_project_path = SCRIPT_DIR / "add-project.py"
-    spec = importlib.util.spec_from_file_location("add_project", add_project_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def suggest_project(config, conn, text, centroids=None):
-    """Rank existing projects by semantic similarity to text. Falls back
-    to DEFAULT_PROJECT with no confidence score if there isn't enough
-    embedded content yet to compare against (cold start)."""
-    samples = [text[:2000]] if text else []
-    try:
-        ranked = suggest_project_semantic(config, conn, samples, centroids=centroids)
-    except Exception:
-        ranked = []
-
-    if not ranked:
-        return DEFAULT_PROJECT, None
-    return ranked[0]
-
-
-def suggest_tags(text):
-    """Auto-suggest tags based on text content."""
-    if not text:
-        return ""
-    text_lower = text.lower()
-    matched = []
-    for tag, keywords in TAG_KEYWORDS.items():
-        if any(kw in text_lower for kw in keywords):
-            matched.append(tag)
-    return ", ".join(matched[:3]) if matched else ""
-
-
 def generate_title(session_exchanges):
     """Generate a meaningful title from the session's prompt content.
 
@@ -152,7 +79,6 @@ def generate_title(session_exchanges):
     Handles: 'Prompted ...', 'Created Gemini Canvas titled ...',
     'Used an Assistant feature', and raw prompts.
     """
-    # Combine first 2-3 prompts for context
     prompts = []
     for prompt, response, ts in session_exchanges[:3]:
         if prompt:
@@ -163,13 +89,11 @@ def generate_title(session_exchanges):
 
     text = prompts[0]
 
-    # Clean prefixes
     if text.startswith("Prompted "):
         text = text[9:]
     if text.startswith("Created Gemini Canvas titled "):
         text = text[28:]
     if text.startswith("Used an Assistant feature") or not text.strip():
-        # No text content -- try second or third prompt in session
         found = False
         for p in prompts[1:]:
             clean = p
@@ -182,7 +106,6 @@ def generate_title(session_exchanges):
                 found = True
                 break
         if not found:
-            # Try response content as last resort
             for _, response, _ in session_exchanges[:3]:
                 if response and len(response) > 20:
                     text = response
@@ -191,23 +114,16 @@ def generate_title(session_exchanges):
         if not found:
             text = "(no text content - voice/image only)"
 
-    # Remove file attachment references
     text = re.sub(r'Attached \d+ file\(s?\)\..*$', '', text, flags=re.DOTALL)
     text = re.sub(r'-\s*image_\w+\.\w+', '', text)
-
-    # Remove URLs
     text = re.sub(r'http\S+', '', text)
 
-    # Take first sentence or first 80 chars
     text = text.strip()
-    # Split on sentence boundaries
     sentence_end = re.search(r'[.!?\n]', text)
     if sentence_end and sentence_end.start() > 10:
         text = text[:sentence_end.start()]
 
-    # Truncate
     if len(text) > 80:
-        # Try to break at a word boundary
         text = text[:80]
         last_space = text.rfind(' ')
         if last_space > 40:
@@ -223,14 +139,11 @@ def generate_title(session_exchanges):
 def find_html_file(directory):
     """Find MyActivity.html in the directory (may be nested in Takeout/)."""
     d = Path(directory)
-    # Direct
     if (d / "MyActivity.html").exists():
         return d / "MyActivity.html"
-    # Nested in Takeout structure
     nested = d / "Takeout" / "My Activity" / "Gemini Apps" / "MyActivity.html"
     if nested.exists():
         return nested
-    # Search recursively
     for f in d.rglob("MyActivity.html"):
         return f
     return None
@@ -244,35 +157,30 @@ def parse_exchanges(html_path):
     with open(html_path, encoding="utf-8") as f:
         html = f.read()
 
-    # Split by outer-cell blocks
     blocks = re.split(r'<div class="outer-cell[^"]*">', html)
     blocks = [b for b in blocks[1:] if b.strip()]
 
     exchanges = []
     for block in blocks:
-        # Extract the main content cell
         match = re.search(
             r'mdl-typography--body-1">(.*?)</div>\s*<div class="content-cell[^"]*'
             r'mdl-typography--body-1 mdl-typography--text-right',
             block, re.DOTALL
         )
         if not match:
-            # Try simpler pattern
             match = re.search(r'mdl-typography--body-1">(.*?)</div>', block, re.DOTALL)
         if not match:
             continue
 
         full_content = match.group(1)
 
-        # Find timestamp (handles unicode narrow no-break space \u202f before AM/PM)
         ts_match = re.search(
-            r'(\w{3} \d{1,2}, \d{4}, \d{1,2}:\d{2}:\d{2})\s*\u202f?\s*([AP]M)\s*(\w+)',
+            r'(\w{3} \d{1,2}, \d{4}, \d{1,2}:\d{2}:\d{2})\s* ?\s*([AP]M)\s*(\w+)',
             full_content
         )
         if not ts_match:
             continue
 
-        # Parse timestamp
         try:
             dt = datetime.strptime(
                 f'{ts_match.group(1)} {ts_match.group(2)}',
@@ -281,29 +189,23 @@ def parse_exchanges(html_path):
         except ValueError:
             continue
 
-        # Split content on timestamp
         before_ts = full_content[:ts_match.start()]
         after_ts = full_content[ts_match.end():]
 
-        # Extract prompt (before timestamp)
         prompt = re.sub(r'<[^>]+>', '', before_ts).strip()
-        # Remove "Prompted " prefix
         if prompt.startswith("Prompted "):
             prompt = prompt[9:]
         elif prompt.startswith("Created Gemini Canvas titled "):
-            prompt = prompt  # keep the full text
+            prompt = prompt
 
-        # Extract response (after timestamp)
         response = re.sub(r'<[^>]+>', ' ', after_ts).strip()
         response = re.sub(r'\s+', ' ', response)
-        # Clean HTML entities
         response = response.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
         response = response.replace('&quot;', '"').replace('&#39;', "'")
 
         if prompt or response:
             exchanges.append((prompt.strip(), response.strip(), dt))
 
-    # Reverse to chronological order (HTML is newest-first)
     exchanges.reverse()
     return exchanges
 
@@ -354,52 +256,35 @@ def cmd_scan(args):
     sessions = group_into_sessions(exchanges)
     print(f"  Grouped into: {len(sessions)} sessions ({SESSION_GAP_MINUTES}-min gap)")
 
-    # Check DB for already-imported sessions, and keep a connection open
-    # for project-suggestion (closed further below)
     config, db_path = load_config()
     existing_ids = set()
-    conn = None
     try:
         conn = sqlite3.connect(db_path)
         for row in conn.execute("SELECT session_id FROM sys_sessions WHERE source = 'gemini_import'"):
             existing_ids.add(row[0])
+        conn.close()
     except Exception:
         pass
 
-    # Precompute centroids once - avoids rescanning transcript_embeddings
-    # for every session in the loop below.
-    centroids = compute_project_centroids(conn) if conn else {}
-
-    # Build session metadata
     rows = []
-    for i, session in enumerate(sessions):
+    already_imported = 0
+    for session in sessions:
         first_ts = session[0][2]
-        last_ts = session[-1][2]
+        session_id = f"gemini_{first_ts.strftime('%Y%m%d_%H%M%S')}"
+        if session_id in existing_ids:
+            already_imported += 1
+            continue
+
         msg_count = len(session) * 2  # each exchange = 1 user + 1 assistant
 
-        # Generate session ID based on first timestamp
-        session_id = f"gemini_{first_ts.strftime('%Y%m%d_%H%M%S')}"
-
-        # Build combined text from ALL prompts + responses for better suggestions
         combined_text = " ".join(
             (ex[0][:300] + " " + ex[1][:300]) for ex in session
         )
 
-        # Generate meaningful title from content
         title = generate_title(session)
-
-        suggested_project, confidence = (
-            suggest_project(config, conn, combined_text, centroids=centroids)
-            if conn else (DEFAULT_PROJECT, None)
-        )
-        # No existing project reads as a confident match (or none exist yet) -
-        # suggest creating a brand new one from this session's own content
-        # instead of silently filing it under the generic default.
-        new_project_slug = ""
-        if confidence is None or confidence < CONFIDENCE_THRESHOLD:
-            new_project_slug = slugify(title)
-        suggested_tags = suggest_tags(combined_text)
-        status = "IMPORTED" if session_id in existing_ids else "NEW"
+        first_prompt = next((prompt for prompt, response, ts in session if prompt), "")
+        about = build_about(None, first_prompt, title)
+        suggested_tags = suggest_tags(combined_text.lower())
 
         rows.append({
             "session_id": session_id,
@@ -407,18 +292,12 @@ def cmd_scan(args):
             "time": first_ts.strftime("%H:%M"),
             "exchanges": len(session),
             "messages": msg_count,
-            "project": suggested_project,
-            "confidence": f"{confidence:.2f}" if confidence is not None else "",
-            "new_project": new_project_slug,
-            "tags": suggested_tags,
-            "status": status,
             "title": title,
+            "about": about,
+            "tags": suggested_tags,
+            "folder": "",
         })
 
-    if conn:
-        conn.close()
-
-    # Write xlsx
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
 
@@ -431,15 +310,12 @@ def cmd_scan(args):
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
     header_font = Font(color="FFFFFF", bold=True)
     edit_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-    new_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 
-    headers = ["session_id", "date", "time", "exchanges", "messages", "project", "confidence", "new_project", "tags", "status", "title"]
+    headers = ["session_id", "date", "time", "exchanges", "messages", "title", "about", "tags", "folder"]
     for col, h in enumerate(headers, 1):
         cell = ws1.cell(row=1, column=col, value=h)
         cell.fill = header_fill
         cell.font = header_font
-
-    new_proj_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
 
     for row_num, r in enumerate(rows, 2):
         ws1.cell(row=row_num, column=1, value=r["session_id"])
@@ -447,34 +323,26 @@ def cmd_scan(args):
         ws1.cell(row=row_num, column=3, value=r["time"])
         ws1.cell(row=row_num, column=4, value=r["exchanges"])
         ws1.cell(row=row_num, column=5, value=r["messages"])
-        cell_proj = ws1.cell(row=row_num, column=6, value=r["project"])
-        cell_proj.fill = edit_fill
-        ws1.cell(row=row_num, column=7, value=r["confidence"])
-        cell_new_proj = ws1.cell(row=row_num, column=8, value=r["new_project"])
-        if r["new_project"]:
-            cell_new_proj.fill = new_proj_fill
-        cell_tags = ws1.cell(row=row_num, column=9, value=r["tags"])
+        ws1.cell(row=row_num, column=6, value=r["title"])
+        ws1.cell(row=row_num, column=7, value=r["about"])
+        cell_tags = ws1.cell(row=row_num, column=8, value=r["tags"])
         cell_tags.fill = edit_fill
-        cell_status = ws1.cell(row=row_num, column=10, value=r["status"])
-        if r["status"] == "NEW":
-            cell_status.fill = new_fill
-        ws1.cell(row=row_num, column=11, value=r["title"])
+        cell_folder = ws1.cell(row=row_num, column=9, value=r["folder"])
+        cell_folder.fill = edit_fill
 
     ws1.column_dimensions["A"].width = 28
     ws1.column_dimensions["B"].width = 12
     ws1.column_dimensions["C"].width = 8
     ws1.column_dimensions["D"].width = 12
     ws1.column_dimensions["E"].width = 10
-    ws1.column_dimensions["F"].width = 10
-    ws1.column_dimensions["G"].width = 10
+    ws1.column_dimensions["F"].width = 30
+    ws1.column_dimensions["G"].width = 70
     ws1.column_dimensions["H"].width = 30
-    ws1.column_dimensions["I"].width = 30
-    ws1.column_dimensions["J"].width = 12
-    ws1.column_dimensions["K"].width = 60
+    ws1.column_dimensions["I"].width = 25
 
     # Tab 2: Project Reference
     ws2 = wb.create_sheet("Project Reference")
-    ws2.cell(row=1, column=1, value="USE THESE VALUES IN THE PROJECT COLUMN").font = Font(bold=True, size=14)
+    ws2.cell(row=1, column=1, value="EXISTING PROJECTS -- TYPE A FOLDER_NAME INTO THE FOLDER COLUMN").font = Font(bold=True, size=14)
     ws2.merge_cells("A1:D1")
     ref_headers = ["prefix", "folder_name", "label", "status"]
     for col, h in enumerate(ref_headers, 1):
@@ -496,6 +364,20 @@ def cmd_scan(args):
     ws2.column_dimensions["B"].width = 25
     ws2.column_dimensions["C"].width = 50
     ws2.column_dimensions["D"].width = 10
+
+    ws2.cell(row=last_row + 1, column=1, value="").font = Font(bold=True)
+    ws2.cell(row=last_row + 2, column=1, value="INSTRUCTIONS:").font = Font(bold=True)
+    ws2.cell(row=last_row + 3, column=1, value="1. Go to the Sessions tab")
+    ws2.cell(row=last_row + 4, column=1, value="2. Read the TITLE and ABOUT columns to remember what each one was")
+    ws2.cell(row=last_row + 5, column=1, value="3. Type a folder name into the yellow FOLDER column for any you want")
+    ws2.cell(row=last_row + 6, column=1, value="   to keep: an existing folder_name from this tab, or a brand-new name")
+    ws2.cell(row=last_row + 7, column=1, value="   (that creates the project automatically on import). Use the SAME")
+    ws2.cell(row=last_row + 8, column=1, value="   new name across multiple rows to group them into one project.")
+    ws2.cell(row=last_row + 9, column=1, value="   Leave FOLDER blank to use the default project.")
+    ws2.cell(row=last_row + 10, column=1, value="4. Review the yellow TAGS column -- edit, add, or remove tags")
+    ws2.cell(row=last_row + 11, column=1, value="5. Delete entire rows for sessions you do NOT want imported")
+    ws2.cell(row=last_row + 12, column=1, value="6. Save the file")
+    ws2.cell(row=last_row + 13, column=1, value="7. Tell Claude you are ready for dry-run")
 
     # Tab 3: Tag Reference
     ws3 = wb.create_sheet("Tag Reference")
@@ -519,6 +401,7 @@ def cmd_scan(args):
         "memoir": "Johnny Goods, mob stories, Harlem", "music": "Songs, guitar, music project",
         "research": "Comparisons, analysis, reviews", "tech-setup": "Linux, Fedora, installs, configs",
         "travel": "Flights, hotels, trips", "writing": "Narrative craft, voice, storytelling",
+        "remember-project": "This memory system itself",
     }
     for row_num, (tag, count) in enumerate(sorted(tag_counts.items(), key=lambda x: -x[1]), 4):
         ws3.cell(row=row_num, column=1, value=tag)
@@ -531,31 +414,21 @@ def cmd_scan(args):
     wb.save(output_path)
 
     # Summary
-    project_counts = {}
     total_msgs = 0
-    new_count = sum(1 for r in rows if r["status"] == "NEW")
     for r in rows:
-        project_counts[r["project"]] = project_counts.get(r["project"], 0) + 1
         total_msgs += r["messages"]
 
-    new_proj_count = sum(1 for r in rows if r["new_project"])
-
     print(f"\n{green('Mapping xlsx generated:')} {output_path}")
-    print(f"\n  Sessions: {len(rows)} ({new_count} NEW, {len(rows) - new_count} IMPORTED)")
+    print(f"\n  Sessions: {len(rows)} new ({already_imported} already imported, excluded from the sheet)")
     print(f"  Total messages: {total_msgs}")
     print(f"  Exchanges: {len(exchanges)}")
-    print(f"\n  Project suggestions:")
-    for p, count in sorted(project_counts.items()):
-        print(f"    {p}: {count} sessions")
-    if new_proj_count:
-        print(f"\n  {yellow(str(new_proj_count))} session(s) didn't confidently match any existing project -")
-        print(f"  the NEW_PROJECT column suggests a new one for each, derived from its own content.")
-        print(f"  Review that column: rename, delete, or set the same value across rows to group them.")
     print(f"\n  Tags: {len(tag_counts)} unique")
     for tag, count in sorted(tag_counts.items(), key=lambda x: -x[1])[:10]:
         print(f"    {tag}: {count}")
 
     print(f"\n{yellow('NEXT STEP:')} Review and edit {output_path.name}")
+    print(f"  - Read TITLE/ABOUT, type a destination folder for each row you want to keep")
+    print(f"  - Delete rows you don't want imported")
 
 
 # ---------------------------------------------------------------------------
@@ -573,27 +446,23 @@ def cmd_import(args):
         print(red(f"Mapping file not found: {map_path}"))
         sys.exit(1)
 
-    # Read mapping
     from openpyxl import load_workbook
     wb = load_workbook(map_path)
     ws = wb["Sessions"]
     headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
 
-    has_new_project_col = "new_project" in headers
     mapping = {}
     for row in range(2, ws.max_row + 1):
         sid = ws.cell(row=row, column=1).value
         if not sid:
             continue
         mapping[sid] = {
-            "project": ws.cell(row=row, column=headers.index("project") + 1).value or DEFAULT_PROJECT,
-            "new_project": (ws.cell(row=row, column=headers.index("new_project") + 1).value or "").strip() if has_new_project_col else "",
+            "folder": (ws.cell(row=row, column=headers.index("folder") + 1).value or "").strip(),
             "tags": ws.cell(row=row, column=headers.index("tags") + 1).value or "",
         }
 
     print(f"\nMapping file: {map_path.name} ({len(mapping)} sessions)")
 
-    # Parse HTML
     html_file = find_html_file(args.directory)
     if not html_file:
         print(red("MyActivity.html not found."))
@@ -604,7 +473,6 @@ def cmd_import(args):
     sessions = group_into_sessions(exchanges)
     print(f"  {len(exchanges)} exchanges → {len(sessions)} sessions")
 
-    # Match sessions to mapping
     to_import = []
     skipped_not_in_map = 0
 
@@ -619,69 +487,58 @@ def cmd_import(args):
         to_import.append({
             "session_id": session_id,
             "exchanges": session,
-            "project": mapping[session_id]["project"],
-            "new_project": mapping[session_id].get("new_project", ""),
+            "folder": mapping[session_id]["folder"],
             "tags": mapping[session_id]["tags"],
         })
 
     print(f"\n  To import: {len(to_import)} sessions")
     print(f"  Skipped (not in mapping): {skipped_not_in_map}")
 
+    config, db_path = load_config()
+
     if args.dry_run:
         print(f"\n{yellow('DRY RUN')} -- showing what would be imported:\n")
-        project_summary = {}
+        existing_folders = {p["folder_name"] for p in config.get("projects", [])}
+        folder_summary = {}
         for item in to_import:
-            p = f"[NEW] {item['new_project']}" if item["new_project"] else item["project"]
-            if p not in project_summary:
-                project_summary[p] = {"count": 0, "messages": 0}
-            project_summary[p]["count"] += 1
-            project_summary[p]["messages"] += len(item["exchanges"]) * 2
+            f = item["folder"] or f"(default: {DEFAULT_PROJECT})"
+            if f not in folder_summary:
+                folder_summary[f] = {"count": 0, "messages": 0}
+            folder_summary[f]["count"] += 1
+            folder_summary[f]["messages"] += len(item["exchanges"]) * 2
 
-        print(f"  {'Project':<30} {'Sessions':>10} {'Messages':>10}")
+        print(f"  {'Folder':<30} {'Sessions':>10} {'Messages':>10}")
         print(f"  {'-'*30} {'-'*10} {'-'*10}")
-        for p in sorted(project_summary.keys()):
-            s = project_summary[p]
-            print(f"  {p:<30} {s['count']:>10} {s['messages']:>10}")
-        total_msgs = sum(s["messages"] for s in project_summary.values())
+        for f in sorted(folder_summary.keys()):
+            s = folder_summary[f]
+            marker = "  (will be created)" if f and f not in existing_folders and not f.startswith("(default") else ""
+            print(f"  {f:<30} {s['count']:>10} {s['messages']:>10}{marker}")
+        total_msgs = sum(s["messages"] for s in folder_summary.values())
         print(f"  {'TOTAL':<30} {len(to_import):>10} {total_msgs:>10}")
-
-        new_count = len({item["new_project"] for item in to_import if item["new_project"]})
-        if new_count:
-            print(f"\n  [NEW] above means a project with that folder name doesn't exist yet -")
-            print(f"  {new_count} new project(s) will be created automatically on the real run.")
 
         print(f"\n  Sample sessions:")
         for item in to_import[:10]:
             title = item["exchanges"][0][0][:55] if item["exchanges"][0][0] else "(no prompt)"
-            label = f"NEW: {item['new_project']}" if item["new_project"] else item["project"]
+            label = item["folder"] or f"default: {DEFAULT_PROJECT}"
             print(f"    [{label}] {len(item['exchanges']):>3} exch | {title}")
 
         print(f"\n{yellow('To execute:')} remove --dry-run flag")
         return
 
     # Actually import
-    config, db_path = load_config()
     conn = sqlite3.connect(db_path)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     import_logger = logging.getLogger("import_gemini")
 
-    # Create any brand new projects requested via the new_project column
-    # first, so the main loop below can just treat them as an existing prefix.
-    new_folder_names = {item["new_project"] for item in to_import if item["new_project"]}
-    new_project_prefixes = {}
-    if new_folder_names:
+    folder_names = {item["folder"] for item in to_import if item["folder"]}
+    folder_prefixes = {}
+    if folder_names:
         add_project = load_add_project_module()
-        for folder_name in sorted(new_folder_names):
-            existing = next((p for p in config.get("projects", []) if p["folder_name"] == folder_name), None)
-            if existing:
-                new_project_prefixes[folder_name] = existing["prefix"]
-                continue
-            existing_prefixes = {p["prefix"] for p in config.get("projects", [])}
-            prefix = add_project.generate_prefix(folder_name, existing_prefixes)
-            label = folder_name.replace("-", " ").title()
-            created = add_project.create_project(config, ROOT_DIR / "config.yaml", folder_name, prefix, label)
-            new_project_prefixes[folder_name] = created["prefix"]
-            print(f"  {green('Created new project')} '{folder_name}' (prefix: {created['prefix']}, label: {created['label']})")
+        for folder_name in sorted(folder_names):
+            prefix, label, created = resolve_or_create_project(config, ROOT_DIR / "config.yaml", folder_name, add_project)
+            folder_prefixes[folder_name] = prefix
+            if created:
+                print(f"  {green('Created new project')} '{folder_name}' (prefix: {prefix}, label: {label})")
 
     imported = 0
     skipped_dup = 0
@@ -689,12 +546,11 @@ def cmd_import(args):
 
     for item in to_import:
         session_id = item["session_id"]
-        project = new_project_prefixes[item["new_project"]] if item["new_project"] else item["project"]
+        project = folder_prefixes[item["folder"]] if item["folder"] else DEFAULT_PROJECT
         tags = item["tags"]
         exchanges = item["exchanges"]
         title = (exchanges[0][0] or "(no prompt)")[:80]
 
-        # Check for duplicate
         existing = conn.execute(
             "SELECT 1 FROM sys_sessions WHERE session_id = ?", (session_id,)
         ).fetchone()
@@ -702,7 +558,6 @@ def cmd_import(args):
             skipped_dup += 1
             continue
 
-        # Create session
         started = exchanges[0][2].strftime("%Y-%m-%dT%H:%M:%SZ")
         ended = exchanges[-1][2].strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -717,7 +572,6 @@ def cmd_import(args):
              f"Gemini import: {title} ({len(exchanges)} exchanges)", tags)
         )
 
-        # Insert messages (each exchange = 1 user + 1 assistant)
         for ex_idx, (prompt, response, ts) in enumerate(exchanges):
             ts_str = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
             exchange_id = f"{session_id}_{ex_idx:04d}"
@@ -789,7 +643,7 @@ def main():
         parser.print_help()
         print(f"\n{yellow('Workflow:')}")
         print(f"  1. python3 scripts/import_gemini.py --scan <gemini-export-dir>")
-        print(f"  2. Review gemini_import_map.xlsx (edit project/tag assignments)")
+        print(f"  2. Review gemini_import_map.xlsx (type folder names, edit tags)")
         print(f"  3. python3 scripts/import_gemini.py --import <dir> --map gemini_import_map.xlsx --dry-run")
         print(f"  4. python3 scripts/import_gemini.py --import <dir> --map gemini_import_map.xlsx")
 

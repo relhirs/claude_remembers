@@ -1240,27 +1240,19 @@ def phase_registration(cfg):
             Step 2: If files ARE found, show the user a numbered list of filenames.
             Ask: "Which file do you want to import?" (they can say a number or filename)
 
-            Step 3: Get a project suggestion, then ask which project to assign it to.
-              First run (no --project, this only suggests, it does not import anything):
+            Step 3: Show context, then ask which folder to put it in. Run (no --folder, this only
+              shows info, it does not import anything):
                 python3 {root}/scripts/import_claude_ai.py "<chosen_file_path>"
-              This prints ranked project suggestions with a similarity score (e.g. "oth  (similarity 0.36)"),
-              or says no suggestion is available yet if nothing has been embedded for any project.
-              Then show the available projects by running:
-                python3 -c "import sqlite3; conn=sqlite3.connect('{cfg['db_path']}'); [print(f'  {{r[1]}} - {{r[2]}}') for r in conn.execute('SELECT folder_name, prefix, label FROM project_registry ORDER BY folder_name')]"
-              Present the top suggestion (if any) as the recommended default, alongside the full list, and ask
-              the user to confirm it, pick a different existing project, or create a brand new one (see Step 3b).
-              Never assign a project without them confirming.
+              This prints the conversation's title, a short "about" description of what it was
+              about, suggested tags, and the list of existing projects (folder name, prefix, label).
+              There is no automatic matching or scoring - show the user the title/about/tags plus
+              the existing project list, and ask them to type a folder name: an existing one from
+              that list, or a brand-new name. Never assign a folder without them deciding.
 
-            Step 3b (only if the user wants a new project instead of an existing one, including when
-              there are no projects yet or none of them fit): ask for a folder name, then run:
-                python3 {root}/scripts/import_claude_ai.py "<chosen_file_path>" --new-project <folder-name>
-              This creates the project (folder, CLAUDE.md, config entry, database + MCP registration) AND
-              imports into it in this one command - skip Step 4 entirely if you did this. Optionally ask if
-              they want to override the auto-generated prefix or display name with --prefix <prefix> and
-              --label "<display name>" on the same command.
-
-            Step 4: Run the import with their choices (skip this if Step 3b already ran):
-              python3 {root}/scripts/import_claude_ai.py "<chosen_file_path>" --project <chosen_prefix>
+            Step 4: Run the import with their chosen folder name - this works whether it's an
+              existing project or a brand-new one (creates it automatically, including folder,
+              CLAUDE.md, config entry, database + MCP registration, all in this one command):
+                python3 {root}/scripts/import_claude_ai.py "<chosen_file_path>" --folder <folder-name>
 
             Step 5: Show the result. If successful, tell the user the file has been moved to imports/completed/.
             Ask if they want to import another file (if more remain in imports/).

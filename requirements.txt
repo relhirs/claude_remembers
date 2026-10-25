@@ -11,3 +11,6 @@ anthropic>=0.40
 # sentence-transformers downloads a ~80MB model on first use.
 sentence-transformers>=3.0
 numpy>=1.26
+
+# Mapping spreadsheets for chatgpt/gemini/claude.ai bulk import review
+openpyxl>=3.1

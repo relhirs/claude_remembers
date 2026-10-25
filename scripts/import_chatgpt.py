@@ -6,25 +6,29 @@ Supports the full data export from OpenAI (Settings → Data → Export).
 Text conversations only -- audio, images, and system messages are skipped.
 
 Three modes:
-  --scan <dir>     Generate mapping CSV with suggested project assignments
-  --import <dir>   Import conversations using reviewed mapping CSV
+  --scan <dir>     Generate mapping xlsx with a descriptive "about" blurb +
+                    suggested tags, for you to type a destination folder into
+  --import <dir>   Import conversations using the reviewed mapping xlsx
   --dry-run        Preview import without touching the database
+
+Nothing auto-assigns a project. You type the folder name yourself in the
+`folder` column -- an existing one (see the Project Reference tab) or a
+brand-new name, which gets created on import. Leave it blank to use the
+default project.
 
 Workflow:
   1. Export from ChatGPT (Settings → Data → Export → wait for email → download zip)
   2. Extract the zip to a folder
   3. Run: python3 scripts/import_chatgpt.py --scan imports/chatgpt-export/
-  4. Review chatgpt_import_map.csv -- edit project assignments, delete unwanted rows
-  5. Run: python3 scripts/import_chatgpt.py --import imports/chatgpt-export/ --map chatgpt_import_map.csv --dry-run
-  6. When satisfied: python3 scripts/import_chatgpt.py --import imports/chatgpt-export/ --map chatgpt_import_map.csv
+  4. Review chatgpt_import_map.xlsx -- type folder names, edit tags, delete unwanted rows
+  5. Run: python3 scripts/import_chatgpt.py --import imports/chatgpt-export/ --map chatgpt_import_map.xlsx --dry-run
+  6. When satisfied: python3 scripts/import_chatgpt.py --import imports/chatgpt-export/ --map chatgpt_import_map.xlsx
 """
 
 import argparse
 import csv
-import importlib.util
 import json
 import logging
-import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -32,12 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_utils import resolve_db_path
-from project_classifier import (
-    suggest_project as suggest_project_semantic,
-    compute_project_centroids,
-    slugify,
-    CONFIDENCE_THRESHOLD,
-)
+from import_common import green, yellow, red, suggest_tags, build_about, load_add_project_module, resolve_or_create_project
 from write_exchange import embed_message, SEMANTIC_AVAILABLE
 
 # ---------------------------------------------------------------------------
@@ -48,28 +47,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SCRIPT_DIR.parent
 
 DEFAULT_PROJECT = "gen"
-
-# Tag keyword suggestions for auto-tagging (broad topics, ~20-30 total)
-TAG_KEYWORDS = {
-    "book-editing": ["edit", "polish", "chapter", "manuscript", "copyedit", "proofread", "rewrite", "revision"],
-    "memoir": ["memoir", "johnny", "goods", "maffia", "mob", "harlem", "gangster", "three fingers"],
-    "dialogue": ["dialogue", "dialog", "conversation", "speech", "quotes"],
-    "job-search": ["resume", "job", "interview", "career", "hiring", "salary", "recruiter", "linkedin"],
-    "finance": ["money", "bank", "invest", "stock", "crypto", "budget", "tax", "financial"],
-    "coding": ["python", "script", "code", "programming", "debug", "function", "api", "github"],
-    "ai-tools": ["chatgpt", "claude", "gpt", "openai", "anthropic", "gemini", "ai model", "llm", "prompt"],
-    "tech-setup": ["linux", "fedora", "install", "setup", "config", "terminal", "laptop", "asus"],
-    "family": ["mom", "mother", "father", "wife", "daughter", "son", "family", "sister", "brother", "grandpa"],
-    "health": ["doctor", "medical", "health", "therapy", "leg", "injury", "exercise", "weight"],
-    "legal": ["lawyer", "legal", "court", "contract", "lawsuit", "attorney", "will", "estate"],
-    "home": ["house", "home", "repair", "plumbing", "electric", "hvac", "mortgage", "renovation"],
-    "auto": ["car", "toyota", "highlander", "vehicle", "mechanic", "tire", "oil"],
-    "travel": ["travel", "flight", "hotel", "trip", "vacation", "passport", "airport"],
-    "music": ["music", "song", "guitar", "band", "album", "spotify"],
-    "business": ["business", "company", "startup", "entrepreneur", "marketing", "client", "consultant"],
-    "writing": ["writing", "write", "story", "narrative", "voice", "author", "publisher"],
-    "research": ["research", "compare", "analysis", "review", "best", "recommend", "options"],
-}
 
 # ChatGPT roles we import (skip system and tool)
 IMPORTABLE_ROLES = {"user", "assistant"}
@@ -82,16 +59,6 @@ TEXT_CONTENT_TYPES = {"text", "multimodal_text", "code", "execution_output",
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
-
-def green(text):
-    return f"\033[92m{text}\033[0m"
-
-def yellow(text):
-    return f"\033[93m{text}\033[0m"
-
-def red(text):
-    return f"\033[91m{text}\033[0m"
-
 
 def find_conversation_files(directory):
     """Find all conversations-NNN.json files in a directory."""
@@ -125,14 +92,14 @@ def load_conversations(directory):
 def extract_messages(conversation):
     """Extract messages from ChatGPT's tree-based mapping structure.
 
-    Returns list of (role, content, timestamp) tuples in chronological order.
-    Skips system messages, tool messages, and empty content.
+    Returns list of (role, content, timestamp, node_id) tuples in
+    chronological order. Skips system messages, tool messages, and empty
+    content.
     """
     mapping = conversation.get("mapping", {})
     if not mapping:
         return []
 
-    # Build ordered message list by following parent→child chain
     messages = []
     for node_id, node in mapping.items():
         msg = node.get("message")
@@ -148,13 +115,11 @@ def extract_messages(conversation):
             continue
 
         parts = msg.get("content", {}).get("parts", [])
-        # Extract text from parts (skip dict parts which are images/files)
         text_parts = []
         for part in parts:
             if isinstance(part, str) and part.strip():
                 text_parts.append(part.strip())
             elif isinstance(part, dict):
-                # Some dict parts have text content
                 if "text" in part:
                     text_parts.append(part["text"].strip())
 
@@ -165,41 +130,8 @@ def extract_messages(conversation):
         timestamp = msg.get("create_time", 0)
         messages.append((role, content, timestamp, node_id))
 
-    # Sort by timestamp
     messages.sort(key=lambda x: x[2])
     return messages
-
-
-def suggest_tags(title, messages=None):
-    """Auto-suggest tags based on title and optionally first few messages."""
-    if not title:
-        return ""
-
-    search_text = title.lower()
-    # Also check first 2 user messages for better tag coverage
-    if messages:
-        for role, content, _, _ in messages[:4]:
-            if role == "user" and content:
-                search_text += " " + content[:500].lower()
-
-    matched_tags = []
-    for tag, keywords in TAG_KEYWORDS.items():
-        if any(kw in search_text for kw in keywords):
-            matched_tags.append(tag)
-
-    # Limit to 3 most relevant tags
-    return ", ".join(matched_tags[:3]) if matched_tags else ""
-
-
-def load_add_project_module():
-    """Dynamically load add-project.py (hyphenated filename, not a valid
-    module name for a plain import) to reuse create_project()/generate_prefix()
-    instead of duplicating project-creation logic here."""
-    add_project_path = SCRIPT_DIR / "add-project.py"
-    spec = importlib.util.spec_from_file_location("add_project", add_project_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def load_config():
@@ -216,28 +148,8 @@ def load_config():
     return config, resolve_db_path(config)
 
 
-def suggest_project(config, conn, title, messages, centroids=None):
-    """Rank existing projects by semantic similarity to this conversation's
-    title + first few user messages. Falls back to DEFAULT_PROJECT with no
-    confidence score if there isn't enough embedded content yet to compare
-    against (cold start)."""
-    samples = [title] if title else []
-    for role, content, _, _ in (messages or [])[:20]:
-        if role == "user" and content:
-            samples.append(content[:1000])
-
-    try:
-        ranked = suggest_project_semantic(config, conn, samples, centroids=centroids)
-    except Exception:
-        ranked = []
-
-    if not ranked:
-        return DEFAULT_PROJECT, None
-    return ranked[0]
-
-
 # ---------------------------------------------------------------------------
-# SCAN mode: generate mapping CSV
+# SCAN mode: generate mapping xlsx
 # ---------------------------------------------------------------------------
 
 def cmd_scan(args):
@@ -247,63 +159,47 @@ def cmd_scan(args):
 
     convos = load_conversations(args.directory)
 
-    # Check DB for already-imported conversations, and open a connection for
-    # project-suggestion (re-closed by the caller below)
     config, db_path = load_config()
     existing_ids = set()
-    conn = None
     try:
         conn = sqlite3.connect(db_path)
         for row in conn.execute("SELECT session_id FROM sys_sessions WHERE source = 'chatgpt_import'"):
             existing_ids.add(row[0].replace("chatgpt_", ""))
+        conn.close()
     except Exception:
-        pass  # DB not available, all will show as NEW
+        pass  # DB not available, nothing excluded as already-imported
 
-    # Precompute centroids once - avoids rescanning transcript_embeddings
-    # for every conversation in the loop below.
-    centroids = compute_project_centroids(conn) if conn else {}
-
-    # Generate mapping
     rows = []
+    already_imported = 0
     for c in convos:
         title = c.get("title") or "(untitled)"
         conv_id = c.get("conversation_id", c.get("id", ""))
+        if conv_id in existing_ids:
+            already_imported += 1
+            continue
+
         create_time = c.get("create_time", 0)
         messages = extract_messages(c)
         msg_count = len(messages)
         date_str = datetime.fromtimestamp(create_time).strftime("%Y-%m-%d") if create_time else "unknown"
-        suggested_project, confidence = (
-            suggest_project(config, conn, title, messages, centroids=centroids)
-            if conn else (DEFAULT_PROJECT, None)
-        )
-        # No existing project reads as a confident match (or none exist yet) -
-        # suggest creating a brand new one from this conversation's own
-        # content instead of silently filing it under the generic default.
-        new_project_slug = ""
-        if confidence is None or confidence < CONFIDENCE_THRESHOLD:
-            new_project_slug = slugify(title)
-        suggested_tags = suggest_tags(title, messages)
-        status = "IMPORTED" if conv_id in existing_ids else "NEW"
+
+        first_user_text = next((content for role, content, _, _ in messages if role == "user" and content), "")
+        about = build_about(None, first_user_text, title)
+        search_text = (title + " " + first_user_text[:500]).lower()
+        suggested_tags = suggest_tags(search_text)
 
         rows.append({
             "conversation_id": conv_id,
             "date": date_str,
             "messages": msg_count,
-            "project": suggested_project,
-            "confidence": f"{confidence:.2f}" if confidence is not None else "",
-            "new_project": new_project_slug,
-            "tags": suggested_tags,
-            "status": status,
             "title": title,
+            "about": about,
+            "tags": suggested_tags,
+            "folder": "",
         })
 
-    if conn:
-        conn.close()
-
-    # Sort by date
     rows.sort(key=lambda x: x["date"])
 
-    # Write xlsx with two tabs
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
 
@@ -316,46 +212,35 @@ def cmd_scan(args):
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
     header_font = Font(color="FFFFFF", bold=True)
     edit_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-    new_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 
-    headers = ["conversation_id", "date", "messages", "project", "confidence", "new_project", "tags", "status", "title"]
+    headers = ["conversation_id", "date", "messages", "title", "about", "tags", "folder"]
     for col, h in enumerate(headers, 1):
         cell = ws1.cell(row=1, column=col, value=h)
         cell.fill = header_fill
         cell.font = header_font
 
-    new_proj_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
-
     for row_num, r in enumerate(rows, 2):
         ws1.cell(row=row_num, column=1, value=r["conversation_id"])
         ws1.cell(row=row_num, column=2, value=r["date"])
         ws1.cell(row=row_num, column=3, value=r["messages"])
-        cell_proj = ws1.cell(row=row_num, column=4, value=r["project"])
-        cell_proj.fill = edit_fill
-        ws1.cell(row=row_num, column=5, value=r["confidence"])
-        cell_new_proj = ws1.cell(row=row_num, column=6, value=r["new_project"])
-        if r["new_project"]:
-            cell_new_proj.fill = new_proj_fill
-        cell_tags = ws1.cell(row=row_num, column=7, value=r["tags"])
+        ws1.cell(row=row_num, column=4, value=r["title"])
+        ws1.cell(row=row_num, column=5, value=r["about"])
+        cell_tags = ws1.cell(row=row_num, column=6, value=r["tags"])
         cell_tags.fill = edit_fill
-        cell_status = ws1.cell(row=row_num, column=8, value=r["status"])
-        if r["status"] == "NEW":
-            cell_status.fill = new_fill
-        ws1.cell(row=row_num, column=9, value=r["title"])
+        cell_folder = ws1.cell(row=row_num, column=7, value=r["folder"])
+        cell_folder.fill = edit_fill
 
     ws1.column_dimensions["A"].width = 40
     ws1.column_dimensions["B"].width = 12
     ws1.column_dimensions["C"].width = 10
-    ws1.column_dimensions["D"].width = 10
-    ws1.column_dimensions["E"].width = 10
+    ws1.column_dimensions["D"].width = 30
+    ws1.column_dimensions["E"].width = 70
     ws1.column_dimensions["F"].width = 30
-    ws1.column_dimensions["G"].width = 30
-    ws1.column_dimensions["H"].width = 12
-    ws1.column_dimensions["I"].width = 60
+    ws1.column_dimensions["G"].width = 25
 
     # --- Tab 2: Project Reference ---
     ws2 = wb.create_sheet("Project Reference")
-    ws2.cell(row=1, column=1, value="USE THESE VALUES IN THE PROJECT COLUMN").font = Font(bold=True, size=14)
+    ws2.cell(row=1, column=1, value="EXISTING PROJECTS -- TYPE A FOLDER_NAME INTO THE FOLDER COLUMN").font = Font(bold=True, size=14)
     ws2.merge_cells("A1:D1")
 
     ref_headers = ["prefix", "folder_name", "label", "status"]
@@ -384,63 +269,48 @@ def cmd_scan(args):
     ws2.cell(row=last_row + 1, column=1, value="").font = Font(bold=True)
     ws2.cell(row=last_row + 2, column=1, value="INSTRUCTIONS:").font = Font(bold=True)
     ws2.cell(row=last_row + 3, column=1, value="1. Go to the Conversations tab")
-    ws2.cell(row=last_row + 4, column=1, value="2. Review the yellow PROJECT column -- change any wrong assignments")
-    ws2.cell(row=last_row + 5, column=1, value="3. Review the orange NEW_PROJECT column -- filled in only when no")
-    ws2.cell(row=last_row + 6, column=1, value="   existing project was a confident match. If this cell has a value,")
-    ws2.cell(row=last_row + 7, column=1, value="   it wins over PROJECT: a brand new project with that folder name")
-    ws2.cell(row=last_row + 8, column=1, value="   gets created automatically on import. Put the SAME value in")
-    ws2.cell(row=last_row + 9, column=1, value="   multiple rows to group those conversations into one new project")
-    ws2.cell(row=last_row + 10, column=1, value="   together. Clear the cell to use PROJECT instead (an existing one).")
-    ws2.cell(row=last_row + 11, column=1, value="4. Review the yellow TAGS column -- edit, add, or remove tags")
-    ws2.cell(row=last_row + 12, column=1, value="5. Delete entire rows for conversations you do NOT want imported")
-    ws2.cell(row=last_row + 13, column=1, value="6. Rows marked IMPORTED will be skipped automatically")
-    ws2.cell(row=last_row + 14, column=1, value="7. Save the file")
-    ws2.cell(row=last_row + 15, column=1, value="8. Tell Claude you are ready for dry-run")
+    ws2.cell(row=last_row + 4, column=1, value="2. Read the TITLE and ABOUT columns to remember what each one was")
+    ws2.cell(row=last_row + 5, column=1, value="3. Type a folder name into the yellow FOLDER column for any you want")
+    ws2.cell(row=last_row + 6, column=1, value="   to keep: an existing folder_name from this tab, or a brand-new name")
+    ws2.cell(row=last_row + 7, column=1, value="   (that creates the project automatically on import). Use the SAME")
+    ws2.cell(row=last_row + 8, column=1, value="   new name across multiple rows to group them into one project.")
+    ws2.cell(row=last_row + 9, column=1, value="   Leave FOLDER blank to use the default project.")
+    ws2.cell(row=last_row + 10, column=1, value="4. Review the yellow TAGS column -- edit, add, or remove tags")
+    ws2.cell(row=last_row + 11, column=1, value="5. Delete entire rows for conversations you do NOT want imported")
+    ws2.cell(row=last_row + 12, column=1, value="6. Save the file")
+    ws2.cell(row=last_row + 13, column=1, value="7. Tell Claude you are ready for dry-run")
 
     wb.save(output_path)
 
     # Summary
-    project_counts = {}
     tag_counts = {}
     total_msgs = 0
-    new_count = sum(1 for r in rows if r["status"] == "NEW")
     for r in rows:
-        p = r["project"]
-        project_counts[p] = project_counts.get(p, 0) + 1
         total_msgs += r["messages"]
         for tag in [t.strip() for t in r["tags"].split(",") if t.strip()]:
             tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
-    new_proj_count = sum(1 for r in rows if r["new_project"])
-
     print(f"\n{green('Mapping xlsx generated:')} {output_path}")
-    print(f"\n  Conversations: {len(rows)} ({new_count} NEW, {len(rows) - new_count} IMPORTED)")
+    print(f"\n  Conversations: {len(rows)} new ({already_imported} already imported, excluded from the sheet)")
     print(f"  Total messages: {total_msgs}")
-    print(f"\n  Project suggestions:")
-    for p, count in sorted(project_counts.items()):
-        print(f"    {p}: {count} conversations")
-    if new_proj_count:
-        print(f"\n  {yellow(str(new_proj_count))} conversation(s) didn't confidently match any existing project -")
-        print(f"  the NEW_PROJECT column suggests a new one for each, derived from its own title.")
-        print(f"  Review that column: rename, delete, or set the same value across rows to group them.")
     print(f"\n  Tag suggestions ({len(tag_counts)} unique tags):")
     for tag, count in sorted(tag_counts.items(), key=lambda x: -x[1]):
         print(f"    {tag}: {count} conversations")
 
     print(f"\n{yellow('NEXT STEP:')} Review and edit {output_path.name}")
-    print(f"  - Edit the yellow PROJECT and TAGS columns")
+    print(f"  - Read TITLE/ABOUT, type a destination folder for each row you want to keep")
     print(f"  - Delete rows you don't want imported")
     print(f"  - Then run: python3 scripts/import_chatgpt.py --import {args.directory} --map {output_path}")
 
 
 # ---------------------------------------------------------------------------
-# IMPORT mode: read mapping CSV and ingest
+# IMPORT mode: read mapping xlsx/csv and ingest
 # ---------------------------------------------------------------------------
 
 def cmd_import(args):
-    """Import conversations using reviewed mapping CSV."""
+    """Import conversations using reviewed mapping xlsx/csv."""
     if not args.map:
-        print(red("--map <csv_file> is required for import mode"))
+        print(red("--map <xlsx_file> is required for import mode"))
         sys.exit(1)
 
     map_path = Path(args.map)
@@ -449,39 +319,33 @@ def cmd_import(args):
         print(f"Run --scan first to generate it.")
         sys.exit(1)
 
-    # Read mapping from xlsx or csv
-    mapping = {}  # conv_id -> {"project": ..., "new_project": ..., "tags": ...}
+    mapping = {}  # conv_id -> {"folder": ..., "tags": ...}
     if map_path.suffix == ".xlsx":
         from openpyxl import load_workbook
         wb = load_workbook(map_path)
         ws = wb["Conversations"]
         headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
-        has_new_project_col = "new_project" in headers
         for row in range(2, ws.max_row + 1):
             conv_id = ws.cell(row=row, column=1).value
             if not conv_id:
                 continue
-            project = ws.cell(row=row, column=headers.index("project") + 1).value or DEFAULT_PROJECT
+            folder = (ws.cell(row=row, column=headers.index("folder") + 1).value or "").strip()
             tags = ws.cell(row=row, column=headers.index("tags") + 1).value or ""
-            new_project = (ws.cell(row=row, column=headers.index("new_project") + 1).value or "").strip() if has_new_project_col else ""
-            mapping[conv_id] = {"project": project, "new_project": new_project, "tags": tags}
+            mapping[conv_id] = {"folder": folder, "tags": tags}
     else:
         with open(map_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 mapping[row["conversation_id"]] = {
-                    "project": row.get("project", DEFAULT_PROJECT),
-                    "new_project": (row.get("new_project") or "").strip(),
+                    "folder": (row.get("folder") or "").strip(),
                     "tags": row.get("tags", ""),
                 }
 
     print(f"\nMapping file: {map_path.name} ({len(mapping)} conversations)")
 
-    # Load conversations
     print(f"Loading conversations from: {args.directory}")
     convos = load_conversations(args.directory)
 
-    # Match conversations to mapping
     to_import = []
     skipped_not_in_map = 0
     skipped_zero_msgs = 0
@@ -500,8 +364,7 @@ def cmd_import(args):
         to_import.append({
             "conversation": c,
             "messages": messages,
-            "project": mapping[conv_id]["project"],
-            "new_project": mapping[conv_id].get("new_project", ""),
+            "folder": mapping[conv_id]["folder"],
             "tags": mapping[conv_id].get("tags", ""),
             "conv_id": conv_id,
         })
@@ -510,34 +373,33 @@ def cmd_import(args):
     print(f"  Skipped (not in mapping): {skipped_not_in_map}")
     print(f"  Skipped (0 messages): {skipped_zero_msgs}")
 
+    config, db_path = load_config()
+
     if args.dry_run:
         print(f"\n{yellow('DRY RUN')} -- showing what would be imported:\n")
-        project_summary = {}
+        existing_folders = {p["folder_name"] for p in config.get("projects", [])}
+        folder_summary = {}
         for item in to_import:
-            p = f"[NEW] {item['new_project']}" if item["new_project"] else item["project"]
-            if p not in project_summary:
-                project_summary[p] = {"count": 0, "messages": 0}
-            project_summary[p]["count"] += 1
-            project_summary[p]["messages"] += len(item["messages"])
+            f = item["folder"] or f"(default: {DEFAULT_PROJECT})"
+            if f not in folder_summary:
+                folder_summary[f] = {"count": 0, "messages": 0}
+            folder_summary[f]["count"] += 1
+            folder_summary[f]["messages"] += len(item["messages"])
 
-        print(f"  {'Project':<30} {'Conversations':>14} {'Messages':>10}")
+        print(f"  {'Folder':<30} {'Conversations':>14} {'Messages':>10}")
         print(f"  {'-'*30} {'-'*14} {'-'*10}")
-        for p in sorted(project_summary.keys()):
-            s = project_summary[p]
-            print(f"  {p:<30} {s['count']:>14} {s['messages']:>10}")
-        total_msgs = sum(s["messages"] for s in project_summary.values())
+        for f in sorted(folder_summary.keys()):
+            s = folder_summary[f]
+            marker = "  (will be created)" if f and f not in existing_folders and not f.startswith("(default") else ""
+            print(f"  {f:<30} {s['count']:>14} {s['messages']:>10}{marker}")
+        total_msgs = sum(s["messages"] for s in folder_summary.values())
         print(f"  {'TOTAL':<30} {len(to_import):>14} {total_msgs:>10}")
-
-        new_count = len({item["new_project"] for item in to_import if item["new_project"]})
-        if new_count:
-            print(f"\n  [NEW] above means a project with that folder name doesn't exist yet -")
-            print(f"  {new_count} new project(s) will be created automatically on the real run.")
 
         print(f"\n  Sample conversations:")
         for item in to_import[:10]:
             c = item["conversation"]
             title = (c.get("title") or "(untitled)")[:60]
-            label = f"NEW: {item['new_project']}" if item["new_project"] else item["project"]
+            label = item["folder"] or f"default: {DEFAULT_PROJECT}"
             print(f"    [{label}] {len(item['messages']):>3} msgs | {title}")
         if len(to_import) > 10:
             print(f"    ... and {len(to_import) - 10} more")
@@ -546,27 +408,20 @@ def cmd_import(args):
         return
 
     # Actually import
-    config, db_path = load_config()
     conn = sqlite3.connect(db_path)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Create any brand new projects requested via the new_project column
-    # first, so the main loop below can just treat them as an existing prefix.
-    new_folder_names = {item["new_project"] for item in to_import if item["new_project"]}
-    new_project_prefixes = {}
-    if new_folder_names:
+    # Resolve every distinct folder name to a prefix up front (creating new
+    # projects as needed) so the main loop below can just look them up.
+    folder_names = {item["folder"] for item in to_import if item["folder"]}
+    folder_prefixes = {}
+    if folder_names:
         add_project = load_add_project_module()
-        for folder_name in sorted(new_folder_names):
-            existing = next((p for p in config.get("projects", []) if p["folder_name"] == folder_name), None)
-            if existing:
-                new_project_prefixes[folder_name] = existing["prefix"]
-                continue
-            existing_prefixes = {p["prefix"] for p in config.get("projects", [])}
-            prefix = add_project.generate_prefix(folder_name, existing_prefixes)
-            label = folder_name.replace("-", " ").title()
-            created = add_project.create_project(config, ROOT_DIR / "config.yaml", folder_name, prefix, label)
-            new_project_prefixes[folder_name] = created["prefix"]
-            print(f"  {green('Created new project')} '{folder_name}' (prefix: {created['prefix']}, label: {created['label']})")
+        for folder_name in sorted(folder_names):
+            prefix, label, created = resolve_or_create_project(config, ROOT_DIR / "config.yaml", folder_name, add_project)
+            folder_prefixes[folder_name] = prefix
+            if created:
+                print(f"  {green('Created new project')} '{folder_name}' (prefix: {prefix}, label: {label})")
 
     imported = 0
     skipped_dup = 0
@@ -575,12 +430,11 @@ def cmd_import(args):
     for item in to_import:
         c = item["conversation"]
         conv_id = item["conv_id"]
-        project = new_project_prefixes[item["new_project"]] if item["new_project"] else item["project"]
+        project = folder_prefixes[item["folder"]] if item["folder"] else DEFAULT_PROJECT
         messages = item["messages"]
         title = c.get("title", "") or "(untitled)"
         create_time = c.get("create_time", 0)
 
-        # Check for duplicate (by conversation_id in session_id)
         existing = conn.execute(
             "SELECT 1 FROM sys_sessions WHERE session_id = ?",
             (f"chatgpt_{conv_id}",)
@@ -590,7 +444,6 @@ def cmd_import(args):
             skipped_dup += 1
             continue
 
-        # Create session
         tags = item.get("tags", "")
         started = datetime.fromtimestamp(create_time).strftime("%Y-%m-%dT%H:%M:%SZ") if create_time else now
         ended = datetime.fromtimestamp(messages[-1][2]).strftime("%Y-%m-%dT%H:%M:%SZ") if messages[-1][2] else now
@@ -604,7 +457,6 @@ def cmd_import(args):
              len(messages), now, f"ChatGPT import: {title}", tags)
         )
 
-        # Insert messages
         for i, (role, content, timestamp, node_id) in enumerate(messages):
             ts = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%dT%H:%M:%SZ") if timestamp else now
             sender = "human" if role == "user" else "assistant"
@@ -641,13 +493,13 @@ def main():
         description="Import ChatGPT conversations into the memory database"
     )
     parser.add_argument("--scan", dest="scan_dir", metavar="DIR",
-                        help="Scan ChatGPT export directory and generate mapping CSV")
+                        help="Scan ChatGPT export directory and generate mapping xlsx")
     parser.add_argument("--import", dest="import_dir", metavar="DIR",
-                        help="Import conversations using mapping CSV")
-    parser.add_argument("--map", metavar="CSV",
-                        help="Mapping CSV file (required for --import)")
+                        help="Import conversations using mapping xlsx")
+    parser.add_argument("--map", metavar="XLSX",
+                        help="Mapping xlsx file (required for --import)")
     parser.add_argument("--output", metavar="FILE",
-                        help="Output path for mapping CSV (default: chatgpt_import_map.csv)")
+                        help="Output path for mapping xlsx (default: chatgpt_import_map.xlsx)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be imported without touching the database")
 
@@ -663,9 +515,9 @@ def main():
         parser.print_help()
         print(f"\n{yellow('Workflow:')}")
         print(f"  1. python3 scripts/import_chatgpt.py --scan <chatgpt-export-dir>")
-        print(f"  2. Review chatgpt_import_map.csv (edit project assignments)")
-        print(f"  3. python3 scripts/import_chatgpt.py --import <dir> --map chatgpt_import_map.csv --dry-run")
-        print(f"  4. python3 scripts/import_chatgpt.py --import <dir> --map chatgpt_import_map.csv")
+        print(f"  2. Review chatgpt_import_map.xlsx (type folder names, edit tags)")
+        print(f"  3. python3 scripts/import_chatgpt.py --import <dir> --map chatgpt_import_map.xlsx --dry-run")
+        print(f"  4. python3 scripts/import_chatgpt.py --import <dir> --map chatgpt_import_map.xlsx")
 
 
 if __name__ == "__main__":
