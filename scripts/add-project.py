@@ -220,6 +220,114 @@ def generate_claude_md(project, cfg):
     """)
 
 # ---------------------------------------------------------------------------
+# Reusable project creation (shared with import_claude_ai.py's --new-project)
+# ---------------------------------------------------------------------------
+
+def create_project(cfg, config_path, name, prefix, label, quiet=False):
+    """Create a new project: folder + CLAUDE.md + config.yaml entry +
+    project_registry row + remember-server MCP registration.
+
+    Does NOT handle the "other MCP servers" offer from add-project.py's
+    interactive flow - that's a UX nicety for the interactive script only,
+    not essential to project creation.
+
+    Returns the project dict {"folder_name", "prefix", "label"} on success,
+    raises ValueError if name/prefix collide with an existing project.
+    """
+    existing_names = {p["folder_name"] for p in cfg.get("projects", [])}
+    existing_prefixes = {p["prefix"] for p in cfg.get("projects", [])}
+    if name in existing_names:
+        raise ValueError(f"Project folder '{name}' already exists.")
+    if prefix in existing_prefixes:
+        raise ValueError(f"Prefix '{prefix}' is already in use.")
+
+    root = Path(cfg["storage"]["root_path"])
+    new_project = {"folder_name": name, "prefix": prefix, "label": label}
+
+    def say(msg):
+        if not quiet:
+            ok(msg)
+
+    # Folder + chat-files/
+    project_dir = root / name
+    (project_dir / "chat-files").mkdir(parents=True, exist_ok=True)
+    say(f"Created {project_dir}/")
+
+    # CLAUDE.md
+    claude_md_path = project_dir / "CLAUDE.md"
+    if not claude_md_path.exists():
+        with open(claude_md_path, "w") as f:
+            f.write(generate_claude_md(new_project, cfg))
+        say("CLAUDE.md written")
+
+    # config.yaml
+    import yaml
+
+    cfg["projects"].append(new_project)
+    if "jsonl_project_mapping" not in cfg:
+        cfg["jsonl_project_mapping"] = {}
+    cfg["jsonl_project_mapping"][name] = prefix
+
+    with open(config_path, "w") as f:
+        f.write("# claude_remembers Configuration File\n")
+        f.write("# Last updated by add-project.py on " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
+        f.write("# See config.yaml.example for documentation of all options.\n\n")
+        yaml.dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    say(f"config.yaml updated (added {name})")
+
+    # project_registry
+    if cfg["storage"]["mode"] == "synced":
+        db_path = cfg["storage"]["local_db_path"]
+    else:
+        db_path = os.path.join(cfg["storage"]["root_path"], "claude_remembers.db")
+    db_path = os.path.expanduser(db_path)
+
+    if os.path.exists(db_path):
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO project_registry (folder_name, prefix, label, status, health, registered_at) "
+                "VALUES (?, ?, ?, 'active', 'green', ?)",
+                (name, prefix, label, now)
+            )
+            conn.commit()
+            say(f"project_registry updated (prefix: {prefix})")
+        finally:
+            conn.close()
+
+    # remember-server MCP registration
+    home = Path.home()
+    claude_json_path = home / ".claude.json"
+    project_path_str = str(project_dir)
+
+    if claude_json_path.exists():
+        with open(claude_json_path) as f:
+            claude_json = json.load(f)
+    else:
+        claude_json = {}
+
+    projects_section = claude_json.get("projects", {})
+    server_path = str(root / "mcp" / "server.py")
+    if project_path_str not in projects_section:
+        projects_section[project_path_str] = {
+            "allowedTools": [], "mcpContextUris": [], "mcpServers": {},
+            "enabledMcpjsonServers": [], "disabledMcpjsonServers": [],
+            "hasTrustDialogAccepted": False,
+        }
+    mcp_servers = projects_section[project_path_str].get("mcpServers", {})
+    if "remember-server" not in mcp_servers:
+        mcp_servers["remember-server"] = {"type": "stdio", "command": "python3", "args": [server_path], "env": {}}
+        projects_section[project_path_str]["mcpServers"] = mcp_servers
+        claude_json["projects"] = projects_section
+        with open(claude_json_path, "w") as f:
+            json.dump(claude_json, f, indent=4)
+        say("remember-server MCP registered")
+
+    return new_project
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -278,121 +386,28 @@ def main():
             shown_prefix = prefix
         prefix = shown_prefix
 
-    new_project = {
-        "folder_name": name,
-        "prefix": prefix,
-        "label": label,
-    }
-
     print(f"\n  Will add: {bold(name)} (prefix: {prefix}, label: {label})")
     if not ask_yn("Proceed?"):
         info("Cancelled.")
         return
 
-    # Step 3: Create folder + chat-files/
+    # Steps 3-7: folder, CLAUDE.md, config.yaml, project_registry, MCP registration
+    try:
+        create_project(cfg, config_path, name, prefix, label)
+    except ValueError as e:
+        fail(str(e))
+        return
     project_dir = root / name
-    chat_dir = project_dir / "chat-files"
-    chat_dir.mkdir(parents=True, exist_ok=True)
-    ok(f"Created {project_dir}/")
 
-    # Step 4: Write CLAUDE.md
-    claude_md_path = project_dir / "CLAUDE.md"
-    write_it = True
-    if claude_md_path.exists():
-        warn("CLAUDE.md already exists in this folder.")
-        write_it = ask_yn("Overwrite?", "n")
-
-    if write_it:
-        with open(claude_md_path, "w") as f:
-            f.write(generate_claude_md(new_project, cfg))
-        ok("CLAUDE.md written")
-    else:
-        ok("CLAUDE.md skipped (kept existing)")
-
-    # Step 5: Update config.yaml
-    import yaml
-
-    cfg["projects"].append(new_project)
-
-    if "jsonl_project_mapping" not in cfg:
-        cfg["jsonl_project_mapping"] = {}
-    cfg["jsonl_project_mapping"][name] = prefix
-
-    with open(config_path, "w") as f:
-        f.write("# claude_remembers Configuration File\n")
-        f.write("# Last updated by add-project.py on " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
-        f.write("# See config.yaml.example for documentation of all options.\n\n")
-        yaml.dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    ok(f"config.yaml updated (added {name})")
-
-    # Step 6: Register in project_registry DB table
-    if cfg["storage"]["mode"] == "synced":
-        db_path = cfg["storage"]["local_db_path"]
-    else:
-        db_path = os.path.join(cfg["storage"]["root_path"], "claude_remembers.db")
-
-    db_path = os.path.expanduser(db_path)
-
-    if os.path.exists(db_path):
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        conn = sqlite3.connect(db_path)
-        try:
-            conn.execute(
-                "INSERT OR IGNORE INTO project_registry (folder_name, prefix, label, status, health, registered_at) "
-                "VALUES (?, ?, ?, 'active', 'green', ?)",
-                (name, prefix, label, now)
-            )
-            conn.commit()
-            ok(f"project_registry updated (prefix: {prefix})")
-        except Exception as e:
-            warn(f"DB registration failed: {e}")
-            info("  You can fix this later by re-running remember-setup.py")
-        finally:
-            conn.close()
-    else:
-        warn(f"Database not found at {db_path} -- skipping DB registration")
-
-    # Step 7: Register MCP server in ~/.claude.json
+    # Step 8: Detect and offer other MCP servers from root path
     home = Path.home()
     claude_json_path = home / ".claude.json"
     project_path_str = str(project_dir)
-
-    if claude_json_path.exists():
-        with open(claude_json_path) as f:
-            claude_json = json.load(f)
-    else:
-        claude_json = {}
-
+    with open(claude_json_path) as f:
+        claude_json = json.load(f)
     projects_section = claude_json.get("projects", {})
-    server_path = str(root / "mcp" / "server.py")
-    remember_mcp_entry = {
-        "type": "stdio",
-        "command": "python3",
-        "args": [server_path],
-        "env": {}
-    }
+    mcp_servers = projects_section.get(project_path_str, {}).get("mcpServers", {})
 
-    # Create project entry if needed
-    if project_path_str not in projects_section:
-        projects_section[project_path_str] = {
-            "allowedTools": [],
-            "mcpContextUris": [],
-            "mcpServers": {},
-            "enabledMcpjsonServers": [],
-            "disabledMcpjsonServers": [],
-            "hasTrustDialogAccepted": False,
-        }
-
-    # Register remember-server
-    mcp_servers = projects_section[project_path_str].get("mcpServers", {})
-    if "remember-server" not in mcp_servers:
-        mcp_servers["remember-server"] = remember_mcp_entry
-        projects_section[project_path_str]["mcpServers"] = mcp_servers
-        ok("remember-server MCP registered")
-    else:
-        ok("remember-server MCP already registered")
-
-    # Step 8: Detect and offer other MCP servers from root path
     root_str = str(root)
     other_mcps = {}
     if root_str in projects_section:

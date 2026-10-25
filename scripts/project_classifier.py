@@ -12,9 +12,33 @@ human confirm or override - never write a project assignment from this
 alone.
 """
 
+import re
+
 import numpy as np
 
 from semantic_search import get_embed_model
+
+# Below this cosine similarity, a match against an existing project isn't
+# treated as trustworthy - callers should offer "create a new project from
+# this content" instead of defaulting into a weak existing match. This is a
+# heuristic, not a calibrated probability; adjust if it proves too loose/strict.
+CONFIDENCE_THRESHOLD = 0.35
+
+
+def slugify(text, max_len=40):
+    """Turn arbitrary text (e.g. a conversation title) into a valid project
+    folder name candidate - lowercase, hyphenated, starts with a letter."""
+    s = re.sub(r'[^a-z0-9]+', '-', (text or "").lower()).strip('-')
+    if len(s) > max_len:
+        # Cut at the last whole word instead of mid-word, same approach as
+        # generate_title()'s own truncation in import_gemini.py.
+        truncated = s[:max_len]
+        last_hyphen = truncated.rfind('-')
+        s = truncated[:last_hyphen] if last_hyphen > max_len // 2 else truncated
+    s = s.rstrip('-')
+    if not s or not s[0].isalpha():
+        s = "x" + s
+    return s or "new-project"
 
 
 def compute_project_centroids(conn):

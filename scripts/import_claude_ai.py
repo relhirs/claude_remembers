@@ -10,16 +10,22 @@ Usage:
     python3 import_claude_ai.py <json_file>              # prints a ranked
                                                            # project suggestion
                                                            # instead of importing
+    python3 import_claude_ai.py <json_file> --new-project <folder-name> [--prefix <prefix>] [--label <label>]
+                                                           # creates the project
+                                                           # on the fly, then
+                                                           # imports into it
 
 Exit codes: 0 = success, 1 = error, 2 = no --project given (suggestion printed)
 """
 
 import argparse
 import datetime
+import importlib.util
 import json
 import logging
 import os
 import pathlib
+import re
 import shutil
 import socket
 import sqlite3
@@ -29,7 +35,7 @@ import time
 import yaml
 
 from config_utils import resolve_db_path
-from project_classifier import suggest_project
+from project_classifier import suggest_project, slugify, CONFIDENCE_THRESHOLD
 from write_exchange import embed_message, SEMANTIC_AVAILABLE
 
 # ---------------------------------------------------------------------------
@@ -336,6 +342,40 @@ def import_export(file_path, project, root_path=None, config=None, move_on_succe
 
 
 # ---------------------------------------------------------------------------
+# On the fly project creation (--new-project)
+# ---------------------------------------------------------------------------
+
+def load_add_project_module(root_path):
+    """Dynamically load add-project.py (hyphenated filename, not a valid
+    module name for a plain import) so its create_project()/generate_prefix()
+    can be reused instead of duplicating project-creation logic here."""
+    add_project_path = os.path.join(root_path, "scripts", "add-project.py")
+    spec = importlib.util.spec_from_file_location("add_project", add_project_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def create_new_project(root_path, folder_name, prefix=None, label=None):
+    """Create a project on the fly and return its prefix, or raise ValueError."""
+    name_pattern = re.compile(r'^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$')
+    name = folder_name.strip().lower()
+    if not name_pattern.match(name):
+        raise ValueError(f"Invalid project folder name '{name}' - use lowercase letters, numbers, hyphens, starting with a letter.")
+
+    config = load_config(root_path)
+    config_path = pathlib.Path(root_path) / "config.yaml"
+    add_project = load_add_project_module(root_path)
+
+    existing_prefixes = {p["prefix"] for p in config.get("projects", [])}
+    final_prefix = prefix or add_project.generate_prefix(name, existing_prefixes)
+    final_label = label or name.replace("-", " ").title()
+
+    add_project.create_project(config, config_path, name, final_prefix, final_label)
+    return name, final_prefix, final_label
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -343,19 +383,51 @@ def main():
     parser = argparse.ArgumentParser(description="Import claude.ai JSON export into claude_remembers DB")
     parser.add_argument("json_file", help="Path to claude.ai JSON export file")
     parser.add_argument("--project", default=None, help="Project prefix to assign; omit to get a ranked suggestion instead")
+    parser.add_argument("--new-project", default=None, metavar="FOLDER_NAME",
+                         help="Create a new project folder on the fly and import into it. Mutually exclusive with --project.")
+    parser.add_argument("--prefix", default=None,
+                         help="Database prefix for --new-project (2-4 letters, permanent). Auto-generated from the folder name if omitted.")
+    parser.add_argument("--label", default=None,
+                         help="Display name for --new-project. Defaults to a title-cased version of the folder name.")
     args = parser.parse_args()
+
+    if args.new_project and args.project:
+        parser.error("--new-project and --project are mutually exclusive - creating a project already decides which one you import into.")
+
+    if args.new_project:
+        try:
+            name, prefix, label = create_new_project(get_root_path(), args.new_project, args.prefix, args.label)
+        except ValueError as e:
+            print(f"Could not create project: {e}")
+            sys.exit(1)
+        print(f"Created new project '{name}' (prefix: {prefix}, label: {label})")
+        args.project = prefix
 
     result = import_export(args.json_file, args.project)
 
     if args.project is None and result["exit_code"] == 2:
         suggestions = result.get("suggestions", [])
+        good_match = suggestions and suggestions[0][1] >= CONFIDENCE_THRESHOLD
         if suggestions:
             print(f"Suggestions for '{result['conversation_name']}':")
             for prefix, score in suggestions:
-                print(f"  {prefix}  (similarity {score:.2f})")
+                flag = "" if score >= CONFIDENCE_THRESHOLD else "  (weak match)"
+                print(f"  {prefix}  (similarity {score:.2f}){flag}")
         else:
-            print(f"No suggestion available for '{result['conversation_name']}' (not enough embedded content yet).")
-        print("Re-run with --project <prefix> to import.")
+            print(f"No suggestion available for '{result['conversation_name']}' (not enough embedded content yet, or no projects exist yet).")
+
+        slug = slugify(result['conversation_name']) if result['conversation_name'] else None
+        new_project_cmd = (
+            f'python3 {sys.argv[0]} "{args.json_file}" --new-project {slug or "<folder-name>"}'
+        )
+        if good_match:
+            print(f"\nUse --project <prefix> for one of the above, or if none actually fit, create a new")
+            print(f"project from this conversation's own content instead:\n  {new_project_cmd}")
+        else:
+            print(f"\nNone of these look like a confident match - consider creating a new project from this")
+            print(f"conversation's own content instead:\n  {new_project_cmd}")
+            print(f"(or use --project <prefix> to force one of the weak matches above anyway)")
+        print("(add --prefix/--label to the --new-project command to override the auto-generated prefix or display name)")
     elif args.project is None:
         print(f"Could not read '{args.json_file}' - nothing to suggest a project for.")
     else:

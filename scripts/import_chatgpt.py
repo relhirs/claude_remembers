@@ -21,6 +21,7 @@ Workflow:
 
 import argparse
 import csv
+import importlib.util
 import json
 import logging
 import os
@@ -34,6 +35,8 @@ from config_utils import resolve_db_path
 from project_classifier import (
     suggest_project as suggest_project_semantic,
     compute_project_centroids,
+    slugify,
+    CONFIDENCE_THRESHOLD,
 )
 from write_exchange import embed_message, SEMANTIC_AVAILABLE
 
@@ -188,6 +191,17 @@ def suggest_tags(title, messages=None):
     return ", ".join(matched_tags[:3]) if matched_tags else ""
 
 
+def load_add_project_module():
+    """Dynamically load add-project.py (hyphenated filename, not a valid
+    module name for a plain import) to reuse create_project()/generate_prefix()
+    instead of duplicating project-creation logic here."""
+    add_project_path = SCRIPT_DIR / "add-project.py"
+    spec = importlib.util.spec_from_file_location("add_project", add_project_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def load_config():
     """Load config.yaml. Returns (config_dict, db_path)."""
     config_path = ROOT_DIR / "config.yaml"
@@ -262,6 +276,12 @@ def cmd_scan(args):
             suggest_project(config, conn, title, messages, centroids=centroids)
             if conn else (DEFAULT_PROJECT, None)
         )
+        # No existing project reads as a confident match (or none exist yet) -
+        # suggest creating a brand new one from this conversation's own
+        # content instead of silently filing it under the generic default.
+        new_project_slug = ""
+        if confidence is None or confidence < CONFIDENCE_THRESHOLD:
+            new_project_slug = slugify(title)
         suggested_tags = suggest_tags(title, messages)
         status = "IMPORTED" if conv_id in existing_ids else "NEW"
 
@@ -271,6 +291,7 @@ def cmd_scan(args):
             "messages": msg_count,
             "project": suggested_project,
             "confidence": f"{confidence:.2f}" if confidence is not None else "",
+            "new_project": new_project_slug,
             "tags": suggested_tags,
             "status": status,
             "title": title,
@@ -297,11 +318,13 @@ def cmd_scan(args):
     edit_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     new_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 
-    headers = ["conversation_id", "date", "messages", "project", "confidence", "tags", "status", "title"]
+    headers = ["conversation_id", "date", "messages", "project", "confidence", "new_project", "tags", "status", "title"]
     for col, h in enumerate(headers, 1):
         cell = ws1.cell(row=1, column=col, value=h)
         cell.fill = header_fill
         cell.font = header_font
+
+    new_proj_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
 
     for row_num, r in enumerate(rows, 2):
         ws1.cell(row=row_num, column=1, value=r["conversation_id"])
@@ -310,12 +333,15 @@ def cmd_scan(args):
         cell_proj = ws1.cell(row=row_num, column=4, value=r["project"])
         cell_proj.fill = edit_fill
         ws1.cell(row=row_num, column=5, value=r["confidence"])
-        cell_tags = ws1.cell(row=row_num, column=6, value=r["tags"])
+        cell_new_proj = ws1.cell(row=row_num, column=6, value=r["new_project"])
+        if r["new_project"]:
+            cell_new_proj.fill = new_proj_fill
+        cell_tags = ws1.cell(row=row_num, column=7, value=r["tags"])
         cell_tags.fill = edit_fill
-        cell_status = ws1.cell(row=row_num, column=7, value=r["status"])
+        cell_status = ws1.cell(row=row_num, column=8, value=r["status"])
         if r["status"] == "NEW":
             cell_status.fill = new_fill
-        ws1.cell(row=row_num, column=8, value=r["title"])
+        ws1.cell(row=row_num, column=9, value=r["title"])
 
     ws1.column_dimensions["A"].width = 40
     ws1.column_dimensions["B"].width = 12
@@ -323,8 +349,9 @@ def cmd_scan(args):
     ws1.column_dimensions["D"].width = 10
     ws1.column_dimensions["E"].width = 10
     ws1.column_dimensions["F"].width = 30
-    ws1.column_dimensions["G"].width = 12
-    ws1.column_dimensions["H"].width = 60
+    ws1.column_dimensions["G"].width = 30
+    ws1.column_dimensions["H"].width = 12
+    ws1.column_dimensions["I"].width = 60
 
     # --- Tab 2: Project Reference ---
     ws2 = wb.create_sheet("Project Reference")
@@ -358,11 +385,17 @@ def cmd_scan(args):
     ws2.cell(row=last_row + 2, column=1, value="INSTRUCTIONS:").font = Font(bold=True)
     ws2.cell(row=last_row + 3, column=1, value="1. Go to the Conversations tab")
     ws2.cell(row=last_row + 4, column=1, value="2. Review the yellow PROJECT column -- change any wrong assignments")
-    ws2.cell(row=last_row + 5, column=1, value="3. Review the yellow TAGS column -- edit, add, or remove tags")
-    ws2.cell(row=last_row + 6, column=1, value="4. Delete entire rows for conversations you do NOT want imported")
-    ws2.cell(row=last_row + 7, column=1, value="5. Rows marked IMPORTED will be skipped automatically")
-    ws2.cell(row=last_row + 8, column=1, value="6. Save the file")
-    ws2.cell(row=last_row + 9, column=1, value="7. Tell Claude you are ready for dry-run")
+    ws2.cell(row=last_row + 5, column=1, value="3. Review the orange NEW_PROJECT column -- filled in only when no")
+    ws2.cell(row=last_row + 6, column=1, value="   existing project was a confident match. If this cell has a value,")
+    ws2.cell(row=last_row + 7, column=1, value="   it wins over PROJECT: a brand new project with that folder name")
+    ws2.cell(row=last_row + 8, column=1, value="   gets created automatically on import. Put the SAME value in")
+    ws2.cell(row=last_row + 9, column=1, value="   multiple rows to group those conversations into one new project")
+    ws2.cell(row=last_row + 10, column=1, value="   together. Clear the cell to use PROJECT instead (an existing one).")
+    ws2.cell(row=last_row + 11, column=1, value="4. Review the yellow TAGS column -- edit, add, or remove tags")
+    ws2.cell(row=last_row + 12, column=1, value="5. Delete entire rows for conversations you do NOT want imported")
+    ws2.cell(row=last_row + 13, column=1, value="6. Rows marked IMPORTED will be skipped automatically")
+    ws2.cell(row=last_row + 14, column=1, value="7. Save the file")
+    ws2.cell(row=last_row + 15, column=1, value="8. Tell Claude you are ready for dry-run")
 
     wb.save(output_path)
 
@@ -378,12 +411,18 @@ def cmd_scan(args):
         for tag in [t.strip() for t in r["tags"].split(",") if t.strip()]:
             tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
+    new_proj_count = sum(1 for r in rows if r["new_project"])
+
     print(f"\n{green('Mapping xlsx generated:')} {output_path}")
     print(f"\n  Conversations: {len(rows)} ({new_count} NEW, {len(rows) - new_count} IMPORTED)")
     print(f"  Total messages: {total_msgs}")
     print(f"\n  Project suggestions:")
     for p, count in sorted(project_counts.items()):
         print(f"    {p}: {count} conversations")
+    if new_proj_count:
+        print(f"\n  {yellow(str(new_proj_count))} conversation(s) didn't confidently match any existing project -")
+        print(f"  the NEW_PROJECT column suggests a new one for each, derived from its own title.")
+        print(f"  Review that column: rename, delete, or set the same value across rows to group them.")
     print(f"\n  Tag suggestions ({len(tag_counts)} unique tags):")
     for tag, count in sorted(tag_counts.items(), key=lambda x: -x[1]):
         print(f"    {tag}: {count} conversations")
@@ -411,25 +450,28 @@ def cmd_import(args):
         sys.exit(1)
 
     # Read mapping from xlsx or csv
-    mapping = {}  # conv_id -> {"project": ..., "tags": ...}
+    mapping = {}  # conv_id -> {"project": ..., "new_project": ..., "tags": ...}
     if map_path.suffix == ".xlsx":
         from openpyxl import load_workbook
         wb = load_workbook(map_path)
         ws = wb["Conversations"]
         headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        has_new_project_col = "new_project" in headers
         for row in range(2, ws.max_row + 1):
             conv_id = ws.cell(row=row, column=1).value
             if not conv_id:
                 continue
             project = ws.cell(row=row, column=headers.index("project") + 1).value or DEFAULT_PROJECT
             tags = ws.cell(row=row, column=headers.index("tags") + 1).value or ""
-            mapping[conv_id] = {"project": project, "tags": tags}
+            new_project = (ws.cell(row=row, column=headers.index("new_project") + 1).value or "").strip() if has_new_project_col else ""
+            mapping[conv_id] = {"project": project, "new_project": new_project, "tags": tags}
     else:
         with open(map_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 mapping[row["conversation_id"]] = {
                     "project": row.get("project", DEFAULT_PROJECT),
+                    "new_project": (row.get("new_project") or "").strip(),
                     "tags": row.get("tags", ""),
                 }
 
@@ -459,6 +501,7 @@ def cmd_import(args):
             "conversation": c,
             "messages": messages,
             "project": mapping[conv_id]["project"],
+            "new_project": mapping[conv_id].get("new_project", ""),
             "tags": mapping[conv_id].get("tags", ""),
             "conv_id": conv_id,
         })
@@ -471,25 +514,31 @@ def cmd_import(args):
         print(f"\n{yellow('DRY RUN')} -- showing what would be imported:\n")
         project_summary = {}
         for item in to_import:
-            p = item["project"]
+            p = f"[NEW] {item['new_project']}" if item["new_project"] else item["project"]
             if p not in project_summary:
                 project_summary[p] = {"count": 0, "messages": 0}
             project_summary[p]["count"] += 1
             project_summary[p]["messages"] += len(item["messages"])
 
-        print(f"  {'Project':<12} {'Conversations':>14} {'Messages':>10}")
-        print(f"  {'-'*12} {'-'*14} {'-'*10}")
+        print(f"  {'Project':<30} {'Conversations':>14} {'Messages':>10}")
+        print(f"  {'-'*30} {'-'*14} {'-'*10}")
         for p in sorted(project_summary.keys()):
             s = project_summary[p]
-            print(f"  {p:<12} {s['count']:>14} {s['messages']:>10}")
+            print(f"  {p:<30} {s['count']:>14} {s['messages']:>10}")
         total_msgs = sum(s["messages"] for s in project_summary.values())
-        print(f"  {'TOTAL':<12} {len(to_import):>14} {total_msgs:>10}")
+        print(f"  {'TOTAL':<30} {len(to_import):>14} {total_msgs:>10}")
+
+        new_count = len({item["new_project"] for item in to_import if item["new_project"]})
+        if new_count:
+            print(f"\n  [NEW] above means a project with that folder name doesn't exist yet -")
+            print(f"  {new_count} new project(s) will be created automatically on the real run.")
 
         print(f"\n  Sample conversations:")
         for item in to_import[:10]:
             c = item["conversation"]
             title = (c.get("title") or "(untitled)")[:60]
-            print(f"    [{item['project']}] {len(item['messages']):>3} msgs | {title}")
+            label = f"NEW: {item['new_project']}" if item["new_project"] else item["project"]
+            print(f"    [{label}] {len(item['messages']):>3} msgs | {title}")
         if len(to_import) > 10:
             print(f"    ... and {len(to_import) - 10} more")
 
@@ -501,6 +550,24 @@ def cmd_import(args):
     conn = sqlite3.connect(db_path)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # Create any brand new projects requested via the new_project column
+    # first, so the main loop below can just treat them as an existing prefix.
+    new_folder_names = {item["new_project"] for item in to_import if item["new_project"]}
+    new_project_prefixes = {}
+    if new_folder_names:
+        add_project = load_add_project_module()
+        for folder_name in sorted(new_folder_names):
+            existing = next((p for p in config.get("projects", []) if p["folder_name"] == folder_name), None)
+            if existing:
+                new_project_prefixes[folder_name] = existing["prefix"]
+                continue
+            existing_prefixes = {p["prefix"] for p in config.get("projects", [])}
+            prefix = add_project.generate_prefix(folder_name, existing_prefixes)
+            label = folder_name.replace("-", " ").title()
+            created = add_project.create_project(config, ROOT_DIR / "config.yaml", folder_name, prefix, label)
+            new_project_prefixes[folder_name] = created["prefix"]
+            print(f"  {green('Created new project')} '{folder_name}' (prefix: {created['prefix']}, label: {created['label']})")
+
     imported = 0
     skipped_dup = 0
     total_transcripts = 0
@@ -508,7 +575,7 @@ def cmd_import(args):
     for item in to_import:
         c = item["conversation"]
         conv_id = item["conv_id"]
-        project = item["project"]
+        project = new_project_prefixes[item["new_project"]] if item["new_project"] else item["project"]
         messages = item["messages"]
         title = c.get("title", "") or "(untitled)"
         create_time = c.get("create_time", 0)
