@@ -27,6 +27,25 @@ import yaml
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RETRIEVAL_LOG_PATH = os.path.join(ROOT_DIR, "logs", "retrieval.log")
+RETRIEVAL_LOG_MAX_BYTES = 5 * 1024 * 1024  # 5MB; one line per message otherwise grows forever
+
+
+def _rotate_log_if_needed(path, max_bytes=RETRIEVAL_LOG_MAX_BYTES):
+    """Keep the log from growing unbounded by dropping its older half once
+    it crosses max_bytes. Never raises - log rotation must not break the hook."""
+    try:
+        if os.path.getsize(path) <= max_bytes:
+            return
+        with open(path, "rb") as f:
+            data = f.read()
+        tail = data[-(max_bytes // 2):]
+        newline = tail.find(b"\n")
+        if newline != -1:
+            tail = tail[newline + 1:]
+        with open(path, "wb") as f:
+            f.write(tail)
+    except Exception:
+        pass
 
 
 def _log_retrieval(session_id, outcome, keywords, prompt_text, n_results=0):
@@ -35,6 +54,8 @@ def _log_retrieval(session_id, outcome, keywords, prompt_text, n_results=0):
     instead of just assumed. Never raises - logging must not break the hook."""
     try:
         os.makedirs(os.path.dirname(RETRIEVAL_LOG_PATH), exist_ok=True)
+        if os.path.exists(RETRIEVAL_LOG_PATH):
+            _rotate_log_if_needed(RETRIEVAL_LOG_PATH)
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         snippet = (prompt_text or "")[:120].replace("\n", " ")
         kw = ",".join(keywords or [])
