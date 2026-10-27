@@ -28,7 +28,6 @@ from config_utils import ensure_mcp_user_registration, remove_mcp_local_registra
 # ---------------------------------------------------------------------------
 
 MIN_PYTHON = (3, 10)
-PIP_PACKAGES = ["PyYAML", "mcp", "sentence-transformers", "numpy"]
 HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PreCompact", "PostCompact"]
 HOOK_SCRIPTS = ["session-start.py", "user-prompt-submit.py", "stop.py", "session-end.py", "pre-compact.py", "post-compact.py"]
 
@@ -167,33 +166,27 @@ def phase_preflight():
 
 def phase_dependencies(pip_cmd):
     phase_header(2, 9, "DEPENDENCIES")
-    failed = []
 
-    for pkg in PIP_PACKAGES:
-        import_name = pkg.lower().replace("-", "_")
-        if import_name == "pyyaml":
-            import_name = "yaml"
+    requirements_path = Path(__file__).resolve().parent.parent / "requirements.txt"
+    if not requirements_path.exists():
+        fail(f"requirements.txt not found at {requirements_path}")
+        sys.exit(1)
 
-        try:
-            __import__(import_name)
-            ok(f"{pkg} already installed")
-        except ImportError:
-            info(f"Installing {pkg}...")
-            try:
-                subprocess.run(
-                    pip_cmd + ["install", "--quiet", pkg],
-                    capture_output=True, text=True, timeout=300, check=True
-                )
-                # Verify import
-                __import__(import_name)
-                ok(f"{pkg} installed")
-            except Exception as e:
-                fail(f"{pkg} failed to install: {e}")
-                failed.append(pkg)
-
-    if failed:
-        print(f"\n  {red('ERROR')}: Failed to install: {', '.join(failed)}")
-        print("  Try manually: pip3 install " + " ".join(failed))
+    info("Installing from requirements.txt (includes sentence-transformers + torch")
+    info("for semantic search - a 500MB+ download on first run)...")
+    try:
+        subprocess.run(
+            pip_cmd + ["install", "--quiet", "-r", str(requirements_path)],
+            capture_output=True, text=True, timeout=600, check=True
+        )
+        ok("All dependencies installed")
+    except subprocess.CalledProcessError as e:
+        fail("Dependency install failed")
+        print(e.stderr[-2000:] if e.stderr else str(e))
+        print(f"\n  {red('ERROR')}: Try manually: pip3 install -r requirements.txt")
+        sys.exit(1)
+    except Exception as e:
+        fail(f"Dependency install failed: {e}")
         sys.exit(1)
 
 # ---------------------------------------------------------------------------
@@ -1088,6 +1081,14 @@ def phase_email(cfg):
     info("The cron job is what actually triggers the digest on a schedule - without")
     info("it, the digest script exists but nothing runs it automatically.")
 
+    if sys.platform == "win32":
+        warn("cron isn't available on Windows - set this up with Task Scheduler instead:")
+        info(f'  Program:   "{sys.executable}"')
+        info(f'  Arguments: "{digest_script}" --daily')
+        info("  Trigger:   Daily, weekdays, 8:00 AM (add a second task without --daily, weekly on Monday)")
+        info("  (Task Scheduler app -> Create Basic Task -> point it at the above)")
+        return
+
     if ask_yn("  Set up daily standup cron (weekdays 8am)?", "y"):
         try:
             import subprocess
@@ -1143,7 +1144,7 @@ def phase_registration(cfg):
     hooks_added = 0
 
     for event, script in zip(HOOK_EVENTS, HOOK_SCRIPTS):
-        hook_cmd = f"python3 {root}/hooks/{script}"
+        hook_cmd = f'"{sys.executable}" "{root / "hooks" / script}"'
         existing = hooks.get(event, [])
 
         # Check if already registered with same command
