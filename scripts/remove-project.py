@@ -3,8 +3,9 @@
 remove-project.py - Remove a project from an existing claude_remembers installation.
 
 Mirrors add-project.py in reverse: removes the config.yaml entry, the
-jsonl_project_mapping entry, the project_registry row, and the MCP
-registration in ~/.claude.json.
+jsonl_project_mapping entry, and the project_registry row. Does NOT touch
+remember-server's MCP registration - that's one global "user" scope entry
+shared by every project, not something tied to this one.
 
 By default this does NOT touch anything already recorded in the database
 (transcripts, sessions, decisions, facts) - it just stops tracking the
@@ -15,11 +16,12 @@ Usage:
     python3 scripts/remove-project.py
 """
 
-import json
 import os
 import sqlite3
 import sys
 from pathlib import Path
+
+from config_utils import resolve_project_path
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -152,7 +154,8 @@ def main():
 
     name = target["folder_name"]
     prefix = target["prefix"]
-    project_dir = root / name
+    project_dir = Path(resolve_project_path(cfg, target))
+    external_path = not str(project_dir).startswith(str(root))
 
     db_path = resolve_db_path(cfg)
     history_counts = {}
@@ -167,7 +170,8 @@ def main():
     print(f"\n  This will:")
     print(f"    - Remove it from config.yaml (projects list + jsonl_project_mapping)")
     print(f"    - Remove its project_registry row")
-    print(f"    - Remove the remember-server MCP registration for {project_dir}")
+    print(f"    (remember-server's MCP registration is global/user-scope, shared by")
+    print(f"     every project - removing this one doesn't touch it)")
     if history_counts:
         total = sum(history_counts.values())
         print(f"\n  {yellow('It will NOT delete')} the {total} existing database row(s) already")
@@ -211,30 +215,10 @@ def main():
         finally:
             conn.close()
 
-    # Step 3: ~/.claude.json MCP registration
-    home = Path.home()
-    claude_json_path = home / ".claude.json"
-    project_path_str = str(project_dir)
-
-    if claude_json_path.exists():
-        with open(claude_json_path) as f:
-            claude_json = json.load(f)
-        projects_section = claude_json.get("projects", {})
-        if project_path_str in projects_section:
-            mcp_servers = projects_section[project_path_str].get("mcpServers", {})
-            if "remember-server" in mcp_servers:
-                del mcp_servers["remember-server"]
-                projects_section[project_path_str]["mcpServers"] = mcp_servers
-                claude_json["projects"] = projects_section
-                with open(claude_json_path, "w") as f:
-                    json.dump(claude_json, f, indent=4)
-                ok("remember-server MCP registration removed")
-            else:
-                ok("remember-server was not registered for this project")
-        else:
-            ok("No ~/.claude.json entry for this project's folder")
-    else:
-        ok("No ~/.claude.json found - nothing to update")
+    # Step 3: ~/.claude.json - nothing to do. remember-server is registered
+    # once at Claude Code's global "user" MCP scope (see
+    # config_utils.ensure_mcp_user_registration), shared by every project,
+    # so removing one project never touches it.
 
     # Step 4 (opt-in, separately confirmed): delete historical DB rows
     if history_counts:
@@ -265,6 +249,9 @@ def main():
             info(f"  Project folder {project_dir} still contains {len(contents)} item(s)")
             for item in contents[:10]:
                 info(f"    - {item.name}")
+        if external_path:
+            warn(f"This path is OUTSIDE claude_remembers' root ({root}) - it may be your")
+            warn("actual project folder/repo, not something claude_remembers created.")
         if ask_yn(f"Delete the project folder {project_dir} too?", "n"):
             import shutil
             shutil.rmtree(project_dir)

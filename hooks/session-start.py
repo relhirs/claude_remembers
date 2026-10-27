@@ -12,14 +12,28 @@ RULE: stdout is SACRED. Only valid JSON goes to stdout.
 import json
 import os
 import re
+import socket
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 from config_utils import resolve_db_path
+
+
+def _log_hook_error(root, hook_name, message):
+    """Append a timestamped line to logs/hooks.log. Never raises."""
+    try:
+        log_dir = os.path.join(root, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(os.path.join(log_dir, "hooks.log"), "a") as f:
+            f.write(f"{ts} [{hook_name}] {message}\n")
+    except Exception:
+        pass
 
 
 def normalize_for_match(s):
@@ -173,15 +187,23 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     # 1. Run startup check - ingest new files, verify folders, backup DB
-    #    stdout/stderr suppressed - hook stdout is SACRED (JSON only)
+    #    hook's own stdout stays suppressed (hook stdout is SACRED, JSON
+    #    only), but stderr goes to startup_check.py's own log file instead
+    #    of being discarded, so a crash before its internal logger starts
+    #    is still captured somewhere.
     try:
+        hostname = socket.gethostname()
+        log_dir = os.path.join(root, "logs", hostname)
+        os.makedirs(log_dir, exist_ok=True)
+        sc_log = open(os.path.join(log_dir, "startup_check.log"), "a")
         subprocess.run(
             [sys.executable, os.path.join(root, "scripts", "startup_check.py")],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=sc_log,
         )
-    except Exception:
-        pass
+        sc_log.close()
+    except Exception as e:
+        _log_hook_error(root, "session-start.py", f"startup_check.py launch failed: {e!r}")
 
     # 2. Query last session notes + recent summaries and output JSON
     try:
@@ -196,6 +218,7 @@ def main():
 
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA busy_timeout=5000;")
+        conn.row_factory = sqlite3.Row
 
         lines = []
 
@@ -337,11 +360,17 @@ def main():
             pass
 
         # Project summary injection: show current project context
+        cwd_project = None
         try:
             cwd = os.environ.get("CWD", os.getcwd())
             norm_cwd = normalize_for_match(cwd)
             mapping = config.get("jsonl_project_mapping", {})
-            cwd_project = None
+            # "oth" matches write_exchange.py's detect_project() fallback -
+            # without this, a folder with no jsonl_project_mapping entry
+            # left cwd_project as None here (but still wrote project="oth"
+            # when capturing messages), silently disabling the project
+            # summary/recovery sections below for that folder.
+            cwd_project = "oth"
             for folder, prefix in mapping.items():
                 if normalize_for_match(folder) in norm_cwd:
                     cwd_project = prefix
@@ -354,6 +383,24 @@ def main():
                 if proj_row:
                     lines.append("## Current Project Summary")
                     lines.append(proj_row[0])
+                    lines.append("")
+        except Exception:
+            pass
+
+        # Project-scoped profile injection: mirrors get_profile(project)'s
+        # merge (project-specific facts override global ones sharing the
+        # same key), force-injected the same way project_registry.summary
+        # is above - otherwise these preferences would only be visible if
+        # Claude proactively called the MCP tool.
+        try:
+            if cwd_project:
+                from profile_utils import fetch_merged_profile, format_profile_markdown
+                facts, prefs = fetch_merged_profile(conn, cwd_project)
+                profile_md = format_profile_markdown(
+                    facts, prefs, heading=f"## Project Profile ({cwd_project})"
+                )
+                if profile_md:
+                    lines.append(profile_md)
                     lines.append("")
         except Exception:
             pass
@@ -408,7 +455,8 @@ def main():
         else:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
 
-    except Exception:
+    except Exception as e:
+        _log_hook_error(root, "session-start.py", f"context build failed, returned empty: {e!r}")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
 
 

@@ -88,13 +88,18 @@ def get_status(root_path=None, config=None):
         # Total messages
         result["messages"] = conn.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0]
 
-        # Per-project stats
+        # Per-project stats. sys_sessions.project stores the short internal
+        # prefix (e.g. "b2"), not the folder name - join project_registry so
+        # the output can show both instead of just the bare code.
         for row in conn.execute("""
             SELECT s.project,
+                   COALESCE(r.folder_name, s.project) as folder_name,
+                   COALESCE(r.label, '') as label,
                    COUNT(DISTINCT s.session_id) as session_count,
                    COALESCE(t.msg_count, 0) as message_count,
                    MAX(s.started_at) as last_session
             FROM sys_sessions s
+            LEFT JOIN project_registry r ON r.prefix = s.project
             LEFT JOIN (
                 SELECT project, COUNT(*) as msg_count
                 FROM transcripts
@@ -105,6 +110,8 @@ def get_status(root_path=None, config=None):
         """):
             r = dict(row)
             result["projects"][r["project"]] = {
+                "folder_name": r["folder_name"],
+                "label": r["label"],
                 "sessions": r["session_count"],
                 "messages": r["message_count"],
                 "last_session": r["last_session"],
@@ -163,9 +170,11 @@ def print_human(data):
 
     if data["projects"]:
         print("By project:")
+        print(f"  {'Prefix':6s} {'Project':20s} {'Sessions':>8s}  {'Messages':>8s}  Last Session")
         for proj, info in sorted(data["projects"].items()):
             last = info["last_session"] or "never"
-            print(f"  {proj:5s} {info['sessions']:4d} sessions, {info['messages']:6d} messages, last: {last}")
+            name = info["folder_name"] or proj
+            print(f"  {proj:6s} {name:20s} {info['sessions']:8d}  {info['messages']:8d}  {last}")
 
     backup = data["last_backup"] or "never"
     print(f"Last backup: {backup} ({data['last_backup_size_kb']} KB)")

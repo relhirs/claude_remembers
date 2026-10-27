@@ -39,6 +39,7 @@ other/
 *.db-journal
 *.db-wal
 *.db-shm
+*.db.bak-*
 
 # Rotating database backups (db-backup/, written by remember-setup/startup_check)
 db-backup/
@@ -49,9 +50,10 @@ exports/
 # Session logs, one subfolder per machine hostname
 logs/
 
-# Claude.ai export files staged for import (personal conversations)
-imports/*.json
-imports/completed/*.json
+# Claude.ai/ChatGPT/Gemini export files staged for import (personal conversations),
+# including nested subfolders (e.g. imports/chatgpt-import/, imports/claude-import/)
+imports/**/*.json
+imports/**/*.xlsx
 
 # --- BUILD/RUNTIME ARTIFACTS ---
 

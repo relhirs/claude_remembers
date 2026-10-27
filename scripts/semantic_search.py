@@ -12,9 +12,29 @@ Used by two callers with very different cost profiles:
 
 Factored out so both callers share one implementation instead of two
 copies drifting apart.
+
+Errors here (model load failure, corrupt embedding row) are logged to
+logs/semantic_search.log and degrade to an empty result list rather than
+raising, since this is a fallback path - callers shouldn't crash just
+because the fallback itself broke.
 """
 
+import os
+from datetime import datetime, timezone
+
 _embed_model = None
+_LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "semantic_search.log")
+
+
+def _log(message):
+    """Append a timestamped line to logs/semantic_search.log. Never raises."""
+    try:
+        os.makedirs(os.path.dirname(_LOG_PATH), exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(_LOG_PATH, "a") as f:
+            f.write(f"{ts} {message}\n")
+    except Exception:
+        pass
 
 
 def get_embed_model(config):
@@ -25,7 +45,11 @@ def get_embed_model(config):
     from sentence_transformers import SentenceTransformer
     sem_config = config.get("semantic_search", {})
     model_name = sem_config.get("model", "all-MiniLM-L6-v2")
-    _embed_model = SentenceTransformer(model_name)
+    try:
+        _embed_model = SentenceTransformer(model_name)
+    except Exception as e:
+        _log(f"ERROR model load failed (model={model_name!r}): {e!r}")
+        raise
     return _embed_model
 
 
@@ -34,37 +58,60 @@ def semantic_search(conn, config, query, project=None, limit=10):
 
     Returns a list of dicts sorted by similarity descending:
     {"similarity": float, "project": str, "timestamp": str, "content": str}
+    Returns [] (and logs) on any failure instead of raising, so a broken
+    embedding model or a corrupt row degrades to "no semantic results"
+    rather than crashing whichever hook or MCP call invoked this fallback.
     """
     import numpy as np
 
-    model = get_embed_model(config)
-    query_vec = np.array(model.encode(query), dtype=np.float32)
+    try:
+        model = get_embed_model(config)
+    except Exception:
+        return []  # get_embed_model already logged the specific cause
 
-    if project:
-        rows = conn.execute(
-            """SELECT te.embedding, t.project, t.timestamp, t.content
-               FROM transcript_embeddings te
-               JOIN transcripts t ON t.id = te.transcript_id
-               WHERE t.project = ?""",
-            (project,),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """SELECT te.embedding, t.project, t.timestamp, t.content
-               FROM transcript_embeddings te
-               JOIN transcripts t ON t.id = te.transcript_id"""
-        ).fetchall()
+    try:
+        query_vec = np.array(model.encode(query), dtype=np.float32)
+    except Exception as e:
+        _log(f"ERROR encoding query failed: {e!r}")
+        return []
+
+    try:
+        if project:
+            rows = conn.execute(
+                """SELECT te.embedding, t.project, t.timestamp, t.content
+                   FROM transcript_embeddings te
+                   JOIN transcripts t ON t.id = te.transcript_id
+                   WHERE t.project = ?""",
+                (project,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT te.embedding, t.project, t.timestamp, t.content
+                   FROM transcript_embeddings te
+                   JOIN transcripts t ON t.id = te.transcript_id"""
+            ).fetchall()
+    except Exception as e:
+        _log(f"ERROR embedding query failed: {e!r}")
+        return []
 
     if not rows:
         return []
 
     scored = []
+    skipped = 0
     for emb_blob, proj, ts, content in rows:
-        emb = np.frombuffer(emb_blob, dtype=np.float32)
-        dot = np.dot(query_vec, emb)
-        norm = np.linalg.norm(query_vec) * np.linalg.norm(emb)
-        sim = float(dot / norm) if norm > 0 else 0.0
-        scored.append((sim, proj, ts, content))
+        try:
+            emb = np.frombuffer(emb_blob, dtype=np.float32)
+            dot = np.dot(query_vec, emb)
+            norm = np.linalg.norm(query_vec) * np.linalg.norm(emb)
+            sim = float(dot / norm) if norm > 0 else 0.0
+            scored.append((sim, proj, ts, content))
+        except Exception:
+            skipped += 1
+            continue
+
+    if skipped:
+        _log(f"WARN skipped {skipped}/{len(rows)} rows with unreadable embeddings")
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [

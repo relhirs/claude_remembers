@@ -14,8 +14,23 @@ RULE: stdout is SACRED. Only valid JSON goes to stdout.
 
 import glob
 import os
+import re
+import socket
 import subprocess
 import sys
+from datetime import datetime, timezone
+
+
+def _log_hook_error(root, hook_name, message):
+    """Append a timestamped line to logs/hooks.log. Never raises."""
+    try:
+        log_dir = os.path.join(root, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(os.path.join(log_dir, "hooks.log"), "a") as f:
+            f.write(f"{ts} [{hook_name}] {message}\n")
+    except Exception:
+        pass
 
 
 def main():
@@ -26,7 +41,7 @@ def main():
 
     # Determine current session JSONL path from CWD
     cwd = os.getcwd()
-    encoded_cwd = cwd.replace("/", "-")
+    encoded_cwd = re.sub(r"[^a-zA-Z0-9]", "-", cwd)
     project_dir = os.path.join(os.path.expanduser("~"), ".claude", "projects", encoded_cwd)
 
     jsonl_files = glob.glob(os.path.join(project_dir, "*.jsonl"))
@@ -37,17 +52,25 @@ def main():
     jsonl_path = max(jsonl_files, key=os.path.getmtime)
     session_id = os.path.splitext(os.path.basename(jsonl_path))[0]
 
-    # Call write_exchange.py - dedup is built in, safe to call multiple times
+    # Call write_exchange.py - dedup is built in, safe to call multiple times.
+    # stderr goes to write_exchange.py's own log file instead of being
+    # discarded, so a crash before its internal logger starts is still
+    # captured somewhere.
     try:
+        hostname = socket.gethostname()
+        log_dir = os.path.join(root, "logs", hostname)
+        os.makedirs(log_dir, exist_ok=True)
+        we_log = open(os.path.join(log_dir, "write_exchange.log"), "a")
         subprocess.run(
             [sys.executable, os.path.join(root, "scripts", "write_exchange.py"),
              "--session-id", session_id,
              "--jsonl-path", jsonl_path],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=we_log,
         )
-    except Exception:
-        pass
+        we_log.close()
+    except Exception as e:
+        _log_hook_error(root, "pre-compact.py", f"write_exchange.py launch failed: {e!r}")
 
     print("{}")
 

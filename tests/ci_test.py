@@ -226,6 +226,95 @@ def test_database_creation():
         check("database has data", db_path.stat().st_size > 0)
 
 
+def test_ingest_fixtures():
+    """Run the real ingestion engine against verification/fixtures/*.jsonl
+    in an isolated temp DB, to actually exercise dedup, malformed-line
+    handling, and subagent detection (not just confirm files compile)."""
+    print("\n--- Ingest Fixtures ---")
+
+    fixtures_dir = ROOT / "verification" / "fixtures"
+    check("verification/fixtures/ exists", fixtures_dir.exists())
+    if not fixtures_dir.exists():
+        return
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import ingest_jsonl
+    except Exception as e:
+        check("import ingest_jsonl", False, str(e))
+        return
+
+    import logging
+    logger = logging.getLogger("ci_test_ingest")
+    logger.addHandler(logging.NullHandler())
+    logger.propagate = False
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript("""
+            CREATE TABLE transcripts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, project TEXT,
+                uuid TEXT UNIQUE, parent_uuid TEXT, type TEXT, subtype TEXT, role TEXT,
+                content TEXT, model TEXT, timestamp TEXT, token_input INTEGER,
+                token_output INTEGER, stop_reason TEXT, is_subagent INTEGER DEFAULT 0,
+                source_file TEXT, raw_json TEXT, created_at TEXT, source TEXT);
+            CREATE TABLE sys_sessions (
+                session_id TEXT PRIMARY KEY, project TEXT, started_at TEXT, ended_at TEXT,
+                cwd TEXT, claude_version TEXT, model TEXT, source TEXT,
+                message_count INTEGER DEFAULT 0, created_at TEXT, notes TEXT, tags TEXT);
+            CREATE TABLE tool_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, project TEXT,
+                tool_use_id TEXT, content TEXT, source_file TEXT, created_at TEXT);
+        """)
+
+        # config=None here (no --semantic flag) means embed_message() short-circuits
+        # on SEMANTIC_AVAILABLE/enabled checks - fine, this test is about parsing,
+        # not embedding. Pass a disabled-semantic config explicitly to be sure.
+        fake_config = {"semantic_search": {"enabled": False}}
+
+        def run(fname, file_type="jsonl"):
+            path = fixtures_dir / fname
+            return ingest_jsonl.ingest_jsonl_file(
+                conn, str(path), "oth", file_type, logger, config=fake_config
+            )
+
+        imported, skipped = run("valid_session.jsonl")
+        check("valid_session.jsonl: imports storable lines", imported == 7,
+              f"got imported={imported}")
+        check("valid_session.jsonl: skips snapshot/progress lines", skipped == 3,
+              f"got skipped={skipped}")
+
+        imported, skipped = run("valid_session_with_tools.jsonl")
+        check("valid_session_with_tools.jsonl: imports all lines", imported == 6,
+              f"got imported={imported}")
+
+        imported, skipped = run("duplicate_uuids.jsonl")
+        check("duplicate_uuids.jsonl: dedups by uuid", imported == 2,
+              f"got imported={imported} (expected 2 - duplicates must be ignored, not errored)")
+
+        imported, skipped = run("malformed.jsonl")
+        check("malformed.jsonl: imports only the valid line", imported == 1,
+              f"got imported={imported}")
+        check("malformed.jsonl: skips bad-JSON/missing-uuid/missing-type lines", skipped == 4,
+              f"got skipped={skipped}")
+
+        imported, skipped = run("empty.jsonl")
+        check("empty.jsonl: no crash, nothing imported", imported == 0 and skipped == 0,
+              f"got imported={imported} skipped={skipped}")
+
+        imported, skipped = run("subagent_session.jsonl", file_type="subagent")
+        check("subagent_session.jsonl: imports all lines", imported == 5,
+              f"got imported={imported}")
+        subagent_flag = conn.execute(
+            "SELECT DISTINCT is_subagent FROM transcripts WHERE session_id = 'test-session-subagent'"
+        ).fetchall()
+        check("subagent_session.jsonl: rows flagged is_subagent=1",
+              subagent_flag == [(1,)], f"got {subagent_flag}")
+
+        conn.close()
+
+
 def test_config_parsing():
     """Verify config.yaml.example parses correctly."""
     print("\n--- Config Parsing ---")
@@ -273,6 +362,7 @@ if __name__ == "__main__":
     test_python_compilation()
     test_dependencies()
     test_database_creation()
+    test_ingest_fixtures()
     test_config_parsing()
 
     print("\n" + "=" * 60)

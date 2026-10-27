@@ -21,6 +21,8 @@ import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
+from config_utils import ensure_mcp_user_registration, remove_mcp_local_registrations
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -284,7 +286,7 @@ def phase_projects():
     print()
     print("  Not sure? Just add one project called 'general' and move on - sessions run")
     print("  from inside this script's own 'general' folder will tag themselves 'gen'")
-    print("  automatically. Add more anytime by rerunning this script or /remember-setup.")
+    print("  automatically. Add more anytime by rerunning this script or /remember-add-project.")
     print()
     print("  Type it exactly as the real folder appears (any case, spaces allowed).")
     print("  Just avoid slashes ('/' or '\\\\') and leading/trailing spaces.")
@@ -325,13 +327,32 @@ def phase_projects():
                 shown_prefix = prefix
             prefix = shown_prefix
 
+        default_path = str(Path(root_path) / name)
+        info("Where do this project's files actually live? Point at an existing real")
+        info("folder if you have one - CLAUDE.md/chat-files get added into it, nothing")
+        info("nested gets created, and anything already there is left untouched.")
+        existing_paths = {os.path.realpath(os.path.expanduser(p.get("path", str(Path(root_path) / p["folder_name"]))))
+                           for p in projects}
+        while True:
+            raw_path = ask(f"  Project folder path for '{name}'", default_path)
+            path = os.path.expanduser(raw_path)
+            real_path = os.path.realpath(path)
+            if os.path.isfile(path):
+                warn(f"'{path}' is a file, not a folder.")
+                continue
+            if real_path in existing_paths:
+                warn(f"Another project is already registered at '{path}'.")
+                continue
+            break
+
         projects.append({
             "folder_name": name,
             "prefix": prefix,
-            "label": label
+            "label": label,
+            "path": path
         })
         prefixes_used.add(prefix)
-        ok(f"Added: {name} (prefix: {prefix})")
+        ok(f"Added: {name} (prefix: {prefix}, path: {path})")
 
     # Auto-add "other" if not present
     if "other" not in [p["folder_name"] for p in projects]:
@@ -339,7 +360,8 @@ def phase_projects():
         projects.append({
             "folder_name": "other",
             "prefix": oth_prefix,
-            "label": "Uncategorized"
+            "label": "Uncategorized",
+            "path": str(Path(root_path) / "other")
         })
         prefixes_used.add(oth_prefix)
         ok(f"Auto-added: other (prefix: {oth_prefix}) - catch-all for unmatched sessions")
@@ -376,7 +398,7 @@ def phase_projects():
     print(f"    DB:      {db_path}")
     print(f"    Projects:")
     for p in projects:
-        print(f"      {p['folder_name']} ({p['prefix']}) - {p['label']}")
+        print(f"      {p['folder_name']} ({p['prefix']}) - {p['label']} -> {p['path']}")
     if identity:
         print(f"    Identity: {', '.join(f'{k}={v}' for k, v in identity.items())}")
     print()
@@ -416,10 +438,12 @@ def phase_directories(cfg):
         db_dir,
     ]
 
-    # Project directories
+    # Project directories - p["path"] may point anywhere on disk, not
+    # necessarily nested under root (see config_utils.resolve_project_path)
     for p in cfg["projects"]:
-        dirs_to_create.append(root / p["folder_name"])
-        dirs_to_create.append(root / p["folder_name"] / "chat-files")
+        project_dir = Path(p["path"])
+        dirs_to_create.append(project_dir)
+        dirs_to_create.append(project_dir / "chat-files")
 
     for d in dirs_to_create:
         d.mkdir(parents=True, exist_ok=True)
@@ -475,7 +499,8 @@ DDL_STATEMENTS = [
         summary          TEXT,
         summary_updated_at TEXT,
         status           TEXT DEFAULT 'active',
-        health           TEXT DEFAULT 'green'
+        health           TEXT DEFAULT 'green',
+        path             TEXT
     )""",
 
     # --- Transcript tables ---
@@ -516,6 +541,7 @@ DDL_STATEMENTS = [
         category         TEXT,
         key              TEXT,
         value            TEXT,
+        project          TEXT DEFAULT NULL,
         source           TEXT,
         source_session   TEXT,
         confidence       TEXT,
@@ -526,6 +552,7 @@ DDL_STATEMENTS = [
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
         category         TEXT,
         preference       TEXT,
+        project          TEXT DEFAULT NULL,
         source           TEXT,
         created_at       TEXT,
         updated_at       TEXT
@@ -641,8 +668,8 @@ def phase_database(cfg):
     # Seed project_registry
     for p in cfg["projects"]:
         cursor.execute(
-            "INSERT OR IGNORE INTO project_registry (folder_name, prefix, label, registered_at) VALUES (?, ?, ?, ?)",
-            (p["folder_name"], p["prefix"], p["label"], now)
+            "INSERT OR IGNORE INTO project_registry (folder_name, prefix, label, registered_at, path) VALUES (?, ?, ?, ?, ?)",
+            (p["folder_name"], p["prefix"], p["label"], now, p["path"])
         )
     conn.commit()
     ok(f"project_registry seeded ({len(cfg['projects'])} projects)")
@@ -695,6 +722,7 @@ def phase_config(cfg):
             "folder_name": p["folder_name"],
             "prefix": p["prefix"],
             "label": p["label"],
+            "path": p["path"],
         })
 
     # Build jsonl_project_mapping from projects
@@ -842,7 +870,7 @@ def phase_config(cfg):
 
     # --- Generate CLAUDE.md per project ---
     for p in cfg["projects"]:
-        project_dir = root / p["folder_name"]
+        project_dir = Path(p["path"])
         claude_md = project_dir / "CLAUDE.md"
 
         template = textwrap.dedent(f"""\
@@ -924,7 +952,7 @@ def phase_config(cfg):
             ## SLASH COMMANDS
             Type these in Claude Code for direct access:
             /remember-question, /remember-search, /remember-history, /remember-recap, /remember-decide,
-            /remember-health, /remember-status, /remember-import, /remember-questionnaire, /remember-setup,
+            /remember-health, /remember-status, /remember-import, /remember-questionnaire, /remember-add-project,
             /remember-export
 
             ## FILE VERSIONING
@@ -1148,71 +1176,18 @@ def phase_registration(cfg):
     else:
         ok("All 6 hooks already registered")
 
-    # --- Register MCP server in ~/.claude.json ---
-    claude_json_path = home / ".claude.json"
-    if claude_json_path.exists():
-        with open(claude_json_path) as f:
-            claude_json = json.load(f)
+    # --- Register MCP server (global "user" scope - one entry covers
+    # every project folder, now and for any added later) ---
+    info("This is what lets Claude QUERY memory during a session (search,")
+    info("lookup_fact, etc.) - without it, sessions get captured but not searchable.")
+    if ensure_mcp_user_registration(str(root)):
+        ok("MCP server registered (user scope, applies to all projects)")
     else:
-        claude_json = {}
-
-    projects_section = claude_json.get("projects", {})
-    mcp_added = 0
-    server_path = str(root / "mcp" / "server.py")
-
-    mcp_entry = {
-        "type": "stdio",
-        "command": "python3",
-        "args": [server_path],
-        "env": {}
-    }
-
-    for p in cfg["projects"]:
-        project_path = str(root / p["folder_name"])
-        if project_path not in projects_section:
-            projects_section[project_path] = {
-                "allowedTools": [],
-                "mcpContextUris": [],
-                "mcpServers": {},
-                "enabledMcpjsonServers": [],
-                "disabledMcpjsonServers": [],
-                "hasTrustDialogAccepted": False,
-            }
-
-        existing_mcp = projects_section[project_path].get("mcpServers", {})
-        if "remember-server" not in existing_mcp:
-            existing_mcp["remember-server"] = mcp_entry
-            projects_section[project_path]["mcpServers"] = existing_mcp
-            mcp_added += 1
-
-    # Also register for the root path
-    root_str = str(root)
-    if root_str not in projects_section:
-        projects_section[root_str] = {
-            "allowedTools": [],
-            "mcpContextUris": [],
-            "mcpServers": {},
-            "enabledMcpjsonServers": [],
-            "disabledMcpjsonServers": [],
-            "hasTrustDialogAccepted": False,
-        }
-    if "remember-server" not in projects_section[root_str].get("mcpServers", {}):
-        projects_section[root_str].setdefault("mcpServers", {})["remember-server"] = mcp_entry
-        mcp_added += 1
-
-    if mcp_added > 0:
-        claude_json["projects"] = projects_section
-        info(f"Will register MCP server for {mcp_added} project path(s)")
-        info("This is what lets Claude QUERY memory during a session (search,")
-        info("lookup_fact, etc.) - without it, sessions get captured but not searchable.")
-        if ask_yn("Register MCP server?"):
-            with open(claude_json_path, "w") as f:
-                json.dump(claude_json, f, indent=4)
-            ok(f"MCP server registered for {mcp_added} paths")
-        else:
-            warn("MCP not registered - memory queries won't work until registered")
-    else:
-        ok("MCP server already registered for all projects")
+        ok("MCP server already registered")
+    removed = remove_mcp_local_registrations()
+    if removed:
+        info(f"Cleaned up {len(removed)} stale per-project MCP registration(s) that would")
+        info("otherwise conflict with the user-scope one above.")
 
     # --- Install custom slash commands ---
     commands_dir = home / ".claude" / "commands"
@@ -1226,15 +1201,55 @@ def phase_registration(cfg):
             Step 1: List JSON files in the imports folder:
               ls {root}/imports/*.json
 
-            If no JSON files are found, tell the user:
-            "No JSON files found in {root}/imports/. To import claude.ai conversations:
-            1. Install the AI Chat Exporter Chrome extension from the Chrome Web Store
-            2. Go to claude.ai, open a conversation, click the extension icon, export as JSON
-            3. Move the downloaded .json file to: {root}/imports/
-            4. Then run /remember-import again"
+            If no JSON files are found, do NOT fail silently or throw a bare error - tell the
+            user exactly how to resolve it for whichever platform(s) they want, using these full
+            instructions (not a one-line pointer):
 
-            **ChatGPT:** Tell the user to run: python3 {root}/scripts/import_chatgpt.py --scan <path-to-chatgpt-export>
-            **Gemini:** Tell the user to run: python3 {root}/scripts/import_gemini.py --scan <path-to-gemini-takeout>
+            "No JSON files found in {root}/imports/. Here's how to get your history in, for
+            whichever platform(s) you used:
+
+            CLAUDE.AI - single conversation (quick path):
+            1. Install the 'AI Chat Exporter' Chrome extension from the Chrome Web Store.
+            2. Go to claude.ai, open the conversation, click the extension icon, export as JSON.
+            3. Move the downloaded .json file to: {root}/imports/
+            4. Then run /remember-import again.
+
+            CLAUDE.AI - full account export (every conversation at once):
+            1. In Claude: click your initials (bottom-left) -> Settings -> Privacy -> Export Data.
+               An email arrives with a download link (expires in 24 hours).
+            2. That link downloads a manifest.json listing several zips - find the one with
+               \\"category\\": \\"conversations\\" (conversations-000.zip) and download/extract just
+               that one. Extracting it gives you conversations.json.
+            3. Run: python3 {root}/scripts/import_claude_ai.py --scan <path-to-conversations.json>
+               This builds claude_ai_import_map.xlsx (title/about/tags per conversation, empty
+               folder column) - nothing is imported yet.
+            4. Open the xlsx, type a folder name into the folder column for anything you want to
+               keep (existing name, or a new one), delete rows you don't want, save it.
+            5. Preview: python3 {root}/scripts/import_claude_ai.py --import <path> --map claude_ai_import_map.xlsx --dry-run
+            6. Looks good? Run the same command again minus --dry-run.
+
+            CHATGPT:
+            1. In ChatGPT: Settings -> Data Controls -> Export. An email with a download link
+               arrives within a day or two.
+            2. Extract the zip. Copy just the conversations-*.json files into their own folder
+               under imports/, e.g. {root}/imports/chatgpt-import/.
+            3. Run: python3 {root}/scripts/import_chatgpt.py --scan {root}/imports/chatgpt-import/
+               This builds chatgpt_import_map.xlsx - nothing is imported yet.
+            4. Open the xlsx, type a folder name per conversation you want to keep, delete the
+               rest, save it in that same chatgpt-import/ folder.
+            5. Preview: python3 {root}/scripts/import_chatgpt.py --import {root}/imports/chatgpt-import/ --map {root}/imports/chatgpt-import/chatgpt_import_map.xlsx --dry-run
+            6. Looks good? Run the same command again minus --dry-run.
+
+            GEMINI:
+            1. Go to Google Takeout, select only 'My Activity' -> 'Gemini Apps', export it, wait
+               for the email, download the zip.
+            2. Extract it, e.g. to {root}/imports/gemini-export/.
+            3. Run: python3 {root}/scripts/import_gemini.py --scan {root}/imports/gemini-export/
+               This builds gemini_import_map.xlsx - nothing is imported yet.
+            4. Open the xlsx, type a folder name per conversation to keep, delete the rest, save.
+            5. Preview with --dry-run, then run the same command again without it, same as ChatGPT.
+
+            Then run /remember-import again."
             And stop here.
 
             Step 2: If files ARE found, show the user a numbered list of filenames.
@@ -1268,16 +1283,28 @@ def phase_registration(cfg):
             - Database size and backup status
             - Semantic search embedding count
         """),
-        "remember-setup": textwrap.dedent(f"""\
-            Run the setup script to add projects or fix configuration.
-            Execute this command:
-            python3 {root}/scripts/remember-setup.py
+        "remember-add-project": textwrap.dedent(f"""\
+            Register and initialize a new project in claude_remembers - no interactive
+            prompts, this is a single non-interactive command.
 
-            This is an interactive script. It will walk through setup phases
-            and is safe to re-run (idempotent). Use this when:
-            - Adding a new project
-            - Fixing a broken hook or MCP registration
-            - Re-generating config after changes
+            Ask the user for the folder path their project's files live in (an existing
+            real folder anywhere on disk - nothing nested gets created, anything already
+            there is left untouched). Then run:
+              python3 {root}/scripts/add-project.py "<folder-path>"
+
+            This derives the project name from the folder's basename, auto-generates a
+            database prefix, and Title-Cases the label - then does everything in one
+            pass: folder/CLAUDE.md, config.yaml entry, database registration, MCP
+            registration. If the user wants to override any of the derived values,
+            add --name <name>, --prefix <pfx>, and/or --label "<Display Name>" to the
+            same command.
+
+            Show the result. If it fails because the name/prefix/path is already taken,
+            ask the user for a different value and re-run with the matching override flag.
+
+            (For fixing a broken hook/MCP registration or re-running the full installer,
+            use `python3 {root}/scripts/remember-setup.py` directly instead - that's the
+            first-run installer, not this command's job.)
         """),
         "remember-questionnaire": textwrap.dedent(f"""\
             Help the user fill out their questionnaire.
@@ -1411,17 +1438,13 @@ def phase_health_check(cfg):
     else:
         checks.append(("MCP server.py", False, "not found"))
 
-    # MCP registration
+    # MCP registration - one global "user" scope entry covers every project
     claude_json_path = home / ".claude.json"
     if claude_json_path.exists():
         with open(claude_json_path) as f:
             cj = json.load(f)
-        mcp_count = sum(
-            1 for p_cfg in cj.get("projects", {}).values()
-            if "remember-server" in p_cfg.get("mcpServers", {})
-        )
-        if mcp_count > 0:
-            checks.append(("MCP registered", True, f"{mcp_count} project(s)"))
+        if "remember-server" in cj.get("mcpServers", {}):
+            checks.append(("MCP registered", True, "user scope (all projects)"))
         else:
             checks.append(("MCP registered", False, "not registered"))
     else:
@@ -1430,7 +1453,7 @@ def phase_health_check(cfg):
     # Project directories
     missing_dirs = []
     for p in cfg["projects"]:
-        pdir = root / p["folder_name"]
+        pdir = Path(p["path"])
         if not pdir.exists():
             missing_dirs.append(p["folder_name"])
     if missing_dirs:
@@ -1441,7 +1464,7 @@ def phase_health_check(cfg):
     # CLAUDE.md files
     missing_md = []
     for p in cfg["projects"]:
-        if not (root / p["folder_name"] / "CLAUDE.md").exists():
+        if not (Path(p["path"]) / "CLAUDE.md").exists():
             missing_md.append(p["folder_name"])
     if missing_md:
         checks.append(("CLAUDE.md files", False, f"missing in: {', '.join(missing_md)}"))
@@ -1474,7 +1497,7 @@ def phase_health_check(cfg):
     print(f"{'='*60}")
     questionnaire_path = root / "remember-questionnaire.txt"
     if not questionnaire_path.exists():
-        _write_questionnaire_template(questionnaire_path)
+        _write_questionnaire_template(questionnaire_path, cfg["db_path"])
     print(f"""
   A questionnaire template has been created at:
     {questionnaire_path}
@@ -1496,7 +1519,7 @@ def phase_health_check(cfg):
 
     /remember-import         Import conversations (Claude.ai, ChatGPT, Gemini)
     /remember-status         Check memory health and statistics
-    /remember-setup          Re-run setup (add projects, fix config)
+    /remember-add-project    Register a new project (folder path, no prompts)
     /remember-questionnaire  Fill out or update your memory profile
 """)
 
@@ -1570,14 +1593,35 @@ def phase_health_check(cfg):
     return all_pass
 
 
-def _write_questionnaire_template(path):
+def _write_questionnaire_template(path, db_path=None):
     """Write a blank questionnaire template for the user to fill out."""
-    template = textwrap.dedent("""\
+    project_line = ""
+    if db_path and os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            prefixes = [r[0] for r in conn.execute(
+                "SELECT prefix FROM project_registry ORDER BY prefix"
+            ).fetchall()]
+            conn.close()
+            if prefixes:
+                project_line = "# Your registered project prefixes: " + ", ".join(prefixes) + "\n"
+        except Exception:
+            pass
+
+    template = textwrap.dedent(f"""\
         # Remember Questionnaire
         # Fill out as much or as little as you want.
         # Lines starting with # are comments and will be ignored.
         # After filling out, run: python3 scripts/remember-setup.py --questionnaire
-
+        #
+        # Sections under a plain "## CATEGORY" header apply to EVERY project.
+        # To make one section apply to only ONE project instead, use:
+        #   ## PROJECT:<prefix> CATEGORY
+        # e.g. "## PROJECT:lc WORKING STYLE" with "Communication preference: terse"
+        # underneath makes that answer apply only in project lc, overriding the
+        # global value of the same question everywhere else. A plain "## CATEGORY"
+        # header afterward goes back to applying globally.
+        {project_line}
         ## IDENTITY
         # Full name:
         # Nickname / preferred name:

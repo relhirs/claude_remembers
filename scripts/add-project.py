@@ -2,14 +2,22 @@
 """
 add-project.py - Add a new project to an existing claude_remembers installation.
 
-Reads your existing config.yaml, asks for the new project details, and does
-only what's needed: config update, folder creation, CLAUDE.md, DB registration,
-MCP server registration. Does NOT re-run full setup.
+Reads your existing config.yaml and does only what's needed: config update,
+folder creation, CLAUDE.md, DB registration, MCP server registration. Does
+NOT re-run full setup (see remember-setup.py for first-run installation).
 
 Usage:
+    python3 scripts/add-project.py <folder-path> [--name NAME] [--prefix PFX] [--label "Label"]
+        Non-interactive. Backs the /remember-add-project slash command.
+        <folder-path> is the real folder this project's files live in - it's
+        used as-is, nothing nested gets created. --name/--prefix/--label
+        override the values otherwise derived from the folder's basename.
+
     python3 scripts/add-project.py
+        No arguments: falls back to the original interactive prompts.
 """
 
+import argparse
 import json
 import os
 import re
@@ -18,6 +26,8 @@ import sys
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
+
+from config_utils import resolve_project_path, ensure_mcp_user_registration
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -210,7 +220,7 @@ def generate_claude_md(project, cfg):
         ## SLASH COMMANDS
         Type these in Claude Code for direct access:
         /remember-question, /remember-search, /remember-history, /remember-recap, /remember-decide,
-        /remember-health, /remember-status, /remember-import, /remember-questionnaire, /remember-setup,
+        /remember-health, /remember-status, /remember-import, /remember-questionnaire, /remember-add-project,
         /remember-export
 
         ## FILE VERSIONING
@@ -223,16 +233,22 @@ def generate_claude_md(project, cfg):
 # Reusable project creation (shared with import_claude_ai.py's --new-project)
 # ---------------------------------------------------------------------------
 
-def create_project(cfg, config_path, name, prefix, label, quiet=False):
+def create_project(cfg, config_path, name, prefix, label, path=None, quiet=False):
     """Create a new project: folder + CLAUDE.md + config.yaml entry +
     project_registry row + remember-server MCP registration.
+
+    `path` is the project's physical folder - an existing folder elsewhere
+    on disk, or a new one to create. Defaults to root_path/name (today's
+    behavior) when omitted. CLAUDE.md/chat-files are added INTO that
+    folder; an existing folder's other contents are never touched.
 
     Does NOT handle the "other MCP servers" offer from add-project.py's
     interactive flow - that's a UX nicety for the interactive script only,
     not essential to project creation.
 
-    Returns the project dict {"folder_name", "prefix", "label"} on success,
-    raises ValueError if name/prefix collide with an existing project.
+    Returns the project dict {"folder_name", "prefix", "label", "path"}
+    on success, raises ValueError if name/prefix collide with an existing
+    project.
     """
     existing_names = {p["folder_name"] for p in cfg.get("projects", [])}
     existing_prefixes = {p["prefix"] for p in cfg.get("projects", [])}
@@ -242,14 +258,16 @@ def create_project(cfg, config_path, name, prefix, label, quiet=False):
         raise ValueError(f"Prefix '{prefix}' is already in use.")
 
     root = Path(cfg["storage"]["root_path"])
-    new_project = {"folder_name": name, "prefix": prefix, "label": label}
+    if path is None:
+        path = str(root / name)
+    new_project = {"folder_name": name, "prefix": prefix, "label": label, "path": path}
 
     def say(msg):
         if not quiet:
             ok(msg)
 
     # Folder + chat-files/
-    project_dir = root / name
+    project_dir = Path(path)
     (project_dir / "chat-files").mkdir(parents=True, exist_ok=True)
     say(f"Created {project_dir}/")
 
@@ -286,43 +304,32 @@ def create_project(cfg, config_path, name, prefix, label, quiet=False):
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         conn = sqlite3.connect(db_path)
         try:
+            # Self-healing: the `path` column may not exist yet if
+            # startup_check.py's migration hasn't run in this DB.
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(project_registry)").fetchall()}
+            if "path" not in cols:
+                conn.execute("ALTER TABLE project_registry ADD COLUMN path TEXT")
+
             conn.execute(
-                "INSERT OR IGNORE INTO project_registry (folder_name, prefix, label, status, health, registered_at) "
-                "VALUES (?, ?, ?, 'active', 'green', ?)",
-                (name, prefix, label, now)
+                "INSERT OR IGNORE INTO project_registry (folder_name, prefix, label, status, health, registered_at, path) "
+                "VALUES (?, ?, ?, 'active', 'green', ?, ?)",
+                (name, prefix, label, now, path)
+            )
+            conn.execute(
+                "UPDATE project_registry SET path = ? WHERE folder_name = ?",
+                (path, name)
             )
             conn.commit()
             say(f"project_registry updated (prefix: {prefix})")
         finally:
             conn.close()
 
-    # remember-server MCP registration
-    home = Path.home()
-    claude_json_path = home / ".claude.json"
-    project_path_str = str(project_dir)
-
-    if claude_json_path.exists():
-        with open(claude_json_path) as f:
-            claude_json = json.load(f)
-    else:
-        claude_json = {}
-
-    projects_section = claude_json.get("projects", {})
-    server_path = str(root / "mcp" / "server.py")
-    if project_path_str not in projects_section:
-        projects_section[project_path_str] = {
-            "allowedTools": [], "mcpContextUris": [], "mcpServers": {},
-            "enabledMcpjsonServers": [], "disabledMcpjsonServers": [],
-            "hasTrustDialogAccepted": False,
-        }
-    mcp_servers = projects_section[project_path_str].get("mcpServers", {})
-    if "remember-server" not in mcp_servers:
-        mcp_servers["remember-server"] = {"type": "stdio", "command": "python3", "args": [server_path], "env": {}}
-        projects_section[project_path_str]["mcpServers"] = mcp_servers
-        claude_json["projects"] = projects_section
-        with open(claude_json_path, "w") as f:
-            json.dump(claude_json, f, indent=4)
-        say("remember-server MCP registered")
+    # remember-server MCP registration - one global "user" scope entry
+    # covers every project folder, so there's nothing per-project to add
+    # here. This just confirms it's there (first-ever project creation on
+    # a fresh install) without duplicating it if it already is.
+    if ensure_mcp_user_registration(str(root)):
+        say("remember-server MCP registered (user scope, applies to all projects)")
 
     return new_project
 
@@ -331,7 +338,62 @@ def create_project(cfg, config_path, name, prefix, label, quiet=False):
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
+def slugify(text):
+    """Turn a folder basename into a valid project name: lowercase,
+    spaces/underscores to hyphens, strip anything else invalid."""
+    text = re.sub(r"[\s_]+", "-", text.strip().lower())
+    text = re.sub(r"[^a-z0-9-]", "", text)
+    text = re.sub(r"-+", "-", text).strip("-")
+    return text or "project"
+
+
+def main_noninteractive(args):
+    """Non-interactive path: given a folder path, derive name/prefix/label
+    and register the project with no prompts. Backs /remember-add-project."""
+    cfg, config_path = load_config()
+
+    existing_projects = cfg.get("projects", [])
+    existing_names = {p["folder_name"] for p in existing_projects}
+    existing_prefixes = {p["prefix"] for p in existing_projects}
+
+    path = os.path.expanduser(args.path)
+    if os.path.isfile(path):
+        fail(f"'{path}' is a file, not a folder.")
+        sys.exit(1)
+
+    name = args.name or slugify(Path(path).name)
+    if name in existing_names:
+        fail(f"Project folder name '{name}' already exists. Pass --name to pick a different one.")
+        sys.exit(1)
+
+    prefix = args.prefix or generate_prefix(name, existing_prefixes)
+    if prefix in existing_prefixes:
+        fail(f"Prefix '{prefix}' is already in use. Pass --prefix to pick a different one.")
+        sys.exit(1)
+
+    label = args.label or name.replace("-", " ").title()
+
+    real_path = os.path.realpath(path)
+    existing_paths = {os.path.realpath(resolve_project_path(cfg, p)) for p in existing_projects}
+    if real_path in existing_paths:
+        fail(f"Another project is already registered at '{path}'.")
+        sys.exit(1)
+
+    print(f"\n{bold('claude_remembers -- Add Project')}")
+    print(f"  Adding: {name} (prefix: {prefix}, label: {label})")
+    print(f"  Folder: {path}\n")
+
+    try:
+        create_project(cfg, config_path, name, prefix, label, path=path)
+    except ValueError as e:
+        fail(str(e))
+        sys.exit(1)
+
+    print(f"\n{green('Done!')} Project '{name}' added to claude_remembers.")
+    print(f"  cd {path} && claude   # the memory activates automatically\n")
+
+
+def main_interactive():
     print(f"\n{bold('claude_remembers -- Add Project')}")
     print("Add a new project to your existing memory installation.\n")
 
@@ -386,26 +448,64 @@ def main():
             shown_prefix = prefix
         prefix = shown_prefix
 
+    existing_paths = {
+        os.path.realpath(resolve_project_path(cfg, p)) for p in existing_projects
+    }
+
+    print()
+    print("  Where do this project's files actually live? If it's an existing real")
+    print("  folder somewhere else on disk, point at it directly - CLAUDE.md and a")
+    print("  chat-files/ folder get added into it, nothing nested gets created, and")
+    print("  anything already in that folder is left untouched.")
+    print()
+    default_path = str(root / name)
+    while True:
+        raw_path = ask(f"Project folder path for '{name}'", default_path)
+        path = os.path.expanduser(raw_path)
+        real_path = os.path.realpath(path)
+
+        if os.path.isfile(path):
+            warn(f"'{path}' is a file, not a folder.")
+            continue
+        if real_path in existing_paths:
+            warn(f"Another project is already registered at '{path}'.")
+            continue
+        containing = [p for p in existing_paths
+                      if real_path != p and (real_path.startswith(p + os.sep) or p.startswith(real_path + os.sep))]
+        if containing:
+            warn(f"'{path}' is nested inside/around an already-registered project path "
+                 f"({containing[0]}). This is allowed but unusual - CLAUDE.md/chat-files "
+                 f"will coexist with that project's.")
+            if not ask_yn("Continue anyway?", "n"):
+                continue
+        break
+
     print(f"\n  Will add: {bold(name)} (prefix: {prefix}, label: {label})")
+    print(f"  Folder: {path}")
     if not ask_yn("Proceed?"):
         info("Cancelled.")
         return
 
     # Steps 3-7: folder, CLAUDE.md, config.yaml, project_registry, MCP registration
     try:
-        create_project(cfg, config_path, name, prefix, label)
+        create_project(cfg, config_path, name, prefix, label, path=path)
     except ValueError as e:
         fail(str(e))
         return
-    project_dir = root / name
+    project_dir = Path(path)
 
-    # Step 8: Detect and offer other MCP servers from root path
+    # Step 8: offer to copy over any OTHER (non-remember-server) MCP
+    # servers already registered on the root project path. remember-server
+    # itself needs nothing here - it's one global user-scope registration,
+    # not per-project.
     home = Path.home()
     claude_json_path = home / ".claude.json"
-    project_path_str = str(project_dir)
-    with open(claude_json_path) as f:
-        claude_json = json.load(f)
+    claude_json = {}
+    if claude_json_path.exists():
+        with open(claude_json_path) as f:
+            claude_json = json.load(f)
     projects_section = claude_json.get("projects", {})
+    project_path_str = str(project_dir)
     mcp_servers = projects_section.get(project_path_str, {}).get("mcpServers", {})
 
     root_str = str(root)
@@ -428,13 +528,16 @@ def main():
                     ok(f"{mcp_name} registered")
                 else:
                     ok(f"{mcp_name} already registered")
+            projects_section.setdefault(project_path_str, {
+                "allowedTools": [], "mcpContextUris": [], "mcpServers": {},
+                "enabledMcpjsonServers": [], "disabledMcpjsonServers": [],
+                "hasTrustDialogAccepted": False,
+            })
             projects_section[project_path_str]["mcpServers"] = mcp_servers
-
-    # Write ~/.claude.json
-    claude_json["projects"] = projects_section
-    with open(claude_json_path, "w") as f:
-        json.dump(claude_json, f, indent=4)
-    ok("~/.claude.json updated")
+            claude_json["projects"] = projects_section
+            with open(claude_json_path, "w") as f:
+                json.dump(claude_json, f, indent=4)
+            ok("~/.claude.json updated")
 
     # Done
     print(f"\n{'='*60}")
@@ -449,4 +552,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Add a new project to claude_remembers")
+    parser.add_argument("path", nargs="?", help="Folder path the project's files live in")
+    parser.add_argument("--name", help="Project name (default: derived from folder basename)")
+    parser.add_argument("--prefix", help="Database prefix, 2-4 letters (default: auto-generated)")
+    parser.add_argument("--label", help="Display name (default: Title Cased name)")
+    cli_args = parser.parse_args()
+
+    if cli_args.path:
+        main_noninteractive(cli_args)
+    else:
+        main_interactive()

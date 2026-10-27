@@ -23,6 +23,7 @@ RULE: stdout is SACRED. Only valid JSON goes to stdout.
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -30,7 +31,7 @@ import sys
 def _detect_session_id():
     """Auto-detect current session ID from JSONL files (same logic as stop.py)."""
     cwd = os.getcwd()
-    encoded_cwd = cwd.replace("/", "-")
+    encoded_cwd = re.sub(r"[^a-zA-Z0-9]", "-", cwd)
     project_dir = os.path.join(os.path.expanduser("~"), ".claude", "projects", encoded_cwd)
     jsonl_files = glob.glob(os.path.join(project_dir, "*.jsonl"))
     if not jsonl_files:
@@ -56,13 +57,17 @@ def main():
     session_id = _detect_session_id()
     if session_id:
         try:
+            log_dir = os.path.join(root, "logs")
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = open(os.path.join(log_dir, "summarize_session.log"), "a")
             subprocess.Popen(
                 [sys.executable, os.path.join(root, "scripts", "summarize_session.py"),
                  "--session-id", session_id, "--reason", reason],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=log_file,
                 start_new_session=True,
             )
+            log_file.close()
         except Exception:
             pass
 

@@ -19,6 +19,7 @@ import argparse
 import glob
 import os
 import pathlib
+import re
 import sqlite3
 import sys
 
@@ -56,7 +57,7 @@ def connect_db(db_path):
 def auto_detect_session_id():
     """Auto-detect current session ID from JSONL files (same logic as stop.py)."""
     cwd = os.getcwd()
-    encoded_cwd = cwd.replace("/", "-")
+    encoded_cwd = re.sub(r"[^a-zA-Z0-9]", "-", cwd)
     project_dir = os.path.join(os.path.expanduser("~"), ".claude", "projects", encoded_cwd)
 
     jsonl_files = glob.glob(os.path.join(project_dir, "*.jsonl"))

@@ -516,7 +516,7 @@ def cmd_scan(args):
     print(f"\n{yellow('NEXT STEP:')} Review and edit {output_path.name}")
     print(f"  - Read TITLE/ABOUT, type a destination folder for each row you want to keep")
     print(f"  - Delete rows you don't want imported")
-    print(f"  - Then run: python3 scripts/import_claude_ai.py --import {args.path} --map {output_path}")
+    print(f"  - Then run: python3 scripts/import_claude_ai.py --import {args.path} --map {output_path} --dry-run")
 
 
 # ---------------------------------------------------------------------------

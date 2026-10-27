@@ -21,8 +21,30 @@ import os
 import re
 import sqlite3
 import sys
+from datetime import datetime, timezone
 
 import yaml
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RETRIEVAL_LOG_PATH = os.path.join(ROOT_DIR, "logs", "retrieval.log")
+
+
+def _log_retrieval(session_id, outcome, keywords, prompt_text, n_results=0):
+    """Append one line per prompt recording which retrieval path fired and
+    what it found, so keyword-vs-semantic coverage can actually be audited
+    instead of just assumed. Never raises - logging must not break the hook."""
+    try:
+        os.makedirs(os.path.dirname(RETRIEVAL_LOG_PATH), exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        snippet = (prompt_text or "")[:120].replace("\n", " ")
+        kw = ",".join(keywords or [])
+        with open(RETRIEVAL_LOG_PATH, "a") as f:
+            f.write(
+                f"{ts} [{session_id or '?'}] {outcome} n={n_results} "
+                f"keywords=[{kw}] prompt={snippet!r}\n"
+            )
+    except Exception:
+        pass
 
 # Add scripts/ to path for fuzzy_search / semantic_search imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
@@ -363,7 +385,12 @@ def main():
             print("{}")
             return
 
-        cwd_project = None
+        # "oth" matches write_exchange.py's detect_project() fallback -
+        # without this, a folder with no jsonl_project_mapping entry left
+        # cwd_project as None here (but still wrote project="oth" when
+        # capturing messages), silently disabling post-/clear recovery and
+        # project-biased search ranking below for that folder.
+        cwd_project = "oth"
         cwd = os.environ.get("CWD", os.getcwd())
         norm_cwd = normalize_for_match(cwd)
         mapping = config.get("jsonl_project_mapping", {})
@@ -407,11 +434,15 @@ def main():
 
         if not keywords:
             conn.close()
+            _log_retrieval(current_session_id, "skipped_no_keywords", keywords, prompt_text)
             print("{}")
             return
 
         fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
         rows = _keyword_search(conn, fts_query, cwd_project)
+
+        if rows:
+            _log_retrieval(current_session_id, "keyword_hit", keywords, prompt_text, len(rows))
 
         # Semantic fallback: only when keyword search came up empty/weak -
         # this is the one place per-message search can be slow (embedding
@@ -424,12 +455,17 @@ def main():
                     (r["project"], r["timestamp"], r["content"], None)
                     for r in sem_results if r["similarity"] > 0.35
                 ]
+                if rows:
+                    _log_retrieval(current_session_id, "semantic_hit", keywords, prompt_text, len(rows))
             except Exception:
                 pass
+        elif not rows and not semantic_search:
+            _log_retrieval(current_session_id, "no_match_semantic_unavailable", keywords, prompt_text)
 
         conn.close()
 
         if not rows:
+            _log_retrieval(current_session_id, "no_match", keywords, prompt_text)
             print("{}")
             return
 

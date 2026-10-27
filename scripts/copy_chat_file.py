@@ -19,6 +19,8 @@ import sys
 
 import yaml
 
+from config_utils import resolve_project_path
+
 # ---------------------------------------------------------------------------
 # Config / DB
 # ---------------------------------------------------------------------------
@@ -45,11 +47,11 @@ def get_valid_prefixes(config):
     return {p["prefix"] for p in projects if isinstance(p, dict) and "prefix" in p}
 
 
-def get_project_folder(config, prefix):
-    """Get folder_name for a project prefix."""
+def get_project_path(config, prefix):
+    """Get the resolved filesystem path for a project prefix."""
     for p in config.get("projects", []):
         if isinstance(p, dict) and p.get("prefix") == prefix:
-            return p.get("folder_name", prefix)
+            return resolve_project_path(config, p)
     return None
 
 
@@ -87,8 +89,11 @@ def copy_chat_file(filepath, project, session_id, root_path=None, config=None):
     session_short = session_id[:8] if len(session_id) >= 8 else session_id
     subfolder = f"{date_str}_{time_str}_{session_short}"
 
-    project_folder = get_project_folder(config, project)
-    dest_dir = os.path.join(root_path, project_folder, "chat-files", subfolder)
+    project_path = get_project_path(config, project)
+    if project_path is None:
+        print(f"Error: No path configured for project prefix '{project}'.", file=sys.stderr)
+        return {"dest_path": "", "exit_code": 1}
+    dest_dir = os.path.join(project_path, "chat-files", subfolder)
     os.makedirs(dest_dir, exist_ok=True)
 
     # Copy file (preserve metadata)

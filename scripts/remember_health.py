@@ -389,6 +389,22 @@ def check_mcp_server(config):
     except Exception as e:
         return "FAIL", f"MCP: failed to read ~/.claude.json: {e}", details
 
+    # Global "user" scope registration (one entry under the top-level
+    # mcpServers key) covers every project at once - this is what
+    # ensure_mcp_user_registration() in config_utils.py sets up, and what
+    # self-heals old per-project registrations away. Check this FIRST:
+    # if it's present, remember-server is available everywhere regardless
+    # of what's (or isn't) registered per-project below.
+    global_servers = claude_config.get("mcpServers", {})
+    if "remember-server" in global_servers:
+        server_path = os.path.join(ROOT_PATH, "mcp", "server.py")
+        server_exists = os.path.exists(server_path)
+        details["scope"] = "global (user)"
+        details["server_py_exists"] = server_exists
+        if not server_exists:
+            return "FAIL", "MCP: registered globally but server.py missing", details
+        return "PASS", "MCP: remember-server registered at global (user) scope, server.py exists", details
+
     projects = claude_config.get("projects", {})
     registered_projects = []
     for project_path, project_data in projects.items():
@@ -398,11 +414,12 @@ def check_mcp_server(config):
             folder_name = os.path.basename(project_path.rstrip("/"))
             registered_projects.append(folder_name)
 
+    details["scope"] = "per-project"
     details["registered_projects"] = registered_projects
     details["registered_count"] = len(registered_projects)
 
     if len(registered_projects) == 0:
-        return "FAIL", "MCP: remember-server not registered in any project", details
+        return "FAIL", "MCP: remember-server not registered globally or in any project", details
 
     # Verify server.py exists
     server_path = os.path.join(ROOT_PATH, "mcp", "server.py")

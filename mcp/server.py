@@ -30,6 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from scripts.fuzzy_search import fuzzy_correct
 from scripts.semantic_search import semantic_search as _semantic_search
 from scripts.config_utils import resolve_db_path
+from scripts.profile_utils import fetch_merged_profile, format_profile_markdown
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -68,42 +69,17 @@ mcp = FastMCP("remember-server")
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def get_profile() -> str:
-    """Returns Mike's complete profile: all remember_facts and remember_preferences.
-    Call this at the start of every session to load working context."""
+def get_profile(project: str | None = None) -> str:
+    """Returns the memory profile: global remember_facts/remember_preferences.
+    Pass a project prefix to also merge in that project's scoped facts/
+    preferences, with project-specific facts overriding global ones that
+    share the same category+key. Call at the start of every session
+    (ideally with the current project's prefix) to load working context."""
     conn = get_db()
     try:
-        facts = conn.execute(
-            "SELECT category, key, value, confidence FROM remember_facts ORDER BY category, key"
-        ).fetchall()
-        prefs = conn.execute(
-            "SELECT category, preference FROM remember_preferences ORDER BY category"
-        ).fetchall()
-
-        if not facts and not prefs:
-            return "Profile is empty. No remember_facts or remember_preferences populated yet."
-
-        lines = ["## Memory Profile", ""]
-        if facts:
-            lines.append("### Facts")
-            current_cat = None
-            for row in facts:
-                if row["category"] != current_cat:
-                    current_cat = row["category"]
-                    lines.append(f"\n**{current_cat}**")
-                conf = f" ({row['confidence']})" if row["confidence"] else ""
-                lines.append(f"- {row['key']}: {row['value']}{conf}")
-
-        if prefs:
-            lines.append("\n### Preferences")
-            current_cat = None
-            for row in prefs:
-                if row["category"] != current_cat:
-                    current_cat = row["category"]
-                    lines.append(f"\n**{current_cat}**")
-                lines.append(f"- {row['preference']}")
-
-        return "\n".join(lines)
+        facts, prefs = fetch_merged_profile(conn, project)
+        text = format_profile_markdown(facts, prefs)
+        return text or "Profile is empty. No remember_facts or remember_preferences populated yet."
     finally:
         conn.close()
 
@@ -284,24 +260,47 @@ def search_transcripts(
                 return f"No results for '{query}'."
             return _format_results(rows)
 
-        # Extract keywords and fuzzy-correct BEFORE searching
+        # Extract keywords. Try the RAW (uncorrected) query first - if it
+        # already matches, there's no typo to fix and no risk of fuzzy
+        # correction silently substituting an unrelated query.
         keywords = _extract_keywords(query)
         if not keywords:
             return f"No results for '{query}'."
 
+        raw_fts_query = _keywords_to_fts(keywords)
+        rows = _run_fts_query(conn, raw_fts_query, project, limit, recency_bias)
+        if rows:
+            return _format_results(rows)
+
+        # Raw query found nothing - only now attempt fuzzy correction.
         corrected, corrections = fuzzy_correct(keywords, DB_PATH)
+        if not corrections:
+            return f"No results for '{query}'."
+
+        # Guard: if fuzzy correction changed most/all of the keywords, the
+        # corrected query is likely unrelated to what was actually asked
+        # (e.g. "postgres replication" -> "progress application" matches
+        # real words, but isn't what the user meant). Don't silently run
+        # it - report no results instead of returning confident-looking
+        # noise. Only trust corrections that fix a minority of keywords,
+        # i.e. a genuine single typo in an otherwise-matching query.
+        if len(corrections) >= max(1, (len(keywords) + 1) // 2):
+            return (
+                f"No results for '{query}'. "
+                f"(No close match found - corrected terms "
+                f"{', '.join(repr(k) for k in corrections)} "
+                f"would change the query too much to trust automatically.)"
+            )
+
         fts_query = _keywords_to_fts(corrected)
         rows = _run_fts_query(conn, fts_query, project, limit, recency_bias)
 
         if not rows:
             return f"No results for '{query}'."
 
-        if corrections:
-            parts = [f"'{orig}' → '{fixed}'" for orig, fixed in corrections.items()]
-            note = f"**Did you mean:** {', '.join(parts)}"
-            return _format_results(rows, header=note)
-
-        return _format_results(rows)
+        parts = [f"'{orig}' → '{fixed}'" for orig, fixed in corrections.items()]
+        note = f"**Did you mean:** {', '.join(parts)}"
+        return _format_results(rows, header=note)
     finally:
         conn.close()
 

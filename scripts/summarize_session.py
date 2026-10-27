@@ -30,6 +30,7 @@ import pathlib
 import re
 import sqlite3
 import sys
+import traceback
 from datetime import datetime, timezone
 
 import yaml
@@ -39,6 +40,31 @@ sys.path.insert(0, ROOT)
 from scripts.write_session_notes import write_notes          # noqa: E402
 from scripts.write_project_summary import write_summary       # noqa: E402
 from scripts.config_utils import resolve_db_path              # noqa: E402
+
+LOG_PATH = os.path.join(ROOT, "logs", "summarize_session.log")
+
+REQUIRED_HEADERS = [
+    "## Decisions", "## Done", "## In Progress",
+    "## Blockers", "## Next Step", "## Key References",
+]
+
+
+def _log(session_id, level, message):
+    """Append a timestamped line to logs/summarize_session.log. Never raises."""
+    try:
+        os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(LOG_PATH, "a") as f:
+            f.write(f"{ts} [{session_id}] {level}: {message}\n")
+    except Exception:
+        pass
+
+
+def is_valid_summary(text):
+    """True only if the model actually followed the required template shape."""
+    if "Topic:" not in text:
+        return False
+    return all(header in text for header in REQUIRED_HEADERS)
 
 # ---------------------------------------------------------------------------
 # Config / DB
@@ -153,7 +179,15 @@ PROJECT_UPDATE: <2-4 sentences, or omit this line entirely if nothing material c
 Be concise. Do not pad sections with filler when there's nothing to say."""
 
 
-def call_model(config, transcript_text):
+FORMAT_RETRY_NOTE = """
+
+IMPORTANT: Your previous attempt did not follow the required format. You MUST \
+start the response with "Topic:" and include every one of these headings, in \
+order, even if a section's bullets are empty: ## Decisions, ## Done, \
+## In Progress, ## Blockers, ## Next Step, ## Key References."""
+
+
+def call_model(config, transcript_text, retry=False):
     import anthropic
 
     sum_cfg = config.get("summarization", {})
@@ -165,10 +199,11 @@ def call_model(config, transcript_text):
     # a real ANTHROPIC_API_KEY env var or this config override will work).
     api_key = sum_cfg.get("api_key") or None
     client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+    system = SUMMARY_PROMPT + (FORMAT_RETRY_NOTE if retry else "")
     response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
-        system=SUMMARY_PROMPT,
+        system=system,
         messages=[{"role": "user", "content": transcript_text}],
     )
     text = "".join(b.text for b in response.content if b.type == "text")
@@ -263,22 +298,51 @@ def main():
 
         try:
             model_output = call_model(config, transcript_text)
+            if not is_valid_summary(model_output):
+                _log(args.session_id, "WARN",
+                     f"output failed format validation, retrying once. "
+                     f"First 200 chars: {model_output[:200]!r}")
+                model_output = call_model(config, transcript_text, retry=True)
+                if not is_valid_summary(model_output):
+                    raise ValueError(
+                        f"output still invalid after retry: {model_output[:200]!r}")
+
             notes, tags, lessons, project_update = parse_model_output(model_output)
             if not notes.strip():
                 raise ValueError("empty summary from model")
-        except Exception:
+        except Exception as e:
+            _log(args.session_id, "ERROR", f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
             write_fallback(conn, args.session_id, project, user_messages, msg_count, started_at, ended_at)
             sys.exit(0)
 
         write_notes(args.session_id, notes, db_path, tags=tags or None)
 
+        # Dedup against this session's own already-written lessons. A
+        # session can get summarized more than once (e.g. the abandoned-
+        # session backfill writes a provisional summary, then the real
+        # SessionEnd overwrites notes/end_reason later) - without this,
+        # the same durable insight could get inserted twice across those
+        # two passes. Scoped to this session_id only: a lesson genuinely
+        # worth re-noting in a different session is still allowed through.
+        existing_labels = {
+            (row[0] or "").strip().lower()
+            for row in conn.execute(
+                "SELECT key FROM facts WHERE session_id = ? AND category = 'lesson'",
+                (args.session_id,),
+            ).fetchall()
+        }
+
         now = datetime.now(timezone.utc).isoformat()
         for label, value in lessons:
+            norm_label = label.strip().lower()
+            if norm_label in existing_labels:
+                continue
             conn.execute(
                 """INSERT INTO facts (project, category, key, value, source, session_id, created_at, updated_at)
                    VALUES (?, 'lesson', ?, ?, 'summarize_session.py', ?, ?, ?)""",
                 (project, label, value, args.session_id, now, now),
             )
+            existing_labels.add(norm_label)
         conn.commit()
 
         if project_update:

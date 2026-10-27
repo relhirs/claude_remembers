@@ -18,12 +18,18 @@ import pathlib
 import shutil
 import socket
 import sqlite3
+import subprocess
 import sys
 import time
 
 import yaml
 
-from config_utils import resolve_db_path
+from config_utils import (
+    resolve_db_path,
+    migrate_config_project_paths,
+    ensure_mcp_user_registration,
+    remove_mcp_local_registrations,
+)
 
 # ---------------------------------------------------------------------------
 # Config / Logging / DB - same patterns as ingest_jsonl.py
@@ -100,6 +106,21 @@ SYS_SESSIONS_MIGRATIONS = [
     ("clear_recovery_shown", "clear_recovery_shown INTEGER DEFAULT 0"),
 ]
 
+PROJECT_REGISTRY_MIGRATIONS = [
+    # (column_name, column_ddl)
+    ("path", "path TEXT"),
+]
+
+REMEMBER_FACTS_MIGRATIONS = [
+    # (column_name, column_ddl)
+    ("project", "project TEXT DEFAULT NULL"),
+]
+
+REMEMBER_PREFERENCES_MIGRATIONS = [
+    # (column_name, column_ddl)
+    ("project", "project TEXT DEFAULT NULL"),
+]
+
 
 def migrate_schema(conn, logger):
     """Add any missing columns to sys_sessions. Idempotent."""
@@ -112,6 +133,58 @@ def migrate_schema(conn, logger):
             added += 1
     if added:
         conn.commit()
+
+    # project_registry.path - denormalized copy of config.yaml's project
+    # path field, kept in sync by add-project.py/remember-setup.py. Added
+    # alongside the config.yaml `path` field (see config_utils.py) that
+    # decouples a project's physical folder from root_path/folder_name.
+    existing_proj_cols = {row[1] for row in conn.execute("PRAGMA table_info(project_registry)").fetchall()}
+    proj_added = 0
+    for col_name, col_ddl in PROJECT_REGISTRY_MIGRATIONS:
+        if col_name not in existing_proj_cols:
+            conn.execute(f"ALTER TABLE project_registry ADD COLUMN {col_ddl}")
+            logger.info("Migration: added project_registry.%s", col_name)
+            proj_added += 1
+    if proj_added:
+        conn.commit()
+
+    # remember_facts/remember_preferences.project - lets the questionnaire
+    # (and anything else) scope a fact/preference to one project instead of
+    # applying globally. NULL (the default) means global, unchanged for
+    # every existing row. See scripts/profile_utils.py for how this is merged.
+    existing_rf_cols = {row[1] for row in conn.execute("PRAGMA table_info(remember_facts)").fetchall()}
+    rf_added = 0
+    for col_name, col_ddl in REMEMBER_FACTS_MIGRATIONS:
+        if col_name not in existing_rf_cols:
+            conn.execute(f"ALTER TABLE remember_facts ADD COLUMN {col_ddl}")
+            logger.info("Migration: added remember_facts.%s", col_name)
+            rf_added += 1
+    if rf_added:
+        conn.commit()
+
+    existing_rp_cols = {row[1] for row in conn.execute("PRAGMA table_info(remember_preferences)").fetchall()}
+    rp_added = 0
+    for col_name, col_ddl in REMEMBER_PREFERENCES_MIGRATIONS:
+        if col_name not in existing_rp_cols:
+            conn.execute(f"ALTER TABLE remember_preferences ADD COLUMN {col_ddl}")
+            logger.info("Migration: added remember_preferences.%s", col_name)
+            rp_added += 1
+    if rp_added:
+        conn.commit()
+
+    # transcripts has an AFTER DELETE trigger keeping transcripts_fts in sync
+    # (transcripts_ad) but nothing equivalent existed for transcript_embeddings,
+    # so deleting transcripts (e.g. via remove-project.py) left orphaned
+    # embedding rows behind. Add the missing trigger, idempotently.
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS transcripts_ad_embeddings
+        AFTER DELETE ON transcripts
+        BEGIN
+            DELETE FROM transcript_embeddings WHERE transcript_id = old.id;
+        END
+    """)
+    conn.commit()
+
     return added
 
 
@@ -192,6 +265,65 @@ def discover_files(source_paths, config, logger):
 
 
 # ---------------------------------------------------------------------------
+# Abandoned-session backfill
+# ---------------------------------------------------------------------------
+# hooks/session-end.py only fires on a graceful exit (/exit, /clear,
+# /logout) - Claude Code explicitly triggers it before the process closes.
+# If a terminal tab gets closed, the app force-quit, or the machine
+# sleeps/crashes mid-session, that hook never runs, end_reason stays blank
+# forever, and the session permanently has no summary/notes - nothing else
+# ever revisits it.
+#
+# This closes that gap without needing a true SessionEnd signal: every
+# session-start is itself proof that a previous process is gone, so any
+# OTHER session still missing end_reason, whose last message is old enough
+# that it can't just be sitting idle in another open terminal tab, is safe
+# to treat as over and run the normal summarization pipeline against -
+# same script, same result, just triggered late instead of never.
+
+ABANDONED_STALE_MINUTES = 30
+ABANDONED_BATCH_LIMIT = 5  # cap per startup run so this can't stall session-start
+
+
+def backfill_abandoned_sessions(conn, root_path, logger):
+    """Summarize sessions that never got a graceful SessionEnd. Returns count processed."""
+    rows = conn.execute(
+        """SELECT session_id, message_count FROM sys_sessions
+           WHERE (end_reason IS NULL OR end_reason = '')
+             AND message_count > 0
+             AND ended_at IS NOT NULL
+             AND ended_at < datetime('now', ?)
+           ORDER BY ended_at ASC
+           LIMIT ?""",
+        (f"-{ABANDONED_STALE_MINUTES} minutes", ABANDONED_BATCH_LIMIT),
+    ).fetchall()
+
+    if not rows:
+        return 0
+
+    summarize_path = os.path.join(root_path, "scripts", "summarize_session.py")
+    processed = 0
+    for session_id, msg_count in rows:
+        try:
+            result = subprocess.run(
+                [sys.executable, summarize_path,
+                 "--session-id", session_id, "--reason", "inferred_abandoned"],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                logger.warning("Abandoned-session backfill failed for %s: %s",
+                                session_id, (result.stderr or "")[-500:])
+            else:
+                logger.info("Abandoned-session backfill: summarized %s (%d msgs)",
+                             session_id, msg_count)
+                processed += 1
+        except Exception as e:
+            logger.warning("Abandoned-session backfill error for %s: %r", session_id, e)
+
+    return processed
+
+
+# ---------------------------------------------------------------------------
 # Database backup
 # ---------------------------------------------------------------------------
 
@@ -264,6 +396,20 @@ def startup_check(root_path=None, config=None):
     logger = setup_logging(root_path)
     logger.info("=== Startup check begin ===")
 
+    # 0. Backfill config.yaml project `path` fields (self-healing, idempotent)
+    config_path = os.path.join(root_path, "config.yaml")
+    if migrate_config_project_paths(config, config_path):
+        logger.info("Migration: backfilled project `path` fields in config.yaml")
+
+    # 0b. MCP registration: one global "user" scope entry replaces the old
+    # per-project ones (which conflict with it once both exist). Self-heal
+    # any installs still carrying the old per-project registrations.
+    if ensure_mcp_user_registration(root_path):
+        logger.info("Migration: registered remember-server at MCP user scope")
+    cleaned = remove_mcp_local_registrations()
+    if cleaned:
+        logger.info("Migration: removed %d stale per-project MCP registration(s)", len(cleaned))
+
     # Import ingest module
     import importlib.util
     ingest_path = os.path.join(root_path, "scripts", "ingest_jsonl.py")
@@ -316,6 +462,16 @@ def startup_check(root_path=None, config=None):
             if result["exit_code"] != 0:
                 ingest_errors += 1
                 errors += 1
+
+        # 6b. Catch up any sessions that never got a graceful SessionEnd
+        # (closed terminal, force-quit, crash, sleep) - see comment above
+        # backfill_abandoned_sessions() for why this is safe to run here.
+        try:
+            backfilled = backfill_abandoned_sessions(conn, root_path, logger)
+            if backfilled:
+                logger.info("Abandoned-session backfill: %d session(s) summarized", backfilled)
+        except Exception as e:
+            logger.warning("Abandoned-session backfill step failed: %r", e)
 
     finally:
         conn.close()

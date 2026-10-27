@@ -79,22 +79,32 @@ backup:
 #   3. The startup check registers the prefix on next session
 #
 # NAMING:
-#   folder_name: lowercase, hyphens only (e.g., "my-project")
+#   folder_name: used ONLY as the substring-match pattern against a
+#                session's cwd (jsonl_project_mapping, below) - lowercase,
+#                hyphens only (e.g., "my-project")
 #   prefix:      lowercase, 2-4 chars (e.g., "mp") - NO trailing underscore
 #   label:       human-readable name shown in remember-import picklist
+#   path:        absolute path to where this project's files physically
+#                live - CLAUDE.md/chat-files/ get added here. Can be a
+#                brand-new folder nested under root_path, OR an existing
+#                real project folder anywhere else on disk - either way,
+#                existing contents at that path are never overwritten.
 
 projects:
   - folder_name: "my-project"
     prefix: "mp"
     label: "My Project"
+    path: "/home/user/code/my-project"
 
   - folder_name: "general"
     prefix: "gen"
     label: "General Conversations"
+    path: "/home/user/claude_remembers/general"
 
   - folder_name: "other"
     prefix: "oth"
     label: "Uncategorized"
+    path: "/home/user/claude_remembers/other"
 
 # ==============================================================================
 # REMEMBER PROFILE

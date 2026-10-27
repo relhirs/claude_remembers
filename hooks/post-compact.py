@@ -16,11 +16,24 @@ import os
 import re
 import sqlite3
 import sys
+from datetime import datetime, timezone
 
 import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 from config_utils import resolve_db_path
+
+
+def _log_hook_error(root, hook_name, message):
+    """Append a timestamped line to logs/hooks.log. Never raises."""
+    try:
+        log_dir = os.path.join(root, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(os.path.join(log_dir, "hooks.log"), "a") as f:
+            f.write(f"{ts} [{hook_name}] {message}\n")
+    except Exception:
+        pass
 
 
 def normalize_for_match(s):
@@ -62,7 +75,12 @@ def main():
             cwd = os.environ.get("CWD", os.getcwd())
             norm_cwd = normalize_for_match(cwd)
             mapping = config.get("jsonl_project_mapping", {})
-            cwd_project = None
+            # "oth" matches write_exchange.py's detect_project() fallback -
+            # without this, a folder with no jsonl_project_mapping entry
+            # left cwd_project as None here (but still wrote project="oth"
+            # when capturing messages), silently disabling the project
+            # summary section below for that folder.
+            cwd_project = "oth"
             for folder, prefix in mapping.items():
                 if normalize_for_match(folder) in norm_cwd:
                     cwd_project = prefix
@@ -117,7 +135,8 @@ def main():
         else:
             print("{}")
 
-    except Exception:
+    except Exception as e:
+        _log_hook_error(root, "post-compact.py", f"context build failed, returned empty: {e!r}")
         print("{}")
 
 

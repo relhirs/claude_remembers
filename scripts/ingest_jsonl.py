@@ -26,6 +26,7 @@ import time
 import yaml
 
 from config_utils import resolve_db_path
+from write_exchange import embed_message
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -244,7 +245,7 @@ def extract_content(message_data):
 # JSONL ingestion
 # ---------------------------------------------------------------------------
 
-def ingest_jsonl_file(conn, file_path, project, file_type, logger):
+def ingest_jsonl_file(conn, file_path, project, file_type, logger, config=None):
     """Ingest a JSONL file (type=jsonl or subagent) into the database.
 
     Returns (records_imported, records_skipped).
@@ -337,7 +338,7 @@ def ingest_jsonl_file(conn, file_path, project, file_type, logger):
             # Insert transcript row
             try:
                 changes_before = conn.total_changes
-                conn.execute(
+                cur = conn.execute(
                     """INSERT OR IGNORE INTO transcripts
                        (session_id, project, uuid, parent_uuid, type, subtype, role,
                         content, model, timestamp, token_input, token_output,
@@ -349,6 +350,8 @@ def ingest_jsonl_file(conn, file_path, project, file_type, logger):
                 )
                 if conn.total_changes > changes_before:
                     records_imported += 1
+                    if config is not None:
+                        embed_message(config, conn, cur.lastrowid, content, logger)
             except sqlite3.IntegrityError:
                 # Duplicate uuid - silent skip per contract
                 pass
@@ -487,7 +490,7 @@ def ingest(file_path, project_override=None, type_override=None,
         # Perform ingestion
         if file_type in ("jsonl", "subagent"):
             records_imported, records_skipped = ingest_jsonl_file(
-                conn, file_path, project, file_type, logger
+                conn, file_path, project, file_type, logger, config=config
             )
         elif file_type == "tool_result":
             records_imported, records_skipped = ingest_tool_result(
