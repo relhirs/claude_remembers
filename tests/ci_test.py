@@ -13,9 +13,12 @@ Does NOT require interactive input or a running Claude Code session.
 """
 
 import importlib
+import json
 import os
 import py_compile
+import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -333,6 +336,116 @@ def test_config_parsing():
             check("config.yaml.example parses", False, str(e))
 
 
+def test_user_prompt_submit_hook_payload():
+    """Feed hooks/user-prompt-submit.py a real-shaped Claude Code
+    UserPromptSubmit payload (session_id/prompt/cwd/hook_event_name) and
+    verify it actually performs retrieval instead of silently no-op'ing.
+
+    Regression test for the bug where the hook read input_data["user_prompt"]
+    - a field Claude Code never sends - instead of "prompt", so prompt_text
+    was always empty and retrieval silently never ran. A payload-shape
+    mismatch like that doesn't raise; it just returns "{}" every time, which
+    is why 95 passing tests never caught it. This test fails loudly on that
+    same mismatch by asserting a seeded, keyword-matching prompt produces a
+    non-empty "Relevant Memories" result.
+    """
+    print("\n--- user-prompt-submit.py Hook Payload ---")
+
+    hook_src = ROOT / "hooks" / "user-prompt-submit.py"
+    config_utils_src = ROOT / "scripts" / "config_utils.py"
+    check("hooks/user-prompt-submit.py exists", hook_src.exists())
+    check("scripts/config_utils.py exists", config_utils_src.exists())
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_root = Path(tmpdir)
+        (fake_root / "hooks").mkdir()
+        (fake_root / "scripts").mkdir()
+        shutil.copy(hook_src, fake_root / "hooks" / "user-prompt-submit.py")
+        shutil.copy(config_utils_src, fake_root / "scripts" / "config_utils.py")
+
+        db_path = fake_root / "claude_remembers.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("""CREATE TABLE transcripts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT,
+            project TEXT, uuid TEXT UNIQUE, role TEXT, content TEXT,
+            timestamp TEXT, source TEXT
+        )""")
+        conn.execute("""CREATE VIRTUAL TABLE transcripts_fts USING fts5(
+            content, content=transcripts, content_rowid=id
+        )""")
+        # Several filler rows alongside the matching one - with a single-row
+        # corpus, FTS5's bm25 rank stays too close to 0 (no idf signal) to
+        # clear FTS_RANK_FLOOR, which would make this test fail for a reason
+        # unrelated to the bug it's checking for.
+        seed_contents = [
+            "The frobnicator rollout needs a staging flag before launch",
+            "Completely unrelated discussion about apples and oranges",
+            "Another unrelated note about hiking trails in the mountains",
+            "Random text about coffee brewing methods and equipment",
+            "Notes on gardening tips for spring planting season",
+        ]
+        for i, content in enumerate(seed_contents):
+            conn.execute("""INSERT INTO transcripts
+                (session_id, project, uuid, role, content, timestamp, source)
+                VALUES (?, 'oth', ?, 'assistant', ?, '2026-01-01T00:00:00Z', 'test')""",
+                (f"seed-session-{i}", f"seed-uuid-{i}", content))
+            conn.execute("""INSERT INTO transcripts_fts(rowid, content)
+                VALUES (last_insert_rowid(), ?)""", (content,))
+        conn.commit()
+        conn.close()
+
+        config_yaml = f"""
+storage:
+  mode: local
+  root_path: "{fake_root}"
+jsonl_project_mapping: {{}}
+"""
+        (fake_root / "config.yaml").write_text(config_yaml)
+
+        payload = {
+            "session_id": "test-session-id",
+            "transcript_path": str(fake_root / "transcript.jsonl"),
+            "cwd": str(fake_root),
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "what's the status of the frobnicator staging rollout",
+        }
+
+        result = subprocess.run(
+            [sys.executable, str(fake_root / "hooks" / "user-prompt-submit.py")],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        check("hook exits cleanly", result.returncode == 0, result.stderr[:200])
+
+        try:
+            output = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            output = None
+        check("hook stdout is valid JSON", output is not None, result.stdout[:200])
+
+        context = (
+            output.get("hookSpecificOutput", {}).get("additionalContext", "")
+            if output else ""
+        )
+        check(
+            "hook used the 'prompt' field and found the seeded match",
+            "frobnicator" in context,
+            f"got additionalContext={context!r}",
+        )
+
+        log_path = fake_root / "logs" / "retrieval.log"
+        check("retrieval.log was written", log_path.exists())
+        if log_path.exists():
+            check(
+                "retrieval.log recorded a keyword_hit, not skipped_no_keywords",
+                "keyword_hit" in log_path.read_text(),
+                log_path.read_text()[:200],
+            )
+
+
 def test_file_structure():
     """Verify expected directories and key files exist."""
     print("\n--- File Structure ---")
@@ -364,6 +477,7 @@ if __name__ == "__main__":
     test_database_creation()
     test_ingest_fixtures()
     test_config_parsing()
+    test_user_prompt_submit_hook_payload()
 
     print("\n" + "=" * 60)
     print(f"  Results: {PASS} passed, {FAIL} failed")
