@@ -363,7 +363,7 @@ def main():
             print("{}")
             return
 
-        prompt_text = input_data.get("user_prompt", "")
+        prompt_text = input_data.get("prompt", "")
         if not isinstance(prompt_text, str):
             prompt_text = ""
         prompt_text = prompt_text.strip()
