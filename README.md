@@ -28,6 +28,18 @@ It'll also ask if you want AI generated session summaries instead of the bare bo
 
 After setup you just use Claude Code like normal. Open a project folder, run `claude`, and talk to it. The memory's already running in the background at that point.
 
+### Windows
+
+Works the same way, just with `python` instead of `python3` on most Windows installs (the setup script registers hooks using whatever Python it's running under, so this is only about the command you type yourself):
+
+```powershell
+git clone https://github.com/relhirs/claude_remembers.git claude_remembers
+cd claude_remembers
+python scripts\remember-setup.py
+```
+
+One difference: the optional email digest feature schedules itself via `cron` on macOS/Linux, which doesn't exist on Windows. If you turn that feature on, the setup script instead prints the command and schedule to enter into **Task Scheduler** (search for it in the Start menu -> Create Basic Task) - everything else works identically across platforms.
+
 ### Configuring it manually
 
 `config.yaml` (the file everything actually reads from) is gitignored, so it never ships in the repo — it only exists once something generates it. `config.yaml.example` is the documented reference copy that does ship, with a comment above every option explaining what it does. You've got two ways to get from one to the other:
