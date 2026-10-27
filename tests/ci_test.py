@@ -394,10 +394,15 @@ def test_user_prompt_submit_hook_payload():
         conn.commit()
         conn.close()
 
+        # Use as_posix() (forward slashes), not str(fake_root) - on Windows,
+        # str() gives backslashes, which YAML's double-quoted scalar syntax
+        # treats as escape characters ("\U" isn't a valid escape), breaking
+        # yaml.safe_load() inside the hook. Forward slashes work fine for
+        # file I/O on Windows and sidestep the escaping issue entirely.
         config_yaml = f"""
 storage:
   mode: local
-  root_path: "{fake_root}"
+  root_path: "{fake_root.as_posix()}"
 jsonl_project_mapping: {{}}
 """
         (fake_root / "config.yaml").write_text(config_yaml)
