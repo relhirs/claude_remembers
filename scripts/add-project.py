@@ -157,7 +157,11 @@ def generate_claude_md(project, cfg):
 
         ## SESSION START
         1. **Search the memory** -- query search_transcripts + get_recent_summaries for this project. This is step ONE.
-        2. Call get_profile() and get_project_state('{project['prefix']}') to load working context.
+        2. Call get_profile('{project['prefix']}') and get_project_state('{project['prefix']}') to load full
+           working context - this merges your global preferences with any preferences set
+           specifically for this project (project-specific values override global ones that
+           share the same key). The session-start hook already force-injects a copy of this
+           automatically every session.
         3. Hooks handle startup check and context injection automatically.
 
         ## TOOL ROUTING
@@ -168,7 +172,7 @@ def generate_claude_md(project, cfg):
         - "What did we discuss about..." -> search_transcripts (or search_semantic for meaning-based)
         - "Show me session..." -> get_session
         - "Recent sessions" -> get_recent_sessions
-        - "My preferences" / "My profile" -> get_profile
+        - "My preferences" / "My profile" -> get_profile('{project['prefix']}')
         - "Project status" -> get_project_state
         - "Memory status" / "How many sessions" -> get_status
 

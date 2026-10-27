@@ -892,7 +892,11 @@ def phase_config(cfg):
 
             ## SESSION START
             1. **Search the memory** - query search_transcripts + get_recent_summaries for this project. This is step ONE.
-            2. Call get_profile() and get_project_state('{p['prefix']}') to load working context.
+            2. Call get_profile('{p['prefix']}') and get_project_state('{p['prefix']}') to load full
+               working context - this merges your global preferences with any preferences set
+               specifically for this project (project-specific values override global ones that
+               share the same key). The session-start hook already force-injects a copy of this
+               automatically every session.
             3. Hooks handle startup check and context injection automatically.
 
             ## TOOL ROUTING
@@ -903,7 +907,7 @@ def phase_config(cfg):
             - "What did we discuss about..." -> search_transcripts (or search_semantic for meaning-based)
             - "Show me session..." -> get_session
             - "Recent sessions" -> get_recent_sessions
-            - "My preferences" / "My profile" -> get_profile
+            - "My preferences" / "My profile" -> get_profile('{p['prefix']}')
             - "Project status" -> get_project_state
             - "Memory status" / "How many sessions" -> get_status
 
@@ -1671,8 +1675,18 @@ def _write_questionnaire_template(path, db_path=None):
         f.write(template)
 
 
+PROJECT_HEADER_RE = re.compile(r'^##\s+PROJECT:(\S+)\s+(.+)$')
+
+
 def import_questionnaire(root_path, db_path):
-    """Import a filled-out questionnaire into remember_facts."""
+    """Import a filled-out questionnaire into remember_facts.
+
+    Supports an optional per-project override syntax:
+        ## PROJECT:<prefix> CATEGORY
+    scopes everything under it to that project (overriding the global value
+    of the same category+key elsewhere) until the next "##" header. A plain
+    "## CATEGORY" header resets back to global scope (project=NULL).
+    """
     q_path = Path(root_path) / "remember-questionnaire.txt"
     if not q_path.exists():
         fail(f"Questionnaire not found: {q_path}")
@@ -1683,7 +1697,10 @@ def import_questionnaire(root_path, db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
+    valid_prefixes = {r[0] for r in cursor.execute("SELECT prefix FROM project_registry").fetchall()}
+
     current_category = "general"
+    current_project = None  # None = global scope
     count = 0
 
     for line in content.splitlines():
@@ -1691,7 +1708,19 @@ def import_questionnaire(root_path, db_path):
         if not line or line.startswith("#"):
             # Check if it's a category header
             if line.startswith("## "):
-                current_category = line[3:].strip().lower().replace(" ", "-")
+                m = PROJECT_HEADER_RE.match(line)
+                if m:
+                    prefix_candidate, cat_text = m.group(1), m.group(2)
+                    if prefix_candidate in valid_prefixes:
+                        current_project = prefix_candidate
+                    else:
+                        warn(f"Unknown project prefix '{prefix_candidate}' in questionnaire "
+                             f"header - treating section as global")
+                        current_project = None
+                    current_category = cat_text.strip().lower().replace(" ", "-")
+                else:
+                    current_project = None
+                    current_category = line[3:].strip().lower().replace(" ", "-")
             continue
 
         # Parse "Key: Value" format
@@ -1700,10 +1729,12 @@ def import_questionnaire(root_path, db_path):
             key = key.strip().lower().replace(" ", "_")
             value = value.strip()
             if value:  # Only insert if there's a value
-                # Upsert - update if same category+key exists
+                # Upsert - update if same category+key+project exists. "IS ?"
+                # (not "= ?") is required for NULL-safe matching when
+                # current_project is None.
                 existing = cursor.execute(
-                    "SELECT id FROM remember_facts WHERE category=? AND key=?",
-                    (current_category, key)
+                    "SELECT id FROM remember_facts WHERE category=? AND key=? AND project IS ?",
+                    (current_category, key, current_project)
                 ).fetchone()
                 if existing:
                     cursor.execute(
@@ -1712,8 +1743,9 @@ def import_questionnaire(root_path, db_path):
                     )
                 else:
                     cursor.execute(
-                        "INSERT INTO remember_facts (category, key, value, source, confidence, created_at, updated_at) VALUES (?, ?, ?, 'questionnaire', 'confirmed', ?, ?)",
-                        (current_category, key, value, now, now)
+                        "INSERT INTO remember_facts (category, key, value, project, source, confidence, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, 'questionnaire', 'confirmed', ?, ?)",
+                        (current_category, key, value, current_project, now, now)
                     )
                 count += 1
 
