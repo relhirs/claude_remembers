@@ -12,7 +12,7 @@ The default way Claude Code tries to "remember" stuff is through a file called M
 
 This project gets around that by not trying to cram everything into one file at all. Instead of a size capped document Claude reads top to bottom every time, everything goes into a real database that can grow as big as it needs to, and instead of Claude reading the whole thing every time, a hook just pulls out the specific stuff that's truly relevant to what you just asked and drops that into context. So you're not stuck choosing what makes the cut into 200 lines - everything gets kept, and the search figures out what's worth surfacing at any given moment instead of you doing that curation by hand.
 
-## Installing it
+## Installing it (Mac)
 
 You need Python 3.10+, Claude Code, and pip.
 
