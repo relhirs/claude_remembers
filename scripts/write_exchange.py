@@ -26,6 +26,12 @@ import yaml
 
 from config_utils import resolve_db_path
 
+# Measurement layer: optional, a missing metrics_utils.py must never stop capture.
+try:
+    from metrics_utils import record_capture_metrics
+except ImportError:
+    record_capture_metrics = None
+
 # Suppress HuggingFace model-loading noise (must be before any HF imports)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
@@ -338,6 +344,9 @@ def write_exchange(session_id, jsonl_path, root_path=None, config=None):
                     transcript_id = conn.execute(
                         "SELECT last_insert_rowid()").fetchone()[0]
                     embed_message(config, conn, transcript_id, content, logger)
+                    if record_capture_metrics:
+                        record_capture_metrics(conn, config, data, session_id, project,
+                                               ts, transcript_id, is_subagent, logger)
 
         # Upsert session row
         if cwd is None:

@@ -26,7 +26,7 @@ import time
 import yaml
 
 from config_utils import resolve_db_path
-from write_exchange import embed_message
+from write_exchange import embed_message, record_capture_metrics
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -352,6 +352,9 @@ def ingest_jsonl_file(conn, file_path, project, file_type, logger, config=None):
                     records_imported += 1
                     if config is not None:
                         embed_message(config, conn, cur.lastrowid, content, logger)
+                    if record_capture_metrics:
+                        record_capture_metrics(conn, config, data, session_id, project,
+                                               timestamp, cur.lastrowid, is_subagent, logger)
             except sqlite3.IntegrityError:
                 # Duplicate uuid - silent skip per contract
                 pass
