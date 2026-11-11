@@ -478,6 +478,19 @@ def startup_check(root_path=None, config=None):
         except Exception as e:
             logger.warning("Abandoned-session backfill step failed: %r", e)
 
+        # 6c. Memory Check: tests whether search finds the right memories, using
+        # questions built from this user's own history. Runs itself in the
+        # background (never waited on) every couple of weeks, once there is
+        # enough history; is_due() is one cheap query. See remember_check.py.
+        try:
+            from remember_check import is_due, launch_background
+            due, why = is_due(conn, root_path, config)
+            if due:
+                launch_background(root_path)
+                logger.info("Memory Check: started in the background (%s)", why)
+        except Exception as e:
+            logger.warning("Memory Check step failed: %r", e)
+
     finally:
         conn.close()
 

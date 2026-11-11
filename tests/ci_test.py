@@ -1221,6 +1221,276 @@ def test_semantic_helper():
             helper.subprocess.Popen = real_popen
 
 
+def test_memory_check():
+    """The automatic Memory Check: question source, when it is due, the plain
+    advice it gives, and that its note is shown only once."""
+    print("\n--- Memory Check ---")
+    import time
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import remember_check as rc
+    except Exception as e:
+        check("import remember_check", False, str(e))
+        return
+
+    def sessions_db(n_good):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE sys_sessions (session_id TEXT, project TEXT, started_at TEXT, notes TEXT)")
+        for i in range(n_good):
+            notes = (f"Topic: t{i}\n\n## Decisions\n- Use option {i} for the thing because it is simpler to run\n"
+                     "- A second decision that should not be picked\n\n## Done\n- stuff\n")
+            conn.execute("INSERT INTO sys_sessions VALUES (?, 'oth', ?, ?)", (f"s{i}", f"2026-10-{i + 1:02d}", notes))
+        conn.execute("INSERT INTO sys_sessions VALUES ('fb', 'oth', '2026-10-30', 'AUTO-GENERATED FALLBACK note')")
+        conn.execute("INSERT INTO sys_sessions VALUES ('none', 'oth', '2026-10-31', '## Decisions\n- None locked in yet; user is still evaluating options.\n')")
+        conn.execute("INSERT INTO sys_sessions VALUES ('short', 'oth', '2026-10-31', '## Decisions\n- tiny\n')")
+        conn.execute("INSERT INTO sys_sessions VALUES ('nodec', 'oth', '2026-10-31', '## Done\n- only done items here, no decisions section\n')")
+        return conn
+
+    conn = sessions_db(15)
+    bullets = rc.decision_bullets(conn)
+    check("one usable decision per session; fallback, 'none', too-short and no-decision sessions are skipped",
+          len(bullets) == 15 and all(b["session"].startswith("s") for b in bullets)
+          and all("second decision" not in b["text"] for b in bullets))
+    check("markdown marks are stripped from decisions", all("*" not in b["text"] and "`" not in b["text"] for b in bullets))
+    picked = rc.pick_evenly(list(range(100)), 10)
+    check("sessions are sampled evenly across the whole history", len(picked) == 10 and picked[0] == 0 and picked[-1] >= 85)
+    check("a template question is built from the decision text",
+          rc.template_question("Use storage.mode: local instead of synced for this machine today") .startswith("What did we decide about Use storage.mode"))
+
+    real_llm, real_vet = rc.llm_questions, rc.vet_decisions
+    rc.vet_decisions = lambda conn, config, bullets: (bullets, 0, True)     # vetting has its own test below
+    rc.llm_questions = lambda config, texts: (None, "no key")
+    qs, info = rc.build_questions(conn, {})
+    style = info["style"]
+    check("with no API the questions fall back to templates and say why", style == "templated"
+          and info["wording_note"] == "no key"
+          and sum(q["kind"] == "answerable" for q in qs) == 15
+          and sum(q["kind"] == "no_answer" for q in qs) == len(rc.NO_ANSWER_QUESTIONS))
+    check("each question points at the session its decision came from",
+          all(q["expect"] and q["expect"][0].startswith("s") for q in qs if q["kind"] == "answerable"))
+    rc.llm_questions = lambda config, texts: ([[f"how did we handle thing number {i}?", f"what about number {i} again?"]
+                                               for i, _ in enumerate(texts)], "ok")
+    qs, info = rc.build_questions(conn, {})
+    style = info["style"]
+    answerable = [q for q in qs if q["kind"] == "answerable"]
+    check("reworded questions are used when the API answers", style == "reworded"
+          and qs[0]["question"] == "how did we handle thing number 0?")
+    check("each decision is asked two ways, both pointing at the same session",
+          len(answerable) == 30 and answerable[0]["expect"] == answerable[1]["expect"]
+          and answerable[0]["id"] != answerable[1]["id"] and info["decisions_used"] == 15)
+    rc.llm_questions, rc.vet_decisions = real_llm, real_vet
+
+    # --- only fair questions: the decision must really be in its own session ---
+    import types
+    import numpy as np
+    vocab = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"]
+
+    def vec(text):
+        v = np.array([1.0 if w in text.lower() else 0.0 for w in vocab], dtype=np.float32)
+        return v / (np.linalg.norm(v) or 1.0)
+
+    class FakeModel:
+        def encode(self, text, normalize_embeddings=True):
+            return np.stack([vec(t) for t in text]) if isinstance(text, list) else vec(text)
+
+    fake = types.ModuleType("semantic_search")
+    fake.get_embed_model = lambda config: FakeModel()
+    real_module = sys.modules.get("semantic_search")
+    sys.modules["semantic_search"] = fake
+    try:
+        v = sqlite3.connect(":memory:")
+        v.execute("CREATE TABLE sys_sessions (session_id TEXT, project TEXT, started_at TEXT, notes TEXT)")
+        v.execute("CREATE TABLE transcripts (id INTEGER PRIMARY KEY, session_id TEXT, content TEXT)")
+        v.execute("CREATE TABLE transcript_embeddings (transcript_id INTEGER, embedding BLOB)")
+
+        def add(sid, decision, said):
+            v.execute("INSERT INTO sys_sessions VALUES (?, 'oth', '2026-10-01', ?)",
+                      (sid, f"## Decisions\n- {decision} and more words to be long enough here\n"))
+            cur = v.execute("INSERT INTO transcripts (session_id, content) VALUES (?, ?)", (sid, said))
+            v.execute("INSERT INTO transcript_embeddings VALUES (?, ?)", (cur.lastrowid, vec(said).tobytes()))
+        add("said_it", "alpha bravo charlie delta", "we picked alpha bravo charlie delta today")
+        add("never_said", "echo foxtrot golf hotel", "talked about india juliet only")
+        add("twin", "alpha bravo charlie delta", "alpha bravo charlie delta again")
+        kept, dropped, ran = rc.vet_decisions(v, {}, rc.decision_bullets(v))
+        by_session = {b["session"]: b for b in kept}
+        check("a decision its own session never actually said is dropped", "never_said" not in by_session and dropped == 1 and ran is True)
+        check("a decision backed by its session's text is kept", "said_it" in by_session)
+        check("a session that recorded the same decision is also accepted as correct",
+              by_session["said_it"]["also_answers"] == ["twin"])
+        v.execute("DROP TABLE transcript_embeddings")
+        unvetted = rc.vet_decisions(v, {}, rc.decision_bullets(v))
+        check("with no embeddings to judge by, vetting leaves the decisions alone (no crash) and says it didn't run",
+              unvetted[1] == 0 and unvetted[2] is False and len(unvetted[0]) == 3)
+    finally:
+        if real_module is not None:
+            sys.modules["semantic_search"] = real_module
+        else:
+            sys.modules.pop("semantic_search", None)
+
+    # --- the Haiku call says WHY it fell back ---
+    class FakeResp:
+        def __init__(self, text, stop="end_turn"):
+            self.content = [types.SimpleNamespace(type="text", text=text)]
+            self.stop_reason = stop
+
+    def with_api(handler):
+        mod = types.ModuleType("anthropic")
+
+        class Client:
+            def __init__(self, **kw):
+                pass
+            messages = types.SimpleNamespace(create=lambda **kw: handler(kw))
+        mod.Anthropic = Client
+        saved = sys.modules.get("anthropic", "absent")
+        sys.modules["anthropic"] = mod
+        return saved
+
+    def restore_api(saved):
+        if saved == "absent":
+            sys.modules.pop("anthropic", None)
+        else:
+            sys.modules["anthropic"] = saved
+
+    two = ["alpha one", "beta two"]
+    for label, handler, expect in (
+            ("a good reply", lambda kw: FakeResp('[["what is alpha?", "tell me alpha"], ["what is beta?"]]'), "ok"),
+            ("a reply that was cut off", lambda kw: FakeResp('[["what is al', "max_tokens"), "cut off"),
+            ("a reply that isn't JSON", lambda kw: FakeResp("sorry, here you go"), "not valid JSON"),
+            ("a reply with the wrong number of entries", lambda kw: FakeResp('[["what is alpha?"]]'), "one entry per decision"),
+            ("an API error", lambda kw: (_ for _ in ()).throw(RuntimeError("boom")), "API call failed (RuntimeError)")):
+        saved = with_api(handler)
+        try:
+            got, why = rc.llm_questions({}, two)
+        finally:
+            restore_api(saved)
+        check(f"Haiku call, {label}: reason is '{expect}'", expect in why and ((got is not None) == (expect == "ok")), f"{got} {why}")
+    saved = with_api(lambda kw: FakeResp('[["what is alpha?", "tell me alpha"], ["what is beta?"]]'))
+    try:
+        got, why = rc.llm_questions({}, two)
+    finally:
+        restore_api(saved)
+    check("one valid question for a decision is accepted (two are not required)", got == [["what is alpha?", "tell me alpha"], ["what is beta?"]])
+    sys.modules["anthropic"] = None            # makes `import anthropic` raise ImportError
+    try:
+        got, why = rc.llm_questions({}, two)
+    finally:
+        sys.modules.pop("anthropic", None)
+    check("a missing anthropic package is named as the reason", got is None and "not installed" in why)
+
+    # --- when it is due ---
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cfg = {}
+        small = sessions_db(5)
+        check("not enough history: not due, and says why", rc.is_due(small, tmpdir, cfg)[0] is False
+              and "not enough history" in rc.is_due(small, tmpdir, cfg)[1])
+        check("first time with enough history: due", rc.is_due(conn, tmpdir, cfg) == (True, "first check"))
+        check("turned off in config: never due", rc.is_due(conn, tmpdir, {"memory_check": {"enabled": False}})[0] is False)
+        now = time.time()
+        rc.write_state(tmpdir, {"last_run_at": now - 3 * 86400, "last_session_count": 5})
+        check("ran 3 days ago: not due", rc.is_due(conn, tmpdir, cfg, now=now) == (False, "ran recently"))
+        rc.write_state(tmpdir, {"last_run_at": now - 20 * 86400, "last_session_count": 12})
+        check("20 days ago but only 3 new sessions: not due",
+              rc.is_due(conn, tmpdir, cfg, now=now)[0] is False)
+        rc.write_state(tmpdir, {"last_run_at": now - 20 * 86400, "last_session_count": 3})
+        check("20 days ago and 12 new sessions: due", rc.is_due(conn, tmpdir, cfg, now=now) == (True, "due"))
+        check("a check already running blocks another (atomic lock)", rc.acquire_run_lock(tmpdir)
+              and not rc.acquire_run_lock(tmpdir) and rc.is_due(conn, tmpdir, cfg, now=now) == (False, "already running"))
+        old = now - 3600
+        os.utime(rc.lock_path(tmpdir), (old, old))
+        check("a lock left by a crash expires instead of blocking forever", not rc.lock_active(tmpdir, now)
+              and rc.is_due(conn, tmpdir, cfg, now=now)[0] is True)
+        check("an expired lock can be taken over", rc.acquire_run_lock(tmpdir, now))
+        rc.release_run_lock(tmpdir)
+        check("releasing the lock lets the next check start", rc.acquire_run_lock(tmpdir))
+        rc.release_run_lock(tmpdir)
+        rc.write_state(tmpdir, {"last_failed_at": now - 3600})
+        check("a check that failed an hour ago waits instead of retrying on every start",
+              rc.is_due(conn, tmpdir, cfg, now=now)[0] is False and "failed recently" in rc.is_due(conn, tmpdir, cfg, now=now)[1])
+        rc.write_state(tmpdir, {"last_failed_at": now - 25 * 3600})
+        check("after the back-off it tries again", rc.is_due(conn, tmpdir, cfg, now=now)[0] is True)
+        os.remove(rc.state_path(tmpdir))
+
+        launched = []
+        real_popen = rc.subprocess.Popen
+        rc.subprocess.Popen = lambda cmd, **kw: launched.append(cmd)
+        try:
+            check("startup launches the check in the background with --auto",
+                  rc.launch_background(tmpdir) and launched and launched[0][-1] == "--auto")
+        finally:
+            rc.subprocess.Popen = real_popen
+
+        # --- one-time notice ---
+        rc.post_notice(tmpdir, "Memory Check finished. All good.")
+        first, second = rc.take_notice(tmpdir), rc.take_notice(tmpdir)
+        check("the note is handed out once, then never again", first == "Memory Check finished. All good." and second is None)
+        rc.post_notice(tmpdir, "first note")
+        rc.post_notice(tmpdir, "second note replaces an unread one")
+        check("a newer note replaces an unread one, and is still shown exactly once",
+              rc.take_notice(tmpdir) == "second note replaces an unread one" and rc.take_notice(tmpdir) is None)
+
+        # --- run_check: lock first, failures logged and backed off, gate counts decisions ---
+        dbfile = os.path.join(tmpdir, "check.db")
+        db = sqlite3.connect(dbfile)
+        db.execute("CREATE TABLE sys_sessions (session_id TEXT, project TEXT, started_at TEXT, notes TEXT)")
+        db.commit()
+        db.close()
+        real_resolve, real_build = rc.resolve_db_path, rc.build_questions
+        rc.resolve_db_path = lambda c: dbfile
+        try:
+            rc.build_questions = lambda conn, config: (_ for _ in ()).throw(RuntimeError("model would not load"))
+            try:
+                rc.run_check({}, root=tmpdir)
+                raised = False
+            except RuntimeError:
+                raised = True
+            st = rc.read_state(tmpdir)
+            check("a crashed check re-raises, is logged, is backed off, and releases its lock",
+                  raised and "last_failed_at" in st and "model would not load" in st["last_error"]
+                  and "model would not load" in open(rc.log_path(tmpdir)).read() and not rc.lock_active(tmpdir))
+            check("...so the next startup does not launch it again", rc.is_due(conn, tmpdir, cfg)[0] is False)
+            rc.write_state(tmpdir, {})
+            rc.build_questions = lambda conn, config: ([], {"decisions_used": 6, "style": "reworded"})
+            out = rc.run_check({}, root=tmpdir)
+            check("only 6 decisions (12 questions) is not enough history: skipped, and waits its interval",
+                  "skipped" in out and "6 usable" in out["skipped"] and "last_run_at" in rc.read_state(tmpdir))
+            rc.acquire_run_lock(tmpdir)
+            check("a second check while one is running does nothing",
+                  rc.run_check({}, root=tmpdir) == {"skipped": "another check is already running"})
+            rc.release_run_lock(tmpdir)
+        finally:
+            rc.resolve_db_path, rc.build_questions = real_resolve, real_build
+
+    # --- advice and wording ---
+    def result(kw, om, al, junk_kw=0.0, junk_al=0.25):
+        def m(r, junk):
+            return {"recall_at_5": r, "false_injection_rate": junk, "model_load_rate": 0.4}
+        return {"methods": {"keyword": m(kw, junk_kw), "on_miss": m(om, junk_kw), "always": m(al, junk_al)},
+                "counts": {"answerable": 20, "no_answer": 4}, "created_at": "2026-11-11T00:00:00Z",
+                "question_style": "reworded"}
+    check("meaning search adds almost nothing: advice is to keep things as they are",
+          rc.recommend(result(0.7, 0.72, 0.74), "on_miss")["advice"] == "keep")
+    check("always finds 10+ points more than on_miss: suggest always",
+          rc.recommend(result(0.6, 0.65, 0.85), "on_miss")["advice"] == "consider_always")
+    check("on always but it finds no more than on_miss: suggest giving the memory back",
+          rc.recommend(result(0.6, 0.8, 0.82), "always")["advice"] == "consider_on_miss")
+    easy = result(0.8, 0.9, 0.9)
+    easy["question_style"] = "templated"
+    easy["question_info"] = {"wording_note": "the reply was cut off"}
+    rec = rc.recommend(easy, "on_miss")
+    check("template questions are too easy to judge by: no verdict, the real reason, and how to fix it",
+          rec["advice"] == "unreliable" and "the reply was cut off" in rec["headline"] and "--now" in rec["headline"])
+    mixed = result(0.6, 0.65, 0.85)
+    mixed["counts"]["answerable"] = 15
+    mixed["question_info"] = {"decisions_used": 10, "vetting_ran": False}
+    text = rc.render_report(mixed)
+    check("the report doesn't claim 'each asked two ways' when some were asked once", "one or two ways" in text)
+    check("the report says when the fairness filter couldn't run", "fairness filter" in text and "couldn't run" in text)
+    report = rc.render_report(result(0.6, 0.65, 0.85))
+    check("the report is plain: scores out of 10, a verdict, and reassurance",
+          "out of 10" in report and "WHAT THIS MEANS" in report and "Nothing is broken" in report
+          and "<- your setting" in report)
+
+
 def test_session_start_is_slim():
     """The session-start hook reports how many sessions lack notes as one
     accurate line, not a capped list of unusable ID fragments."""
@@ -1310,6 +1580,7 @@ if __name__ == "__main__":
     test_weak_match_gate()
     test_semantic_modes()
     test_semantic_helper()
+    test_memory_check()
 
     print("\n" + "=" * 60)
     print(f"  Results: {PASS} passed, {FAIL} failed")

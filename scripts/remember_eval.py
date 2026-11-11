@@ -204,8 +204,14 @@ def score(per_question, questions):
 
 
 def run_eval(config, golden_path):
-    db_path = resolve_db_path(config)
     exclude, questions = load_golden(golden_path)
+    return run_questions(config, exclude, questions, str(golden_path))
+
+
+def run_questions(config, exclude, questions, source):
+    """Score a list of questions every way. Used with a hand-checked golden
+    set by this script and with auto-generated questions by remember_check.py."""
+    db_path = resolve_db_path(config)
     hook = load_hook()
     spec = importlib.util.spec_from_file_location("semantic_search", ROOT / "scripts" / "semantic_search.py")
     semantic = importlib.util.module_from_spec(spec)
@@ -222,7 +228,7 @@ def run_eval(config, golden_path):
         conn.close()
     return {
         "created_at": utc_now(), "git_commit": git_stamp(),
-        "params": {"golden": str(golden_path), "semantic_cutoff": SEMANTIC_CUTOFF,
+        "params": {"golden": source, "semantic_cutoff": SEMANTIC_CUTOFF,
                    "rrf_k": RRF_K, "recency_scale_days": hook.RECENCY_SCALE_DAYS,
                    "fts_rank_floor": hook.FTS_RANK_FLOOR, "max_results": hook.MAX_RESULTS},
         "counts": {"answerable": sum(q["kind"] == "answerable" for q in questions),

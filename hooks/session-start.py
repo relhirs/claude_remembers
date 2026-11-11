@@ -458,6 +458,17 @@ def main():
         # summarization, search changes), so "run git pull" would silently
         # overwrite local changes rather than offer a safe upstream update.
 
+        # A finished Memory Check is mentioned once, then not again.
+        try:
+            sys.path.insert(0, os.path.join(root, "scripts"))
+            from memory_check_state import take_notice
+            notice = take_notice(root)
+            if notice:
+                lines += ["## Memory Check", notice,
+                          "Mention this to the user once, in a sentence or two of plain words, then move on.", ""]
+        except Exception as e:
+            _log_hook_error(root, "session-start.py", f"memory check notice failed: {e!r}")
+
         if lines:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}}))
         else:

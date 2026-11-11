@@ -189,6 +189,21 @@ semantic_search:
   idle_shutdown_min: 30                       # always only: quit after this many idle minutes
 
 # ==============================================================================
+# MEMORY CHECK (is search finding the right memories?)
+# ==============================================================================
+# Every couple of weeks, once there is enough history, a background check asks
+# search questions built from your own past sessions and reports in plain
+# words how often it found the right conversation, and whether changing
+# semantic_search.mode would help. You don't write or review anything. The
+# result is mentioned once at the start of a later session; read it any time
+# with: python3 scripts/remember_check.py
+# Building the questions uses one small Claude Haiku call (the same API key as
+# session summaries); without a key it falls back to simple templates.
+
+memory_check:
+  enabled: true
+
+# ==============================================================================
 # METRICS (is the memory actually helping?)
 # ==============================================================================
 # Records one row per prompt in retrieval_events (which search path fired, how
