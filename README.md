@@ -55,4 +55,14 @@ Everything just lives on your own disk. No cloud service, no third party server,
 
 ## Credit
 
-This is a heavily restructured version of [claude-brain](https://github.com/mikeadolan/claude-brain) by Mike Dolan. The original idea of giving Claude Code actual persistent local memory is his. Most of what's here now, the `/clear` recovery logic, the search, the summarization pipeline, has been rebuilt from that starting point.
+This is a heavily restructured version of [claude-brain](https://github.com/mikeadolan/claude-brain) by Mike Dolan. The original idea of giving Claude Code actual persistent local memory is his. Most of what's here now has been rebuilt or added on top of that starting point:
+
+- **`/clear` recovery.** No time limit. Whenever you come back, even days later, your next message gets the real summary of the last session mixed with a search of what you just typed, once per `/clear`.
+- **Search.** Keyword search first, plus meaning-based search that either runs only when keyword search looks unreliable (`on_miss`, the default) or on every prompt through a small background helper (`always`), chosen in `config.yaml`. It skips weak matches instead of padding the results, never hands back the session you're already in, and favors newer memories.
+- **Summarization.** Every session gets a summary when it ends, a clearly marked fallback note if the API isn't available, and a startup sweep that catches sessions that never ended cleanly (closed terminal, crash, sleep).
+- **Measuring itself.** Built-in telemetry, a replay of your own past prompts, a golden-set test, and a memory check that runs in the background every couple of weeks and tells you in plain words whether search is finding the right things. Changes to the search were decided by these numbers, not by guessing. On my own history (about 14,800 messages) they caught an ordering bug that was injecting memories about four months old (median 115 days, now 6) and cut irrelevant injections on questions with no answer from 100% to 0%.
+- **Importing.** Claude.ai, ChatGPT and Gemini exports go into per-project folders with tags you choose, and nothing gets filed without you picking the folder.
+- **Per-project profile.** Your preferences can be scoped to one project and override your global ones when you're in that folder.
+- **Tested.** A 273-check test suite that runs in CI on macOS, Linux and Windows.
+
+See [GO_DEEPER.md](GO_DEEPER.md) for how each of these works.
