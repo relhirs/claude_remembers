@@ -7,6 +7,13 @@ automatic context injection, so the merge algorithm lives in exactly one
 place. Callers must set conn.row_factory = sqlite3.Row before using these.
 """
 
+# Older versions of remember-setup.py copied ~/.claude/CLAUDE.md into
+# remember_preferences under this category, one hard-wrapped line per row.
+# Claude Code loads that file itself every session, so injecting the copy
+# repeats it (twice, if setup ran twice). Skipped here so installs that
+# already have those rows stop paying for them.
+LEGACY_IMPORTED_CATEGORY = "imported-claude-md"
+
 
 def fetch_merged_profile(conn, project=None):
     """Return (facts, pref_rows): global remember_facts/remember_preferences
@@ -42,6 +49,18 @@ def fetch_merged_profile(conn, project=None):
             "SELECT category, preference, project FROM remember_preferences "
             "WHERE project IS NULL ORDER BY category"
         ).fetchall()
+
+    # Drop legacy CLAUDE.md copies and exact repeats (same category, text and scope).
+    seen = set()
+    unique_prefs = []
+    for row in pref_rows:
+        if row["category"] == LEGACY_IMPORTED_CATEGORY:
+            continue
+        key = (row["category"], row["preference"], row["project"])
+        if key not in seen:
+            seen.add(key)
+            unique_prefs.append(row)
+    pref_rows = unique_prefs
 
     merged = {}
     for row in fact_rows:

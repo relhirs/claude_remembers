@@ -374,16 +374,15 @@ def phase_projects():
     if role_answer:
         identity["role"] = role_answer
 
-    # --- Import ~/.claude/CLAUDE.md preferences ---
+    # ~/.claude/CLAUDE.md is deliberately NOT imported into the database.
+    # Claude Code already loads it itself at the start of every session, so
+    # copying it into remembered preferences just put the same text into
+    # context a second time (and, imported line by line, as fragments).
     claude_md_path = home / ".claude" / "CLAUDE.md"
-    claude_md_content = None
     if claude_md_path.exists():
         info(f"\nFound your global CLAUDE.md at {claude_md_path}")
-        info("Importing copies that text into the memory database too, so it's")
-        info("searchable alongside everything else. Your file itself is untouched.")
-        if ask_yn("Import its contents as remembered preferences?"):
-            claude_md_content = claude_md_path.read_text(encoding="utf-8")
-            ok("Will import CLAUDE.md preferences")
+        info("Claude Code already loads it every session, so it isn't copied into")
+        info("memory (that would only put the same text in context twice).")
 
     # --- Confirm ---
     print(f"\n  {bold('Summary:')}")
@@ -407,7 +406,6 @@ def phase_projects():
         "db_path": db_path,
         "projects": projects,
         "identity": identity,
-        "claude_md_content": claude_md_content,
     }
 
 # ---------------------------------------------------------------------------
@@ -684,21 +682,6 @@ def phase_database(cfg):
             )
         conn.commit()
         ok(f"Identity seeded ({len(identity)} facts)")
-
-    # Import CLAUDE.md preferences
-    claude_md = cfg.get("claude_md_content")
-    if claude_md:
-        lines = [l.strip() for l in claude_md.splitlines() if l.strip() and not l.strip().startswith("#")]
-        count = 0
-        for line in lines:
-            if len(line) > 10:  # Skip very short lines
-                cursor.execute(
-                    "INSERT INTO remember_preferences (category, preference, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                    ("imported-claude-md", line, "remember-setup (~/.claude/CLAUDE.md)", now, now)
-                )
-                count += 1
-        conn.commit()
-        ok(f"Imported {count} preferences from CLAUDE.md")
 
     conn.close()
     ok(f"Database ready: {db_path}")
