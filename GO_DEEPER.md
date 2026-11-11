@@ -1,5 +1,16 @@
 # How this works
 
+- [What happens step by step](#what-happens-step-by-step)
+- [How per-message search works](#how-per-message-search-works)
+- [How to verify it's working](#how-to-verify-its-working)
+- [Measuring how well it works](#measuring-how-well-it-works)
+- [Why "lessons" are useful](#why-lessons-are-useful)
+- [Getting the most out of it](#getting-the-most-out-of-it)
+- [The four slash commands](#the-four-slash-commands)
+- [If you want to poke around directly](#if-you-want-to-poke-around-directly)
+- [Bringing in history from other AI tools](#bringing-in-history-from-other-ai-tools)
+- [What this doesn't do](#what-this-doesnt-do)
+
 **Hooks.** Claude Code lets you set up scripts that fire automatically at certain points, like when you start a session, when you send a message, when Claude's done answering, or when a session ends. This project uses six of those. You never actually run them yourself, they just happen in the background.
 
 **A database.** Everything gets dumped into one SQLite file sitting on your disk. Every message, every session, a summary written at the end of each session, and if you set up an API key, a list of "lessons" pulled out of whatever you worked on. It's really just a file, you can pop it open with any SQLite tool if you want to poke around.
@@ -8,32 +19,54 @@
 
 ## What happens step by step
 
-**When you open a project and type `claude`:** the session start hook checks if there are any new chat logs it hasn't seen, pulls them in, backs up the database, and gives Claude a quick summary of what happened last time plus anything that got left unfinished.
+### When you open a project and type `claude`
 
-**Every time you send a message:** a hook digs through the database for anything relevant to what you just typed and quietly tosses it into Claude's context before Claude even sees your message.
+The session start hook checks if there are any new chat logs it hasn't seen, pulls them in, backs up the database, and gives Claude a quick summary of what happened last time plus anything that got left unfinished.
+
+### Every time you send a message
+
+A hook digs through the database for anything relevant to what you just typed and quietly tosses it into Claude's context before Claude even sees your message.
 
 And this happens on literally every message, not just right after you run `/clear`. The `/clear` recovery thing below is really just for one specific moment, the message right after you clear mid session. Most of the time when you're bringing up old stuff it has nothing to do with `/clear` at all, like you close your terminal on Monday, open a new one Wednesday, and ask "what did we decide about the database schema" and that's a totally new session that never went near `/clear`. If search only ran right after clearing, that Wednesday question would just come back empty since nothing was ever cleared. This per message search is the whole point of the project, remembering stuff across sessions, not just across a single `/clear`. The `/clear` recovery thing is just a smaller bonus feature on top of that.
 
-This part does keyword search first since it's quick. Keyword search only matches the words you typed,so it misses a memory that says the same thing in different words. That's what meaning-based search is for: it compares what your message is about instead of its exact words. The catch is cost: the model that does this takes about 3 seconds to load and about 600 MB of memory while it's loaded, so you can pick when it runs with `semantic_search: mode:` in `config.yaml`:
+*How it decides what to inject is covered in [How per-message search works](#how-per-message-search-works).*
+
+### Every time Claude finishes answering
+
+The whole exchange gets saved to the database right away. It doesn't wait till the session ends. So if your terminal crashes you don't lose the conversation, just the end of session summary.
+
+### When a session ends
+
+When a session ends, meaning you ran `/exit`, closed the terminal, or hit `/clear`, there's a background script that reads through the whole conversation and asks Claude Haiku to write an actual summary, what you were doing, what got decided, what's still unfinished, what to pick up next time.
+
+If that call fails for whatever reason (no API key, no internet, hit a rate limit) it falls back to a simpler note instead, putting together just the project name, how many messages were in the session, the time range, and a tiny preview of your first message. That fallback note isn't nearly as useful as a real generated summary, but at least it's clearly marked as a fallback and the session still ends up in the database with something attached to it. The alternative would be writing nothing at all, which means that session disappears from your history since nothing ever points back to it. Either way something gets written, just a question of how useful it ends up being.
+
+### When a session doesn't end cleanly
+
+What if the session doesn't end cleanly at all -- if you just close the terminal tab, force-quit, or your machine sleeps or crashes mid-conversation, none of that gives Claude Code a chance to fire the end-of-session hook. This means that the session would just sit there forever with no summary and no notes permanently. The fix for this doesn't try to catch the crash itself (nothing can run code after the process is already gone) -- so instead, every time you start a **new** session anywhere, it checks for any *other* session that's still missing a summary and whose last message is more than 30 minutes old, and runs the normal summarization pass on it then, tagged so you can tell it was caught late rather than a real `/exit`/`/clear`. It only does a few of these per startup so it can't slow down the session you're trying to start. This only ever looks at sessions other than the one currently starting, and once a session gets picked up this way it's marked as handled, so it won't get re-swept by a later startup too. If you come back to a chat you'd only paused (not force-quit) and it got summarized while you were out for over half an hour, that's expected and harmless -- the provisional summary just gets fully overwritten with the real one whenever you actually do end that session for real. The "lessons" pulled out of that session (see below) aren't affected by this either -- before writing any lesson, it checks what's already been recorded for that same session and skips anything already there, so even though the summarization step can potentially run twice on the same conversation, nothing gets duplicated in your lessons.
+
+### When you run `/clear`
+
+In the old version, running this command only tried to bring back context if you came back within five minutes, and even then it just dumped the last ten raw messages at you. Now there's no time limit at all, so whenever you come back, even days later, your next message gets the real summary from before mixed with a normal search based on whatever you just typed. It only does this once per `/clear` though, so it won't keep repeating itself on every message after.
+
+## How per-message search works
+
+### Keyword first, meaning-based as the backup
+
+This part does keyword search first since it's quick. Keyword search only matches the words you typed, so it misses a memory that says the same thing in different words. That's what meaning-based search is for: it compares what your message is about instead of its exact words. The catch is cost: the model that does this takes about 3 seconds to load and about 600 MB of memory while it's loaded, so you can pick when it runs with `semantic_search: mode:` in `config.yaml`:
 
 - **`on_miss`** (the default): meaning search runs only when keyword search looks unreliable, and nothing runs in the background. That's judged by four signals. *Score strength:* even the best keyword result is weak, below about one distinctive word's worth of evidence (the bar grows with the size of your memory, so a small database isn't silenced). Without this check, search used to hand back its five least-bad results even when memory had nothing. *Coverage:* the best result contains under a quarter of your keywords (matching 1 of 6 is weak). *Memory phrasing:* you're asking about the past ("what did we decide", "last time", "remember when"), which is exactly when the words rarely match. *Length:* very short messages like "yes" skip retrieval entirely. On real prompts the gate fires on roughly one in four, and those prompts wait a few seconds while the model loads.
 - **`always`**: meaning search runs on every prompt, and a small background helper keeps the model loaded so each search takes milliseconds. It starts when your session starts and quits by itself after `idle_shutdown_min` minutes of nothing (30 by default), which frees the memory. It does one thing, turns text into numbers, and never touches your database. It only listens on your own computer and ignores anything that doesn't carry a secret token, which is kept in a file in the `logs` folder (locked to your user on macOS and Linux; Windows doesn't enforce file permissions the same way, so there it relies on the port being local-only plus the token). If it isn't up yet, that prompt just uses keyword search and never waits.
 
 When both searches run, their results are merged and meaning search looks across everything you've saved, not just the current project. `python3 scripts/remember_eval.py` (below) shows which mode finds more on your own history, so you can decide whether `always` is worth its memory.
 
+### Rules that keep the results useful
+
 Three rules keep the results useful. Memories from the session you're currently in are never injected back, since Claude already has that conversation in front of it. Machine-generated messages (subagent hand-backs, slash-command and `!` shell artifacts) are never returned, because they aren't anything you said. And when two results are about equally relevant, the newer one wins: a memory's score is divided by (1 + its age in days / 365), so a year-old memory has to match about twice as well as a brand-new one. Repeated words in your message are only searched once, so they don't use up the 8 keyword slots.
 
+### Why there is no typo correction
+
 There is deliberately no typo correction. An earlier version rewrote words it didn't recognize into the closest real word in your history, which sounds helpful but didn't pay off: on the test set it found no extra memories, made keyword search about 8 times slower, and turned unknown words into unrelated ones ("kubernetes" became "subagents"), so a question about something you never discussed still pulled back confident-looking junk. Searching the words as typed is faster and simply finds nothing when there is nothing, and meaning-based search is what handles wording that doesn't match.
-
-**Every time Claude finishes answering:** the whole exchange gets saved to the database right away. It doesn't wait till the session ends. So if your terminal crashes you don't lose the conversation, just the end of session summary.
-
-**When a session ends**, meaning you ran `/exit`, closed the terminal, or hit `/clear`, there's a background script that reads through the whole conversation and asks Claude Haiku to write an actual summary, what you were doing, what got decided, what's still unfinished, what to pick up next time.
-
-If that call fails for whatever reason (no API key, no internet, hit a rate limit) it falls back to a simpler note instead, putting together just the project name, how many messages were in the session, the time range, and a tiny preview of your first message. That fallback note isn't nearly as useful as a real generated summary, but at least it's clearly marked as a fallback and the session still ends up in the database with something attached to it. The alternative would be writing nothing at all, which means that session disappears from your history since nothing ever points back to it. Either way something gets written, just a question of how useful it ends up being.
-
-**What if the session doesn't end cleanly at all** -- if you just close the terminal tab, force-quit, or your machine sleeps or crashes mid-conversation, none of that gives Claude Code a chance to fire the end-of-session hook. This means that the session would just sit there forever with no summary and no notes permanently. The fix for this doesn't try to catch the crash itself (nothing can run code after the process is already gone) -- so instead, every time you start a **new** session anywhere, it checks for any *other* session that's still missing a summary and whose last message is more than 30 minutes old, and runs the normal summarization pass on it then, tagged so you can tell it was caught late rather than a real `/exit`/`/clear`. It only does a few of these per startup so it can't slow down the session you're trying to start. This only ever looks at sessions other than the one currently starting, and once a session gets picked up this way it's marked as handled, so it won't get re-swept by a later startup too. If you come back to a chat you'd only paused (not force-quit) and it got summarized while you were out for over half an hour, that's expected and harmless -- the provisional summary just gets fully overwritten with the real one whenever you actually do end that session for real. The "lessons" pulled out of that session (see below) aren't affected by this either -- before writing any lesson, it checks what's already been recorded for that same session and skips anything already there, so even though the summarization step can potentially run twice on the same conversation, nothing gets duplicated in your lessons.
-
-**When you run `/clear`:** in the old version, running this command only tried to bring back context if you came back within five minutes, and even then it just dumped the last ten raw messages at you. Now there's no time limit at all, so whenever you come back, even days later, your next message gets the real summary from before mixed with a normal search based on whatever you just typed. It only does this once per `/clear` though, so it won't keep repeating itself on every message after.
 
 ## How to verify it's working
 
@@ -49,36 +82,52 @@ Everything above happens silently in the background, which is the point, but it 
 
 The logs above tell you whether something broke. They can't tell you whether the memory is *good* -- `keyword_hit` only means the search returned something, not that it returned the right thing. So there's a small measurement layer on top. It's on by default, stores only ids, names, lengths and counts (never your prompt text or shell commands), and `metrics: enabled: false` in `config.yaml` turns it off without affecting memory itself.
 
-Three tables in the database hold the raw numbers:
-- **`retrieval_events`** -- one row per prompt the hook handled: which path fired, how long it took, which memories it injected (by id), how old they were, how well they matched your words, and how many tokens that cost. Every prompt gets a row, including the ones that were skipped, so injection rate is measurable.
-- **`tool_events`** -- one row per tool call Claude made: the tool name, the file it touched (or just the program name for shell commands), whether it worked, and how big the result was. This is what shows how often Claude searched memory by hand.
-- **`api_usage`** -- one row per API response with the token counts the API itself reported (fresh input, cache reads and writes, output). This is where the real token numbers come from.
+### What gets recorded
 
-And four scripts:
+Three tables in the database hold the raw numbers:
+
+| Table | What it holds |
+|---|---|
+| `retrieval_events` | one row per prompt the hook handled: which path fired, how long it took, which memories it injected (by id), how old they were, how well they matched your words, and how many tokens that cost. Every prompt gets a row, including the ones that were skipped, so injection rate is measurable. |
+| `tool_events` | one row per tool call Claude made: the tool name, the file it touched (or just the program name for shell commands), whether it worked, and how big the result was. This is what shows how often Claude searched memory by hand. |
+| `api_usage` | one row per API response with the token counts the API itself reported (fresh input, cache reads and writes, output). This is where the real token numbers come from. |
+
+### Scripts that report on it
+
 - **`python3 scripts/remember_baseline.py`** -- a plain-language "before" picture. It replays your real past prompts through the current search code (against a throwaway snapshot copy, never your live database), as the memory stood when you typed each one, and reports how often it found something, how old and how well-matched the results were, and what that cost. Save one before changing how retrieval works, run it again afterwards, and the difference is the effect of the change. `--limit 500` for just the recent prompts, `--label name` to name the saved result, `--json` for raw numbers.
 - **`python3 scripts/backfill_metrics.py`** -- fills `tool_events` and `api_usage` from history captured before this layer existed. Run it once (`--dry-run` first if you like); it's safe to re-run and only ever adds rows. New activity is recorded automatically.
 - **`python3 scripts/remember_metrics.py`** -- what retrieval is doing right now: how often memory was injected, how old and well-matched it was, speed, the measured token cost (including the cost of injected text being re-read on later replies), and pipeline health. `--days 30`, `--project name`, `--markdown` for a table. It reports cost and quality, not "tokens saved", because savings can't be observed directly.
-- **`python3 scripts/remember_eval.py`** -- the memory's self-test. The other scripts show what the system *did*; this one checks whether it did the *right thing*. Nothing needs to be set up or run for your memory to keep working. This is just a way to find out how good it is.
-
-  **The idea.** Take a question you know the answer to, like "where is the anthropic key stored now," and the past session where that answer lives. Ask the search the question, and see whether that session comes back. Do that for a few dozen questions and you have a score. Mix in a few questions that have no answer anywhere in memory, and you also learn something just as important: whether search stays quiet when it should, or hands back junk anyway.
-
-  **It asks every question five ways**, so you can see what each piece contributes:
-  - *Keyword search only.*
-  - *Keyword search without the weak-match gate*: the same search with the gate turned off, so you can see exactly what the gate is worth.
-  - *Meaning-based search only.*
-  - *`on_miss`*: keyword search, plus meaning search only when the gate says keyword search can't be trusted. This is the default mode.
-  - *`always`*: keyword and meaning search together on every prompt.
-
-  **Reading the report.** For each way you get three plain numbers: how often the right memory was among the top 5 results, how often it was ranked first, and how often it injected junk when there was no answer. Higher is better for the first two, lower for the junk rate. 
-
-  **What it's good for.** Deciding things with evidence instead of guesses. The weak-match gate's threshold was set by this test, and so was the decision to drop typo correction. Run it before and after any change to search (`--label name` saves each run) and the difference is the effect of the change. A question counts as found if *any* message from the right session comes back, not one exact message.
-
-  **Where the questions live.** Questions come from your own history, so they stay on your machine: `eval/golden_set.yaml`, which is gitignored. Each entry is a question plus the session ids that hold the answer (any of them counts). Sessions that quote the questions themselves go under `exclude_sessions` so the test can't cheat by finding its own question. `--golden path` points it at a different file.
-
 
 One thing to know about reading the baseline: the "meaning-based search would have kicked in" number is a *count*, not a test. Loading the model for thousands of replays wouldn't tell you anything about live behavior, so the replay only reports how often it would have happened: both how often the fast path came up empty, and how often `on_miss` would have loaded the model.
 
-## Why "lessons" are useful 
+### The Memory Check (runs by itself)
+
+**The Memory Check** (`python3 scripts/remember_check.py`) -- the part you never have to think about. Every couple of weeks, once there's enough history, it quietly runs in the background and answers one question: *is search finding the right memories for you?* It looks at the decisions recorded in your own past sessions, turns a sample of them into the kind of question you might ask weeks later ("where did we move the API key?"), asks search those questions, and checks whether the right conversation came back. It also asks a few questions about things you never discussed, to make sure search stays quiet when it has nothing. The result is mentioned once at the start of a later session, in a sentence or two of plain words, and tells you whether your `semantic_search` mode is a good fit or whether switching would help. You don't write questions, review anything, or remember to run it. You can read the full report any time with the command above, or run a fresh check with `--now`. To turn it off, set `memory_check: enabled: false` in `config.yaml`.
+
+**How the questions are kept fair, since nobody reviews them.** A decision is only used if its own session really contains the answer (checked by meaning against that session's messages), so a miss means search failed, not that the question was unfair; in practice a few decisions in every history fail this, usually settings that were changed without being discussed, and they're left out. If two sessions recorded the same decision, either one counts as correct. Each decision is asked two ways, because one unlucky wording can move a score by several points. The wording comes from one small Claude Haiku call (the same API key your session summaries already use), told to keep the distinctive terms a person would still remember but phrase the rest naturally. If that call can't be made, the check falls back to simple templates that reuse the notes' own words, which are too easy to judge anything by, so in that case the report says so instead of giving a verdict.
+
+**How far to trust it.** On this project's history the automatic check landed within roughly 5 to 10 points of a hand-checked set, and agreed on which way was better in every run, but a single run still moves by about 5 points depending on how the questions happen to be worded. Trust the comparison between modes more than any one percentage. It needs about a dozen past sessions with recorded decisions before it says anything.
+
+### The self-test (`remember_eval.py`)
+
+**`python3 scripts/remember_eval.py`** -- the memory's self-test. The other scripts show what the system *did*; this one checks whether it did the *right thing*. Nothing needs to be set up or run for your memory to keep working. This is just a way to find out how good it is.
+
+**The idea.** Take a question you know the answer to, like "where is the anthropic key stored now," and the past session where that answer lives. Ask the search the question, and see whether that session comes back. Do that for a few dozen questions and you have a score. Mix in a few questions that have no answer anywhere in memory, and you also learn something just as important: whether search stays quiet when it should, or hands back junk anyway.
+
+**It asks every question five ways**, so you can see what each piece contributes:
+- *Keyword search only.*
+- *Keyword search without the weak-match gate*: the same search with the gate turned off, so you can see exactly what the gate is worth.
+- *Meaning-based search only.*
+- *`on_miss`*: keyword search, plus meaning search only when the gate says keyword search can't be trusted. This is the default mode.
+- *`always`*: keyword and meaning search together on every prompt.
+
+**Reading the report.** For each way you get three plain numbers: how often the right memory was among the top 5 results, how often it was ranked first, and how often it injected junk when there was no answer. Higher is better for the first two, lower for the junk rate. 
+
+**What it's good for.** Deciding things with evidence instead of guesses. The weak-match gate's threshold was set by this test, and so was the decision to drop typo correction. Run it before and after any change to search (`--label name` saves each run) and the difference is the effect of the change. A question counts as found if *any* message from the right session comes back, not one exact message.
+
+**Where the questions live.** Questions come from your own history, so they stay on your machine: `eval/golden_set.yaml`, which is gitignored. Each entry is a question plus the session ids that hold the answer (any of them counts). Sessions that quote the questions themselves go under `exclude_sessions` so the test can't cheat by finding its own question. `--golden path` points it at a different file.
+
+## Why "lessons" are useful
 
 A session summary is tied to one conversation. A lesson is different, it's more like a standalone fact that's supposed to outlive that one session. Like if you spend an hour figuring out some approach causes a bug, that's worth remembering next time you're anywhere near that problem, not just buried somewhere in one session's notes. The summarization step pulls these out automatically whenever there's something that seems worth keeping.
 
@@ -95,20 +144,31 @@ The catch here is it only works off what gets said, not what gets run. Claude Co
 
 These are the only commands you type yourself day to day - everything else (capture, search, context injection) runs automatically through the hooks and MCP connection without you asking.
 
-- **`/remember-import`** - What it does: walks you through importing conversation history from a Claude.ai, ChatGPT, or Gemini export - lists files found in `imports/`, shows you the title/about/tags for the one you pick, asks which project folder it belongs in, then imports it. Why it's useful: any history from before this project existed, or from a different platform, would otherwise just sit outside the database forever - this is the one-time bridge that gets it into the same searchable store as everything captured automatically going forward.
-- **`/remember-status`** - What it does: runs `scripts/status.py` and shows you session/message counts, a per-project breakdown, last backup time, and semantic search embedding coverage. Why it's useful: everything else in this system happens silently in the background, so there's normally no feedback at all that it's working - this is the fastest way to confirm data is being captured and growing, without reading a log file or starting a real conversation.
-- **`/remember-questionnaire`** - What it does: helps you fill out `remember-questionnaire.txt` (identity, family, professional background, working style, goals, etc.) and imports your answers into `remember_facts`. Why it's useful: these facts load into every session regardless of folder by default, and they capture things that may never come up naturally in a technical conversation (communication preferences, pet peeves in AI responses, decision-making style), which passive accrual from chat history would likely never surface on its own. It's also the only thing that feeds the `get_profile` MCP tool - `remember_facts`/`remember_preferences` are written to in exactly one place in this whole codebase (`remember-setup.py`, via its quick setup questions or this questionnaire import), nothing else ever inserts into them during normal conversation. Every project's `CLAUDE.md` tells Claude to call `get_profile` for "my preferences"/"my profile" questions, and without running this at least once, that call hits `get_profile`'s own hardcoded fallback - `"Profile is empty. No remember_facts or remember_preferences populated yet."` - a dead end built into the tool itself, not just a gap you happen to leave unfilled.
+### `/remember-import`
 
-  **Project-scoped preferences.** you can set preferences for just one project. Use a header like `## PROJECT:<prefix> CATEGORY`, or simply ask Claude to assign that section to a specific project. Project-specific settings automatically override your global defaults whenever you work in that project folder.
+What it does: walks you through importing conversation history from a Claude.ai, ChatGPT, or Gemini export - lists files found in `imports/`, shows you the title/about/tags for the one you pick, asks which project folder it belongs in, then imports it. Why it's useful: any history from before this project existed, or from a different platform, would otherwise just sit outside the database forever - this is the one-time bridge that gets it into the same searchable store as everything captured automatically going forward.
 
-  **How to check it worked**
-  - **Query the database directly** - the fastest, most certain check:
-    ```bash
-    sqlite3 claude_remembers.db "SELECT category, key, value, project FROM remember_facts WHERE project='<prefix>'"
-    ```
-    A row with your answer and the right `project` value means the import worked.
-  - **Ask Claude Code itself, in a fresh session started in that project's folder** - e.g. "what's my working-style preference for this project?" Because this profile is force-injected silently into context (not printed back as a visible heading - only things like the Session Start Checklist get echoed, since only those come with an explicit "print this" instruction), Claude should answer immediately from context with no tool call. If it has to go search or call a tool to answer instead, that's a sign the injection didn't fire for that session.
-- **`/remember-add-project`** - What it does: registers a new project in one non-interactive pass given a folder path - derives a name/prefix/label from it and creates the folder's `CLAUDE.md`, config entry, database row, and MCP registration, no prompts. Why it's useful: without a registered project, everything you work on falls into the generic catch-all bucket instead of getting its own tracked history and project-scoped context - this is the low-friction way to get that, one command instead of running the full interactive installer.
+### `/remember-status`
+
+What it does: runs `scripts/status.py` and shows you session/message counts, a per-project breakdown, last backup time, and semantic search embedding coverage. Why it's useful: everything else in this system happens silently in the background, so there's normally no feedback at all that it's working - this is the fastest way to confirm data is being captured and growing, without reading a log file or starting a real conversation.
+
+### `/remember-questionnaire`
+
+What it does: helps you fill out `remember-questionnaire.txt` (identity, family, professional background, working style, goals, etc.) and imports your answers into `remember_facts`. Why it's useful: these facts load into every session regardless of folder by default, and they capture things that may never come up naturally in a technical conversation (communication preferences, pet peeves in AI responses, decision-making style), which passive accrual from chat history would likely never surface on its own. It's also the only thing that feeds the `get_profile` MCP tool - `remember_facts`/`remember_preferences` are written to in exactly one place in this whole codebase (`remember-setup.py`, via its quick setup questions or this questionnaire import), nothing else ever inserts into them during normal conversation. Every project's `CLAUDE.md` tells Claude to call `get_profile` for "my preferences"/"my profile" questions, and without running this at least once, that call hits `get_profile`'s own hardcoded fallback - `"Profile is empty. No remember_facts or remember_preferences populated yet."` - a dead end built into the tool itself, not just a gap you happen to leave unfilled.
+
+**Project-scoped preferences.** you can set preferences for just one project. Use a header like `## PROJECT:<prefix> CATEGORY`, or simply ask Claude to assign that section to a specific project. Project-specific settings automatically override your global defaults whenever you work in that project folder.
+
+**How to check it worked**
+- **Query the database directly** - the fastest, most certain check:
+  ```bash
+  sqlite3 claude_remembers.db "SELECT category, key, value, project FROM remember_facts WHERE project='<prefix>'"
+  ```
+  A row with your answer and the right `project` value means the import worked.
+- **Ask Claude Code itself, in a fresh session started in that project's folder** - e.g. "what's my working-style preference for this project?" Because this profile is force-injected silently into context (not printed back as a visible heading - only things like the Session Start Checklist get echoed, since only those come with an explicit "print this" instruction), Claude should answer immediately from context with no tool call. If it has to go search or call a tool to answer instead, that's a sign the injection didn't fire for that session.
+
+### `/remember-add-project`
+
+What it does: registers a new project in one non-interactive pass given a folder path - derives a name/prefix/label from it and creates the folder's `CLAUDE.md`, config entry, database row, and MCP registration, no prompts. Why it's useful: without a registered project, everything you work on falls into the generic catch-all bucket instead of getting its own tracked history and project-scoped context - this is the low-friction way to get that, one command instead of running the full interactive installer.
 
 ## If you want to poke around directly
 
@@ -116,7 +176,9 @@ Anything in `scripts/` that starts with `remember_` is just a plain script you c
 
 Day to day you don't need any of this, the hooks and the four slash commands above cover normal use. These are for when you want something faster than a conversation, a maintenance check, or to change the setup itself.
 
-**Quick lookups, no conversation needed.** Same database the MCP tools query, just from your terminal:
+### Quick lookups, no conversation needed
+
+Same database the MCP tools query, just from your terminal:
 - `python3 scripts/remember_search.py "<keyword>"` -- raw search engine style results: timestamp, session ID, project, and excerpt for every transcript row matching the keyword with semantic results added in a separate section if that's enabled. No synthesis, no AI reading through it for you -- you're looking at the matches yourself. Flags: `--project`/`-p` to filter to one project, `--limit`/`-l` for how many results (default 10), `--no-semantic` to skip the meaning based fallback and keep it fast.
 - `python3 scripts/remember_query.py "<question>"` -- same underlying search (keyword + semantic, entirely local, zero API tokens), but you phrase it as a natural language question instead of picking keywords yourself; it extracts the keywords and returns formatted results meant for a Claude conversation to read and synthesize into an answer, rather than for you to scan directly. Same `--project`, `--limit`, `--no-semantic` flags.
 - `python3 scripts/remember_decide.py "<number or keyword>"` -- looks up locked-in decisions specifically, skipping the rest of the transcript history -- for when you remember something was decided but not the details, and don't want to wade through unrelated conversation to find it. Accepts an exact decision number or a keyword to search by.
@@ -124,18 +186,25 @@ Day to day you don't need any of this, the hooks and the four slash commands abo
 - `python3 scripts/remember_recap.py` -- turns session notes for a time range into a narrative progress report organized by project: what was worked on, what got finished, key decisions, what's next -- useful for a "catch me up" moment instead of rereading individual sessions. `--today`, `--week`, or `--days <n>` for the range, `--project`/`-p` to scope it to one project.
 - `python3 scripts/remember_topics.py [tag]` -- groups sessions by tag instead of by time or project, so you can pull up "everything about X" across your whole history regardless of which project it landed in. Leave `[tag]` off to see every tag in use with session counts first. `--project` to scope it. Worth knowing: tags are purely this browsing index, nothing more -- they have zero pull on what gets automatically dropped into Claude's context on each message. That per-message retrieval (the hook described above, and the MCP search tools) runs entirely off the actual transcript content via keyword/semantic search, and never looks at `sys_sessions.tags` at all. So a wrong or missing tag here doesn't cost you anything at the point where memory gets used day to day -- it only makes this specific manual lookup command less useful, which is why it's fine to leave it loose and clean up later with `remember_tag_review.py` rather than treating it as something that needs to be right.
 
-**Maintenance, worth running every so often rather than every session:**
+### Maintenance, worth running every so often rather than every session
+
 - `python3 scripts/remember_health.py` -- the full 9 point dashboard: database integrity, backup status, embedding coverage, hook and MCP registration, config validity. More detail than `/remember-status`. Add `--json` if you want to pipe the output somewhere instead of reading the table.
 - `python3 scripts/batch_embed.py` -- catches up anything that didn't get embedded for meaning based search. No flags, just run it. Takes a few seconds even for thousands of messages.
 - `python3 scripts/remember_tag_review.py --generate` -- builds a spreadsheet of suggested tags for review (tags are keyword-suggested, meant to be checked by a human, not trusted blindly forever). Review and edit it, then `--update --map <the xlsx file>` writes your changes back. `--all` includes sessions that already have tags, `--project` scopes it, `--output` picks where the spreadsheet goes.
 
-**Changing the setup itself.** These are plain scripts instead of slash commands on purpose, since they touch `config.yaml` and are infrequent, higher stakes actions compared to normal chat:
+### Changing the setup itself
+
+These are plain scripts instead of slash commands on purpose, since they touch `config.yaml` and are infrequent, higher stakes actions compared to normal chat:
+
 - `python3 scripts/add-project.py <folder-path>` -- the plain script behind `/remember-add-project` (see above), for when you'd rather run it directly. Override the derived name/prefix/label with `--name`, `--prefix`, `--label "<Display Name>"`; run with no arguments to fall back to the old interactive prompts. (All three import scripts reuse this exact same logic whenever you type a brand-new folder name instead of an existing one -- `import_claude_ai.py --folder <name>` collapses it into the single-conversation import command directly, all three scripts' bulk `folder` spreadsheet column triggers it the same way since those cover many conversations at once.)
 - `python3 scripts/remove-project.py` -- the reverse. Stops tracking a project (config, database registration, MCP registration) but keeps your actual conversation history by default. Deleting that history is a separate, explicitly confirmed, irreversible step inside the same script, not something that happens automatically.
 
-**Getting data out:**
+### Getting data out
+
 - `python3 scripts/remember_export.py` -- dumps memory data to plain text files. `--profile` for your facts/preferences, `--decisions` for the decisions table, `--session <id>` for one full transcript, `--search "<query>"` for a set of search results, `--recap-week` for the week's recap.
 - `python3 scripts/remember_digest.py` -- only relevant if you've set up the email digest feature in `config.yaml`. Triggers one on demand instead of waiting for its cron schedule: `--daily` for the compact standup, `--project <prefix>` for a project deep dive, `--days <n>` for a custom lookback window, `--dry-run` to see the email on your screen instead of sending it, `--test` for a short test send.
+
+### Scripts the hooks already run for you
 
 What you won't find a reason to run yourself: `write_exchange.py`, `ingest_jsonl.py`, `startup_check.py`, `summarize_session.py`. These are the internals the hooks already trigger automatically at the right moments. Running them by hand wouldn't break anything, they're all deduplicated and safe to re-run, there's just nothing to gain from doing it out of band.
 
@@ -144,6 +213,8 @@ What you won't find a reason to run yourself: `write_exchange.py`, `ingest_jsonl
 If you were talking to Claude, ChatGPT, or Gemini before setting this up, you can pull that history in too. None of it is automatic though, this project only auto captures Claude Code itself. Each platform still needs a manual export and then a one time import you run from the terminal, exactly like before. Nothing about that part changed.
 
 What did change is how the import decides which project a conversation belongs to: now it doesn't decide anything. There used to be a hardcoded keyword guess, then later a meaning-based similarity guess with a confidence score -- both are gone. Instead, each conversation gets a short, free "about" blurb so you can tell at a glance what it was (claude conversations sometimes already have their own generated summary, which gets reused as is; everything else gets a blurb built from the first message, no API calls and no guessing) plus a few suggested tags from simple keyword matching. You read that, then type the destination folder yourself: an existing one, or a brand-new name, which gets created automatically the moment you import. Leave it blank and it just goes into the default project. Nothing ever gets filed without you typing the folder.
+
+### Folders and tags
 
 Folder and tags are doing two different jobs. Folders are exclusive, every conversation lives in exactly one, and picking one is what creates a project/writes config.yaml/registers the database row if it's a new name. Tags are the opposite: a conversation tagged `coding` and `job-search` doesn't need its own "coding and job search" folder, it just gets both tags while living in whichever single folder you picked. They're what lets `remember_topics.py [tag]` pull up everything about a topic later regardless of which project it's filed under.
 
@@ -154,7 +225,8 @@ The suggested tags in the spreadsheet come from matching the conversation's text
 - **It's fine to leave it blank** if nothing genuinely fits, or to delete a wrong auto-suggestion entirely rather than patch around it.
 - You're not locked into whatever you type at import time either -- `python3 scripts/remember_tag_review.py --generate` re-surfaces tags across already-imported sessions anytime later if you want to go back and clean them up or add ones you didn't think of yet.
 
-**Claude:**
+### Claude
+
 - **Single conversation** (e.g. the "AI Chat Exporter" Chrome extension's export of one open chat):
   1. Run `python3 scripts/import_claude_ai.py <path-to-json>` with no `--folder` flag. This doesn't import anything -- it prints the title, the about blurb, suggested tags, and the list of existing projects (folder name, prefix, label) so you can decide.
   2. Run it again with `--folder <folder-name>` to import: `python3 scripts/import_claude_ai.py <path-to-json> --folder <folder-name>`. Type an existing folder name from the list, or a brand-new one -- either way this creates the project on the fly if it doesn't exist (folder, `CLAUDE.md`, config entry, database registration, MCP registration, all of it) and imports into it in the same command.
@@ -167,7 +239,8 @@ The suggested tags in the spreadsheet come from matching the conversation's text
   6. Preview: `python3 scripts/import_claude_ai.py --import <path> --map claude_ai_import_map.xlsx --dry-run`
   7. Looks good? Run the exact same command again minus `--dry-run`.
 
-**ChatGPT:**
+### ChatGPT
+
 1. In ChatGPT go to Settings, Data Controls, Export. You'll get an email with a download link, ready within a day or two.
 2. Extract the zip. The export produces a bunch of files, but the ones you need are the `conversations-000.json`, `conversations-001.json`, etc. files -- those are what hold the actual chat data. Copy just those `conversations-*.json` files into their own folder under `imports/`, like `imports/chatgpt-import/`.
 3. Scan it: `python3 scripts/import_chatgpt.py --scan imports/chatgpt-import/`. This just builds a spreadsheet, nothing gets imported yet.
@@ -176,7 +249,8 @@ The suggested tags in the spreadsheet come from matching the conversation's text
 6. Preview the import without touching the database: `python3 scripts/import_chatgpt.py --import imports/chatgpt-import/ --map imports/chatgpt-import/chatgpt_import_map.xlsx --dry-run`. The `--map` path has to match wherever the xlsx is, or it'll fail with "Mapping file not found."
 7. Looks good? Run the exact same command again minus `--dry-run`.
 
-**Gemini:**
+### Gemini
+
 1. Go to Google Takeout, select only "My Activity" then "Gemini Apps," export it, wait for the email, download the zip.
 2. Extract it, like to `imports/gemini-export/`.
 3. Scan: `python3 scripts/import_gemini.py --scan imports/gemini-export/`
@@ -184,6 +258,8 @@ The suggested tags in the spreadsheet come from matching the conversation's text
 5. Dry run then the real run, same two commands as ChatGPT, just swap in `import_gemini.py`.
 
 One weird thing about Gemini specifically, its export isn't split into sessions already, it's just a stream of individual exchanges. The import groups anything within 30 minutes of each other into one session automatically so you don't end up with thousands of one message "sessions."
+
+### After importing
 
 All three of these also embed everything as it gets imported now, the same embedding step that happens automatically for live Claude Code sessions. That used to only happen later, whenever you got around to running `batch_embed.py`. Imported messages don't need that catch up step anymore, they're already embedded and searchable the moment the import finishes.
 
