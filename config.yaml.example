@@ -175,6 +175,18 @@ jsonl_project_mapping:
 semantic_search:
   enabled: true
   model: "all-MiniLM-L6-v2"                   # 384-dim embeddings, ~80MB model
+  # When does a prompt also get a meaning-based search (matches by what you
+  # mean, not the exact words)?
+  #   on_miss - only when keyword search looks unreliable: no strong match,
+  #             under a quarter of your keywords found, or you're asking about
+  #             the past ("what did we decide", "last time"). Nothing runs in
+  #             the background. Those prompts wait ~3 s while the model loads.
+  #   always  - every prompt. A small background helper keeps the model loaded
+  #             (about 610 MB of memory) so each search takes milliseconds.
+  #             It starts with your session and quits after idle_shutdown_min.
+  # python3 scripts/remember_eval.py shows which one finds more on your history.
+  mode: on_miss                               # on_miss | always
+  idle_shutdown_min: 30                       # always only: quit after this many idle minutes
 
 # ==============================================================================
 # METRICS (is the memory actually helping?)

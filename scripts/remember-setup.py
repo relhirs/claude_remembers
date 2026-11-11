@@ -749,6 +749,8 @@ def phase_config(cfg):
         "semantic_search": {
             "enabled": True,
             "model": "all-MiniLM-L6-v2",
+            "mode": "on_miss",
+            "idle_shutdown_min": 30,
         },
         "file_versioning": {
             "enabled": True,

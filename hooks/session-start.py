@@ -211,6 +211,18 @@ def main():
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
+        # semantic_search.mode "always" keeps the embedding model warm in a
+        # background helper; start it now so the first prompt already has it.
+        # Never blocks and never fails the hook.
+        try:
+            sem_cfg = config.get("semantic_search") or {}
+            if sem_cfg.get("enabled") is not False and str(sem_cfg.get("mode", "")).strip().lower() == "always":
+                sys.path.insert(0, os.path.join(root, "scripts"))
+                from semantic_helper import DEFAULT_IDLE_MIN, ensure_running
+                ensure_running(root, idle_min=sem_cfg.get("idle_shutdown_min", DEFAULT_IDLE_MIN))
+        except Exception as e:
+            _log_hook_error(root, "session-start.py", f"semantic helper start failed: {e!r}")
+
         db_path = resolve_db_path(config)
         if not os.path.exists(db_path):
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))

@@ -671,7 +671,7 @@ def test_hook_telemetry():
               and len(json.loads(e["result_ages_days"])) == e["n_results"]
               and e["project"] == "oth" and e["injected_chars"] > 0
               and e["injected_tokens_est"] == e["injected_chars"] // 4
-              and e["mode"] == "fallback_v2" and e["source"] == "live",
+              and e["mode"] == "on_miss_v3" and e["source"] == "live",
               dict(e))
         check("hit event records match strength, coverage and timing",
               e["top_rank"] is not None and e["top_rank"] < 0 and 0 < e["top_coverage"] <= 1
@@ -736,7 +736,7 @@ def test_hook_internals():
         conn.close()
 
         def run_with_stub(results):
-            hook.semantic_search = lambda conn, config, prompt, project=None, limit=5: results
+            hook.semantic_search = lambda conn, config, prompt, project=None, limit=5, query_vec=None: results
             ev = {}
             buf = io.StringIO()
             raw = json.dumps({"session_id": "stub-session", "prompt": "zzqplex wibblefrotz quuxborg nothing matches"})
@@ -1027,6 +1027,200 @@ def test_weak_match_gate():
               hook._confidence_floor(sqlite3.connect(":memory:")) is None)
 
 
+def test_semantic_modes():
+    """Phase 5b: the on_miss gate, meaning-search row handling, the merge, mode
+    parsing, and how the hook behaves in each mode."""
+    print("\n--- Semantic Modes ---")
+    import contextlib
+    import importlib.util
+    import io
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root, db_path = _make_hook_sandbox(tmpdir)
+        spec = importlib.util.spec_from_file_location("ups_hook_modes", root / "hooks" / "user-prompt-submit.py")
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+
+        # --- mode parsing ---
+        check("a config with no mode setting means on_miss", hook.semantic_mode({}) == "on_miss"
+              and hook.semantic_mode({"semantic_search": {"enabled": True}}) == "on_miss")
+        check("mode: always is recognised, case and spaces ignored",
+              hook.semantic_mode({"semantic_search": {"mode": " Always "}}) == "always")
+        check("an unrecognised mode falls back to on_miss",
+              hook.semantic_mode({"semantic_search": {"mode": "sometimes"}}) == "on_miss")
+        check("enabled: false switches meaning search off in every mode",
+              hook.semantic_mode({"semantic_search": {"enabled": False, "mode": "always"}}) == "off")
+
+        # --- the four gate signals ---
+        conn = sqlite3.connect(str(db_path))
+        strong = [("oth", "2026-01-01", "frobnicator staging rollout flag", -30.0, 1)]
+        kws = ["frobnicator", "staging"]
+        check("no keyword result: gate fires", hook.should_use_semantic("some prompt here", kws, [], {}, conn) == (True, "no_keyword_result"))
+        check("weak keyword result: gate fires (score strength)",
+              hook.should_use_semantic("some prompt here", kws, [], {"weak": True}, conn) == (True, "weak_keyword"))
+        check("a strong, well-covered keyword result: gate stays shut",
+              hook.should_use_semantic("tell me about the rollout", kws, strong, {}, conn) == (False, "keyword_confident"))
+        six = ["alpha", "bravo", "charlie", "delta", "echo", "frobnicator"]
+        check("matching 1 of 6 keywords is weak coverage: gate fires",
+              hook.should_use_semantic("some prompt here", six, strong, {}, conn) == (True, "low_coverage"))
+        check("a question about the past fires the gate even with a good keyword hit",
+              hook.should_use_semantic("what did we decide about the rollout", kws, strong, {}, conn) == (True, "memory_phrasing"))
+        check("single words like 'earlier' or 'before' are not memory phrasing",
+              not hook.MEMORY_PHRASING.search("as I said earlier, fix this before launch"))
+        conn.close()
+
+        # --- meaning-search rows ---
+        def res(sim, project, content, rid, session="other"):
+            return {"similarity": sim, "project": project, "timestamp": "2026-01-01T00:00:00Z",
+                    "content": content, "id": rid, "session_id": session}
+        rows = hook.semantic_rows([res(0.50, "b2", "plain other-project memory", 1),
+                                   res(0.47, "oth", "current project memory", 2),
+                                   res(0.34, "oth", "under the cutoff", 3),
+                                   res(0.60, "oth", "from this very session", 4, session="now")], "oth", "now")
+        check("current-project boost reorders results that cleared the cutoff",
+              [r[4] for r in rows] == [2, 1], f"got {[r[4] for r in rows]}")
+        check("the cutoff uses the raw similarity: the boost can't rescue a weak result",
+              all(r[4] != 3 for r in rows))
+        check("the current session is dropped", all(r[4] != 4 for r in rows))
+
+        # --- merging ---
+        a = ("oth", "2026-01-01", "only keyword found this one", -9.0, 10)
+        b = ("oth", "2026-01-01", "both searches found this one", -8.0, 11)
+        c = ("oth", "2026-01-01", "only meaning found this one", None, 12)
+        merged = hook.merge_results([a, b], [b, c])
+        check("a memory both searches agree on rises to the top", merged[0][4] == 11)
+        check("merging keeps every distinct memory, capped at the injection limit",
+              {r[4] for r in merged} == {10, 11, 12} and len(hook.merge_results([a] * 9, [])) == 1)
+
+        # --- the hook in each mode (stubbed model and helper) ---
+        calls = {"semantic": [], "started": 0}
+
+        def stub_semantic(conn, config, prompt, project=None, limit=5, query_vec=None):
+            calls["semantic"].append(query_vec)
+            return [res(0.8, "oth", "a meaning-search memory", 99)]
+
+        def run(mode, prompt, helper_vec="down", gate=None):
+            calls["semantic"].clear()
+            calls["started"] = 0
+            hook.semantic_search = stub_semantic
+            hook.semantic_mode = lambda config: mode
+            hook._helper_vector = lambda r, t: None if helper_vec == "down" else helper_vec
+            hook._start_helper = lambda r, c: calls.__setitem__("started", calls["started"] + 1)
+            if gate is not None:
+                hook.should_use_semantic = gate
+            ev, buf = {}, io.StringIO()
+            raw = json.dumps({"session_id": f"mode-{mode}", "prompt": prompt})
+            with contextlib.redirect_stdout(buf):
+                hook._run(raw, ev)
+            return ev, buf.getvalue()
+
+        ev, out = run("always", "zzqplex wibblefrotz quuxborg nothing matches", helper_vec=[0.1, 0.2])
+        check("always: the helper's vector is handed to the meaning search",
+              calls["semantic"] == [[0.1, 0.2]] and "a meaning-search memory" in out
+              and ev["semantic_reason"] == "always" and ev["mode"] == "always_v3", f"{ev} {calls}")
+        ev, out = run("always", "zzqplex wibblefrotz quuxborg nothing matches", helper_vec="down")
+        check("always, helper down: the prompt stays keyword-only, never waits, and the helper is restarted",
+              calls["semantic"] == [] and calls["started"] == 1 and ev["semantic_reason"] == "helper_unavailable"
+              and out.strip() == "{}", f"{ev} {calls}")
+        ev, out = run("always", "frobnicator staging rollout feature flag launch", helper_vec=[0.1])
+        check("keyword and meaning results together are reported as a hybrid hit",
+              ev["outcome"] == "hybrid_hit" and "a meaning-search memory" in out and "frobnicator" in out, f"{ev} {out[:200]}")
+
+        real_gate = hook.should_use_semantic
+        ev, out = run("on_miss", "frobnicator staging rollout feature flag launch",
+                      gate=lambda *a: (False, "keyword_confident"))
+        check("on_miss, gate shut: the model is never loaded", calls["semantic"] == []
+              and ev["semantic_reason"] == "keyword_confident")
+        ev, out = run("on_miss", "zzqplex wibblefrotz quuxborg nothing matches",
+                      gate=lambda *a: (True, "weak_keyword"))
+        check("on_miss, gate fires: the model loads in-process (no precomputed vector)",
+              calls["semantic"] == [None] and ev["semantic_reason"] == "weak_keyword"
+              and "a meaning-search memory" in out)
+        hook.should_use_semantic = real_gate
+        ev, out = run("off", "zzqplex wibblefrotz quuxborg nothing matches")
+        check("off: no meaning search at all", calls["semantic"] == [] and calls["started"] == 0)
+
+    # --- telemetry column on a database from before this change ---
+    import metrics_utils as mu
+    with tempfile.TemporaryDirectory() as tmpdir:
+        old = os.path.join(tmpdir, "old.db")
+        c = sqlite3.connect(old)
+        c.execute("""CREATE TABLE retrieval_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'live', session_id TEXT, project TEXT, mode TEXT, outcome TEXT NOT NULL,
+            prompt_kind TEXT, prompt_chars INTEGER, n_keywords INTEGER, n_results INTEGER, top_rank REAL,
+            top_similarity REAL, top_coverage REAL, keyword_ms REAL, semantic_ms REAL, latency_ms REAL,
+            result_ids TEXT, result_projects TEXT, result_ages_days TEXT, same_project_n INTEGER,
+            injected_chars INTEGER, injected_tokens_est INTEGER)""")
+        c.commit()
+        c.close()
+        ok = mu.record_retrieval_event(old, {"outcome": "weak_keyword", "semantic_reason": "weak_keyword"})
+        c = sqlite3.connect(old)
+        got = c.execute("SELECT semantic_reason FROM retrieval_events").fetchall()
+        c.close()
+        check("an older retrieval_events table is upgraded on first write, nothing lost",
+              ok and got == [("weak_keyword",)], f"{ok} {got}")
+
+
+def test_semantic_helper():
+    """The always-mode helper: protocol, token check, idle exit, and the
+    start-up lock that stops two sessions launching two helpers."""
+    print("\n--- Semantic Helper ---")
+    import importlib.util
+    import socket
+    import threading
+    import time
+    spec = importlib.util.spec_from_file_location("semantic_helper_under_test", ROOT / "scripts" / "semantic_helper.py")
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ready = threading.Event()
+        thread = threading.Thread(target=helper.serve, args=(tmpdir, lambda text: [1.0, 2.0, float(len(text))]),
+                                  kwargs={"idle_min": 0.05, "ready": ready}, daemon=True)
+        thread.start()
+        check("helper announces itself once ready", ready.wait(5) and helper.read_info(tmpdir) is not None)
+        check("a request returns the embedding of the text", helper.query(tmpdir, "hello") == [1.0, 2.0, 5.0])
+        check("ping and ensure_running see it as running",
+              helper.ping(tmpdir) and helper.ensure_running(tmpdir) == "running")
+        check("it only listens on localhost", helper.HOST == "127.0.0.1")
+        if os.name != "nt":
+            check("the token file is private to the user",
+                  (os.stat(helper.info_path(tmpdir)).st_mode & 0o077) == 0)
+
+        info = helper.read_info(tmpdir)
+        with socket.create_connection(("127.0.0.1", info["port"]), timeout=2) as s:
+            s.sendall((json.dumps({"token": "wrong", "text": "x"}) + "\n").encode())
+            reply = s.recv(4096)
+        check("a request with the wrong token is refused", b"bad token" in reply and b"vector" not in reply)
+        with socket.create_connection(("127.0.0.1", info["port"]), timeout=2) as s:
+            s.sendall(b"not json\n")
+            s.recv(4096)
+        check("garbage input doesn't kill it", helper.query(tmpdir, "still alive") is not None)
+
+        thread.join(timeout=12)
+        check("it exits by itself after the idle period and removes its info file",
+              not thread.is_alive() and helper.read_info(tmpdir) is None)
+        started = time.perf_counter()
+        check("asking a helper that is gone returns None quickly, not an error",
+              helper.query(tmpdir, "anyone?") is None and time.perf_counter() - started < 2)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        launched = []
+        real_popen = helper.subprocess.Popen
+        helper.subprocess.Popen = lambda cmd, **kw: launched.append(cmd)
+        try:
+            check("no helper and no lock: one is launched", helper.ensure_running(tmpdir) == "started"
+                  and len(launched) == 1 and "semantic_helper.py" in launched[0][1])
+            check("a second session starting at the same moment launches nothing",
+                  helper.ensure_running(tmpdir) == "started" and len(launched) == 1)
+            old = time.time() - helper.SPAWN_LOCK_STALE_S - 5
+            os.utime(helper._lock_path(tmpdir), (old, old))
+            check("a lock left by a start that died is cleared and a new start is allowed",
+                  helper.ensure_running(tmpdir) == "started" and len(launched) == 2)
+        finally:
+            helper.subprocess.Popen = real_popen
+
+
 def test_session_start_is_slim():
     """The session-start hook reports how many sessions lack notes as one
     accurate line, not a capped list of unusable ID fragments."""
@@ -1114,6 +1308,8 @@ if __name__ == "__main__":
     test_live_metrics_report()
     test_eval_scoring()
     test_weak_match_gate()
+    test_semantic_modes()
+    test_semantic_helper()
 
     print("\n" + "=" * 60)
     print(f"  Results: {PASS} passed, {FAIL} failed")

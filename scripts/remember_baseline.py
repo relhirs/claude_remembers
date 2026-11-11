@@ -156,8 +156,13 @@ def replay(hook, conn, snapshot_path, prompts, progress=None):
             else:
                 fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
                 started = time.perf_counter()
-                rows = hook._keyword_search(conn, fts_query, project, as_of=ts, exclude_session=session_id)
+                info = {}
+                rows = hook._keyword_search(conn, fts_query, project, as_of=ts, exclude_session=session_id,
+                                            info=info)
                 rec["keyword_ms"] = (time.perf_counter() - started) * 1000
+                # Would mode=on_miss load the meaning model for this prompt, and why?
+                rec["gate_fires"], rec["gate_reason"] = hook.should_use_semantic(
+                    prompt, keywords, rows, info, conn)
                 rec["generic_keywords"] = sum(1 for kw in keywords if generic(kw))
                 rec["n_keywords"] = len(keywords)
                 if not rows:
@@ -209,6 +214,10 @@ def summarize_replay(records):
         "keyword_hit": len(hits),
         "keyword_hit_rate": share(len(hits), len(searched)),
         "semantic_would_fire_rate": share(len(searched) - len(hits), len(searched)),
+        "on_miss_gate_fire_rate": share(sum(1 for r in searched if r.get("gate_fires")), len(searched)),
+        "on_miss_gate_reasons": {
+            reason: sum(1 for r in searched if r.get("gate_reason") == reason)
+            for reason in sorted({r.get("gate_reason") for r in searched if r.get("gate_fires")})},
         "avg_results_per_hit": round(n_injected / len(hits), 2) if hits else None,
         "median_age_days": round(statistics.median(ages), 1) if ages else None,
         "share_older_than_30d": share(sum(1 for a in ages if a > OLD_MEMORY_DAYS[0]), len(ages)),
@@ -391,6 +400,9 @@ def render_report(result):
     add(f"  ...that found something to inject:  {_pct(s['keyword_hit_rate'])}")
     add(f"  ...where the backup (meaning-based) search would have kicked in:  "
         f"{_pct(s['semantic_would_fire_rate'])}")
+    if s.get("on_miss_gate_fire_rate") is not None:
+        add(f"  ...where mode 'on_miss' would load the meaning model (about 3 s each):  "
+            f"{_pct(s['on_miss_gate_fire_rate'])}")
     add(f"  Memories injected per prompt:       {s['avg_results_per_hit']}")
     add("")
     add("WARNING SIGNS")

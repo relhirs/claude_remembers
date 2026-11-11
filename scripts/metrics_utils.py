@@ -62,7 +62,8 @@ DDL_METRICS = [
         result_ages_days TEXT,
         same_project_n INTEGER,
         injected_chars INTEGER,
-        injected_tokens_est INTEGER
+        injected_tokens_est INTEGER,
+        semantic_reason TEXT
     )""",
     "CREATE INDEX IF NOT EXISTS idx_retrieval_events_ts ON retrieval_events(ts)",
     "CREATE INDEX IF NOT EXISTS idx_retrieval_events_session ON retrieval_events(session_id)",
@@ -113,6 +114,10 @@ def ensure_metrics_schema(conn):
     """Create the metrics tables if missing. Idempotent; safe on every start."""
     for ddl in DDL_METRICS:
         conn.execute(ddl)
+    # Columns added after the first release: older databases get them here.
+    have = {r[1] for r in conn.execute("PRAGMA table_info(retrieval_events)")}
+    if "semantic_reason" not in have:
+        conn.execute("ALTER TABLE retrieval_events ADD COLUMN semantic_reason TEXT")
     conn.commit()
 
 
@@ -144,7 +149,7 @@ _RETRIEVAL_COLUMNS = (
     "prompt_chars", "n_keywords", "n_results", "top_rank", "top_similarity",
     "top_coverage", "keyword_ms", "semantic_ms", "latency_ms", "result_ids",
     "result_projects", "result_ages_days", "same_project_n", "injected_chars",
-    "injected_tokens_est",
+    "injected_tokens_est", "semantic_reason",
 )
 _RETRIEVAL_INSERT = (
     "INSERT INTO retrieval_events (" + ", ".join(_RETRIEVAL_COLUMNS) + ") VALUES ("
@@ -174,7 +179,7 @@ def record_retrieval_event(db_path, event):
                     conn.commit()
                     return True
                 except sqlite3.OperationalError as e:
-                    if attempt == 1 and "no such table" in str(e):
+                    if attempt == 1 and ("no such table" in str(e) or "no column named" in str(e)):
                         ensure_metrics_schema(conn)
                         continue
                     raise

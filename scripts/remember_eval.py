@@ -7,10 +7,13 @@ specific past session (plus some questions with NO answer in memory). This
 script asks each question four ways and reports, in plain language, how often
 the right session shows up and how often it injects junk when it shouldn't:
 
-    keyword          the search the live hook runs (with its weak-match gate)
+    keyword          keyword search only, with its weak-match gate
     keyword_ungated  the same search without the gate (what ran before it)
-    meaning          meaning-based (embedding) search, cosine cutoff 0.35
-    both             keyword + meaning, merged by Reciprocal Rank Fusion
+    meaning          meaning-based (embedding) search only, cosine cutoff 0.35
+    on_miss          keyword, plus meaning search only when the gate says
+                     keyword can't be trusted (config: mode: on_miss)
+    always           keyword plus meaning search on every prompt, merged by
+                     Reciprocal Rank Fusion (config: mode: always)
 
 Read-only: it never writes to the transcript tables. The only write is saving
 the finished result to metrics_snapshots (--no-save skips that).
@@ -56,12 +59,13 @@ DEFAULT_GOLDEN = ROOT / "eval" / "golden_set.yaml"
 SEMANTIC_CUTOFF = 0.35
 RRF_K = 60
 CANDIDATES = 30            # meaning-search rows considered before the cutoff
-METHODS = ("keyword", "keyword_ungated", "meaning", "both")
+METHODS = ("keyword", "keyword_ungated", "meaning", "on_miss", "always")
 METHOD_LABELS = {
-    "keyword": "Keyword search (what runs today)",
+    "keyword": "Keyword search only",
     "keyword_ungated": "Keyword, without the weak-match gate",
-    "meaning": "Meaning-based search",
-    "both": "Keyword + meaning together",
+    "meaning": "Meaning-based search only",
+    "on_miss": "Meaning search only when keyword looks unreliable (mode: on_miss)",
+    "always": "Keyword + meaning on every prompt (mode: always)",
 }
 
 
@@ -99,53 +103,66 @@ def _clean(question, rows):
     return [r for r in rows if q not in (r["content"] or "").lower()]
 
 
-def run_question(hook, semantic, conn, config, db_path, item, exclude):
+def run_question(hook, semantic, conn, config, db_path, item, exclude, cold_start_ms=0.0):
+    """Ask one question every way, through the hook's own functions so the
+    eval measures what the live hook would do. `cold_start_ms` is charged to
+    on_miss whenever its gate loads the model."""
     question = item["question"]
+    quoted = question.lower().strip()
     exclude_one = exclude[0] if exclude else None
+    session_of = {}
 
-    def keyword_rows(keywords, gated):
+    def keyword_rows(keywords, gated, info=None):
         if not keywords:
             return [], 0.0
         fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
         started = time.perf_counter()
-        raw = hook._keyword_search(conn, fts_query, None, exclude_session=exclude_one, gated=gated)
+        raw = hook._keyword_search(conn, fts_query, None, exclude_session=exclude_one,
+                                   gated=gated, info=info)
         ms = (time.perf_counter() - started) * 1000
         rows = []
         for row in raw:                      # (project, timestamp, content, rank, id)
-            session = conn.execute("SELECT session_id FROM transcripts WHERE id = ?",
-                                   (row[4],)).fetchone()
-            rows.append({"id": row[4], "session": session[0] if session else None,
-                         "content": row[2]})
-        rows = [r for r in _clean(question, rows) if r["session"] not in exclude]
+            found_session = conn.execute("SELECT session_id FROM transcripts WHERE id = ?",
+                                         (row[4],)).fetchone()
+            session = found_session[0] if found_session else None
+            if session in exclude or quoted in (row[2] or "").lower():
+                continue
+            session_of[row[4]] = session
+            rows.append(row)
         return rows, ms
 
     keywords = hook.build_search_keywords(question)
-    kw_rows, kw_ms = keyword_rows(keywords, gated=True)
+    kw_info = {}
+    kw_rows, kw_ms = keyword_rows(keywords, gated=True, info=kw_info)
     ug_rows, ug_ms = keyword_rows(keywords, gated=False)
 
     started = time.perf_counter()
-    found = semantic.semantic_search(conn, config, question, limit=CANDIDATES)
+    found = semantic.semantic_search(conn, config, question, project=None, limit=CANDIDATES)
     sem_ms = (time.perf_counter() - started) * 1000
-    sem_all = [{"id": r["id"], "session": r["session_id"], "content": r["content"],
-                "similarity": r["similarity"]} for r in found
-               if r["session_id"] not in exclude and not is_machine_generated(r["content"])]
-    sem_all = _clean(question, sem_all)
-    sem_rows = [r for r in sem_all if r["similarity"] >= SEMANTIC_CUTOFF]
+    usable = []
+    for r in found:
+        session_of[r["id"]] = r["session_id"]
+        if r["session_id"] not in exclude and quoted not in (r["content"] or "").lower():
+            usable.append(r)
+    sem_rows = hook.semantic_rows(usable, None, exclude_one)
+    best_similarity = round(usable[0]["similarity"], 3) if usable else None
 
-    pairs = lambda rows: [(r["id"], r["session"]) for r in rows]
-    both = _rrf(pairs(kw_rows), pairs(sem_rows))
-    results = {
-        "keyword": {"sessions": _rank_sessions(pairs(kw_rows)), "injected": len(kw_rows),
-                    "ms": kw_ms, "keywords": keywords},
-        "keyword_ungated": {"sessions": _rank_sessions(pairs(ug_rows)), "injected": len(ug_rows),
-                            "ms": ug_ms, "keywords": keywords},
-        "meaning": {"sessions": _rank_sessions(pairs(sem_rows)), "injected": len(sem_rows),
-                    "ms": sem_ms,
-                    "best_similarity": round(sem_all[0]["similarity"], 3) if sem_all else None},
-        "both": {"sessions": _rank_sessions(both), "injected": len(both),
-                 "ms": kw_ms + sem_ms},
+    always_rows = hook.merge_results(kw_rows, sem_rows)
+    fires, reason = hook.should_use_semantic(question, keywords, kw_rows, kw_info, conn)
+    on_miss_rows = always_rows if fires else kw_rows
+
+    def pack(rows, ms, **extra):
+        return {"sessions": _rank_sessions([(r[4], session_of.get(r[4])) for r in rows]),
+                "injected": len(rows), "ms": ms, **extra}
+
+    return {
+        "keyword": pack(kw_rows, kw_ms, keywords=keywords),
+        "keyword_ungated": pack(ug_rows, ug_ms, keywords=keywords),
+        "meaning": pack(sem_rows[:hook.MAX_RESULTS], sem_ms, best_similarity=best_similarity),
+        "on_miss": pack(on_miss_rows, kw_ms + (sem_ms + cold_start_ms if fires else 0.0),
+                        fired=fires, reason=reason),
+        "always": pack(always_rows, kw_ms + sem_ms),
     }
-    return results
 
 
 def score(per_question, questions):
@@ -169,6 +186,8 @@ def score(per_question, questions):
         false_inj = sum(per_question[q["id"]][method]["injected"] > 0 for q in no_answer)
         empty_answerable = sum(per_question[q["id"]][method]["injected"] == 0 for q in answerable)
         times = [per_question[q["id"]][method]["ms"] for q in questions]
+        fired = [per_question[q["id"]][method]["fired"] for q in questions
+                 if "fired" in per_question[q["id"]][method]]
         n = len(answerable) or 1
         out[method] = {
             "recall_at_1": round(hits[1] / n, 3), "recall_at_3": round(hits[3] / n, 3),
@@ -179,6 +198,8 @@ def score(per_question, questions):
             "latency_ms_slowest": round(max(times), 1),
             "missed_ids": misses,
         }
+        if fired:
+            out[method]["model_load_rate"] = round(sum(fired) / len(fired), 3)
     return out
 
 
@@ -194,7 +215,8 @@ def run_eval(config, golden_path):
         started = time.perf_counter()
         semantic.get_embed_model(config)              # load once; reported separately
         model_load_s = time.perf_counter() - started
-        per_question = {q["id"]: run_question(hook, semantic, conn, config, db_path, q, exclude)
+        per_question = {q["id"]: run_question(hook, semantic, conn, config, db_path, q, exclude,
+                                              cold_start_ms=model_load_s * 1000)
                         for q in questions}
     finally:
         conn.close()
@@ -218,6 +240,8 @@ def run_eval(config, golden_path):
             "No current-project boost is applied, so every project is treated the same.",
             "A rival session that also answers a question counts against the method unless "
             "it is listed in 'expect'.",
+            "Every question here is phrased about the past, which trips the on_miss gate more "
+            "often than everyday prompts do; remember_baseline.py shows the rate on your real prompts.",
             "Meaning search runs here with the model already loaded; a cold start adds "
             f"about {round(model_load_s, 1)} s per process.",
         ],
@@ -237,7 +261,7 @@ def render_report(r):
     na, nn = c["answerable"], c["no_answer"]
     L = ["=" * 66, "  MEMORY CHECK: does search find the right memory?", "=" * 66,
          f"I asked {na} questions whose answer is in memory and {nn} whose answer is not,",
-         "four different ways. Higher is better, except for the junk rate.", ""]
+         "five different ways. Higher is better, except for the junk rate.", ""]
     for method in METHODS:
         s = m[method]
         found5 = round(s["recall_at_5"] * na)
@@ -247,21 +271,29 @@ def render_report(r):
               f"  Right memory ranked first:      {found1} of {na}  ({_pct(s['recall_at_1'])})",
               f"  Injected junk when memory had no answer:  "
               f"{round((s['false_injection_rate'] or 0) * nn)} of {nn}  ({_pct(s['false_injection_rate'])})",
-              f"  Speed: {s['latency_ms_median']} ms typical, {s['latency_ms_slowest']} ms slowest",
+              f"  Speed: {s['latency_ms_median']} ms typical, {s['latency_ms_slowest']} ms slowest"
+              + (f"; loads the model on {_pct(s['model_load_rate'])} of questions" if "model_load_rate" in s else ""),
               f"  (recall@1 {s['recall_at_1']}, @3 {s['recall_at_3']}, @5 {s['recall_at_5']}; MRR {s['mrr']})", ""]
-    base, mean, both = m["keyword"], m["meaning"], m["both"]
+    base, mean, on_miss, always = m["keyword"], m["meaning"], m["on_miss"], m["always"]
     L.append("VERDICT")
-    L.append(f"  Keyword search finds the right memory {_pct(base['recall_at_5'])} of the time "
+    L.append(f"  Keyword search alone finds the right memory {_pct(base['recall_at_5'])} of the time "
              f"and injects junk on {_pct(base['false_injection_rate'])} of unanswerable questions.")
-    gain = both["recall_at_5"] - base["recall_at_5"]
-    if gain > 0.02:
-        L.append(f"  Adding meaning search raises that to {_pct(both['recall_at_5'])} "
-                 f"(+{round(gain * 100)} points) at a cost of {both['latency_ms_median']} ms "
-                 "typical per search once the model is loaded.")
-    elif gain < -0.02:
-        L.append(f"  Adding meaning search LOWERS it to {_pct(both['recall_at_5'])}; do not turn it on as-is.")
+    full_gain = always["recall_at_5"] - base["recall_at_5"]
+    if full_gain < -0.02:
+        L.append(f"  Adding meaning search LOWERS it to {_pct(always['recall_at_5'])}; leave it off.")
+    elif full_gain <= 0.02:
+        L.append("  Adding meaning search changes the hit rate by under 2 points here, so it is not worth its cost.")
     else:
-        L.append("  Adding meaning search changes the hit rate by under 2 points here.")
+        got = on_miss["recall_at_5"] - base["recall_at_5"]
+        L.append(f"  'always' raises that to {_pct(always['recall_at_5'])} (+{round(full_gain * 100)} points) "
+                 f"and answers in about {always['latency_ms_median']} ms, but keeps a helper process running "
+                 "(about 610 MB of memory).")
+        L.append(f"  'on_miss' reaches {_pct(on_miss['recall_at_5'])} (+{round(got * 100)} points, "
+                 f"{round(100 * got / full_gain) if full_gain else 0}% of that gain) and loads the model on only "
+                 f"{_pct(on_miss.get('model_load_rate'))} of questions, with no helper process, "
+                 f"but each of those takes about {round(r['model_load_s'], 1)} s.")
+        L.append("  Pick 'always' if you can spare the memory and want the best results; "
+                 "'on_miss' if you cannot, or want nothing running in the background.")
     if mean["false_injection_rate"] is not None and base["false_injection_rate"] is not None:
         if mean["false_injection_rate"] < base["false_injection_rate"]:
             L.append(f"  Meaning search is better at staying quiet when there is no answer "

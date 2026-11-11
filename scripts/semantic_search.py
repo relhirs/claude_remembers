@@ -45,35 +45,50 @@ def get_embed_model(config):
     from sentence_transformers import SentenceTransformer
     sem_config = config.get("semantic_search", {})
     model_name = sem_config.get("model", "all-MiniLM-L6-v2")
+    # The model is normally already on disk, so look there first: it skips the
+    # Hugging Face network request (and its "unauthenticated" warning) on every
+    # cold start. Only a first-time download needs the network.
     try:
-        _embed_model = SentenceTransformer(model_name)
+        try:
+            _embed_model = SentenceTransformer(model_name, local_files_only=True)
+        except Exception:
+            _embed_model = SentenceTransformer(model_name)
     except Exception as e:
         _log(f"ERROR model load failed (model={model_name!r}): {e!r}")
         raise
     return _embed_model
 
 
-def semantic_search(conn, config, query, project=None, limit=10):
+def embed_query(config, text):
+    """Embed one piece of text. Returns a float32 numpy vector."""
+    import numpy as np
+    return np.array(get_embed_model(config).encode(text), dtype=np.float32)
+
+
+def semantic_search(conn, config, query, project=None, limit=10, query_vec=None):
     """Cosine-similarity search over transcript_embeddings.
 
     Returns a list of dicts sorted by similarity descending:
     {"similarity": float, "project": str, "timestamp": str, "content": str, "id": int, "session_id": str}
+    `query_vec` skips loading the model: the always-on helper embeds the text
+    ahead of time and only the scoring happens here.
     Returns [] (and logs) on any failure instead of raising, so a broken
     embedding model or a corrupt row degrades to "no semantic results"
     rather than crashing whichever hook or MCP call invoked this fallback.
     """
     import numpy as np
 
-    try:
-        model = get_embed_model(config)
-    except Exception:
-        return []  # get_embed_model already logged the specific cause
+    if query_vec is None:
+        try:
+            model = get_embed_model(config)
+        except Exception:
+            return []  # get_embed_model already logged the specific cause
 
-    try:
-        query_vec = np.array(model.encode(query), dtype=np.float32)
-    except Exception as e:
-        _log(f"ERROR encoding query failed: {e!r}")
-        return []
+        try:
+            query_vec = np.array(model.encode(query), dtype=np.float32)
+        except Exception as e:
+            _log(f"ERROR encoding query failed: {e!r}")
+            return []
 
     try:
         if project:

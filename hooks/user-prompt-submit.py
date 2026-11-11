@@ -117,6 +117,30 @@ MAX_RESULTS = 5
 # set it keeps every question it found and removes all junk on unanswerable ones.
 MIN_STRENGTH_PER_LOG_DOC = 1.05
 
+# Meaning-based (semantic) search. The cutoff applies to the raw cosine
+# similarity; the current-project boost only reorders results that already
+# cleared it. 30 candidates are scored so that dropping the current session
+# and machine rows still leaves enough to fill MAX_RESULTS. All are guesses
+# measured by scripts/remember_eval.py, not laws.
+SEMANTIC_CUTOFF = 0.35
+SEMANTIC_CANDIDATES = 30
+SEMANTIC_PROJECT_BOOST = 0.05
+RRF_K = 60
+
+# `mode: on_miss` runs meaning search only when one of these says keyword
+# search can't be trusted (see should_use_semantic). On real prompts, 0.25
+# fires the model load on ~1 prompt in 4; the stricter 0.5 plus a "moderate
+# score" signal fired on 3 in 4 for one or two extra found memories, which
+# makes on_miss as slow as always.
+GATE_MIN_COVERAGE = 0.25       # best result contains under a quarter of the prompt's keywords
+# Multi-word phrases only: single words like "earlier" or "before" are in
+# almost every prompt.
+MEMORY_PHRASING = re.compile(
+    r"\b(what did we|did we (decide|ever|already|talk|discuss)|do you remember|remember when|"
+    r"last time|we (talked|discussed|decided|agreed) (about|on)|a (while|few days|few weeks) ago|"
+    r"the other day|you (said|mentioned|told me)|as we discussed|where did we|when did we|"
+    r"why did we|how did we|earlier (today|this|we|you))\b", re.IGNORECASE)
+
 # Older memories need a stronger match to outrank newer ones: the BM25 rank is
 # divided by (1 + age_days / RECENCY_SCALE_DAYS), so a year-old memory has to
 # score about twice as well as a brand-new one. (This used to multiply the
@@ -125,7 +149,7 @@ RECENCY_SCALE_DAYS = 365
 
 # Labels retrieval_events rows so before/after comparisons can tell which
 # retrieval behavior produced them. "legacy_fallback" was the original.
-RETRIEVAL_MODE = "fallback_v2"
+RETRIEVAL_MODE = "hybrid_v3"
 
 def normalize_for_match(s):
     """Lowercase and strip everything except letters/digits/slashes.
@@ -273,6 +297,72 @@ def _keyword_search(conn, fts_query, cwd_project, as_of=None, exclude_session=No
     return merged
 
 
+def should_use_semantic(prompt_text, keywords, rows, kw_info, conn):
+    """on_miss gate: (run meaning search?, why). Any one signal is enough.
+
+    Four signals: score strength (no result, or even the best one under the
+    weak-match bar), coverage (the best result contains under a quarter of the
+    prompt's keywords: 1 of 6 is weak), memory phrasing (questions about the
+    past, where the words rarely match and the meaning does), and length
+    (prompts under 15 characters never get here: they skip retrieval).
+    """
+    if not rows:
+        return True, "weak_keyword" if kw_info.get("weak") else "no_keyword_result"
+    coverages = [c for c in (_coverage(keywords, r[2]) for r in rows) if c is not None]
+    if coverages and max(coverages) < GATE_MIN_COVERAGE:
+        return True, "low_coverage"
+    if MEMORY_PHRASING.search(prompt_text or ""):
+        return True, "memory_phrasing"
+    return False, "keyword_confident"
+
+
+def semantic_rows(results, cwd_project, current_session_id):
+    """Meaning-search results -> hook rows. Cutoff on raw similarity, then the
+    current project's results are ordered slightly ahead (keyword search also
+    favors the project you're in), and the current session and machine rows
+    are dropped."""
+    kept = [r for r in results
+            if r["similarity"] > SEMANTIC_CUTOFF
+            and r.get("session_id") != current_session_id
+            and not is_machine_generated(r["content"])]
+    kept.sort(key=lambda r: r["similarity"] + (SEMANTIC_PROJECT_BOOST if r["project"] == cwd_project else 0),
+              reverse=True)
+    return [(r["project"], r["timestamp"], r["content"], None, r.get("id")) for r in kept]
+
+
+def merge_results(keyword_rows, sem_rows):
+    """Reciprocal Rank Fusion: each list votes 1/(k + rank) for a row, so a
+    memory both searches agree on rises above one only a single search found.
+    Keyword rows come first so a row found by both keeps its BM25 rank."""
+    score, rows = {}, {}
+    for lst in (keyword_rows, sem_rows):
+        for rank, row in enumerate(lst, 1):
+            key = row[4] if row[4] is not None else (row[0], (row[2] or "")[:50])
+            score[key] = score.get(key, 0.0) + 1.0 / (RRF_K + rank)
+            rows.setdefault(key, row)
+    merged, seen = [], set()
+    for key in sorted(score, key=lambda k: -score[k]):
+        row = rows[key]
+        sig = (row[0], (row[2] or "")[:50])
+        if sig in seen:
+            continue
+        seen.add(sig)
+        merged.append(row)
+        if len(merged) >= MAX_RESULTS:
+            break
+    return merged
+
+
+def semantic_mode(config):
+    """"on_miss" (default), "always" or "off" from config.yaml. Anything
+    unrecognized, or a config written before this setting existed, is on_miss."""
+    sem = (config or {}).get("semantic_search") or {}
+    if sem.get("enabled") is False:
+        return "off"
+    mode = str(sem.get("mode") or "on_miss").strip().lower()
+    return mode if mode in ("on_miss", "always") else "on_miss"
+
+
 def _confidence_floor(conn):
     """BM25 score the best keyword result must beat (negative; None = no gate)."""
     try:
@@ -401,6 +491,27 @@ def _finish_event(ev, started):
         pass
 
 
+def _helper_vector(root, text):
+    """Query vector from the warm background helper, or None if it isn't up."""
+    try:
+        import numpy as np
+        from semantic_helper import query
+        vec = query(root, text)
+        return np.array(vec, dtype=np.float32) if vec else None
+    except Exception:
+        return None
+
+
+def _start_helper(root, config):
+    """Ask for the helper to be started for the NEXT prompt. Never blocks."""
+    try:
+        from semantic_helper import DEFAULT_IDLE_MIN, ensure_running
+        idle = (config.get("semantic_search") or {}).get("idle_shutdown_min", DEFAULT_IDLE_MIN)
+        ensure_running(root, idle_min=idle)
+    except Exception:
+        pass
+
+
 def _run(raw_input, ev):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -432,7 +543,8 @@ def _run(raw_input, ev):
             ev["_db_path"] = db_path
             ev["_metrics_enabled"] = metrics_enabled(config)
             ev["prompt_kind"] = "system_generated" if is_system_generated_prompt(prompt_text) else "user"
-        ev["mode"] = RETRIEVAL_MODE
+        sem_mode = semantic_mode(config)
+        ev["mode"] = f"{sem_mode}_v3"
 
         # "oth" matches write_exchange.py's detect_project() fallback -
         # without this, a folder with no jsonl_project_mapping entry left
@@ -500,32 +612,45 @@ def _run(raw_input, ev):
             ev["outcome"] = "keyword_hit"
             _log_retrieval(current_session_id, "keyword_hit", keywords, prompt_text, len(rows))
 
-        # Semantic fallback: only when keyword search came up empty/weak -
-        # this is the one place per-message search can be slow (embedding
-        # model cold start), by design limited to messages that already
-        # struck out on the fast path.
-        if not rows and semantic_search:
+        # Meaning-based search, per config.yaml `semantic_search.mode`:
+        #   on_miss - load the model in this process, but only when the gate
+        #             says keyword results can't be trusted (costs ~3 s then)
+        #   always  - ask the warm background helper for the query vector and
+        #             merge with keyword results on every prompt; if the helper
+        #             isn't up, this prompt stays keyword-only and the helper
+        #             is started for next time (a prompt never waits on a start)
+        sem_found, reason = [], None
+        if semantic_search and sem_mode != "off":
             try:
-                started_sem = time.perf_counter()
-                sem_results = semantic_search(conn, config, prompt_text, project=cwd_project, limit=MAX_RESULTS)
-                ev["semantic_ms"] = round((time.perf_counter() - started_sem) * 1000, 1)
-                if sem_results:
-                    ev["top_similarity"] = round(sem_results[0]["similarity"], 4)
-                rows = [
-                    (r["project"], r["timestamp"], r["content"], None, r.get("id"))
-                    for r in sem_results
-                    if r["similarity"] > 0.35
-                    and r.get("session_id") != current_session_id
-                    and not is_machine_generated(r["content"])
-                ]
-                if rows:
-                    ev["outcome"] = "semantic_hit"
-                    _log_retrieval(current_session_id, "semantic_hit", keywords, prompt_text, len(rows))
+                query_vec = None
+                if sem_mode == "always":
+                    query_vec = _helper_vector(root, prompt_text)
+                    if query_vec is None:
+                        reason = "helper_unavailable"
+                        _start_helper(root, config)
+                    else:
+                        reason = "always"
+                    run_semantic = query_vec is not None
+                else:
+                    run_semantic, reason = should_use_semantic(prompt_text, keywords, rows, kw_info, conn)
+                if run_semantic:
+                    started_sem = time.perf_counter()
+                    sem_results = semantic_search(conn, config, prompt_text, project=None,
+                                                  limit=SEMANTIC_CANDIDATES, query_vec=query_vec)
+                    ev["semantic_ms"] = round((time.perf_counter() - started_sem) * 1000, 1)
+                    if sem_results:
+                        ev["top_similarity"] = round(sem_results[0]["similarity"], 4)
+                    sem_found = semantic_rows(sem_results, cwd_project, current_session_id)
             except Exception:
                 pass
         elif not rows and not semantic_search:
             ev["outcome"] = "no_match_semantic_unavailable"
             _log_retrieval(current_session_id, "no_match_semantic_unavailable", keywords, prompt_text)
+        ev["semantic_reason"] = reason
+        if sem_found:
+            ev["outcome"] = "hybrid_hit" if rows else "semantic_hit"
+            rows = merge_results(rows, sem_found)
+            _log_retrieval(current_session_id, ev["outcome"], keywords, prompt_text, len(rows))
 
         conn.close()
 
