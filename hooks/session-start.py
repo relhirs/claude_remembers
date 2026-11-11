@@ -311,22 +311,18 @@ def main():
                     lines.append(f"- {f}")
                 lines.append("")
 
-        # Gap detection: find recent sessions missing notes
+        # Gap detection: a count, not a list. The startup sweep summarizes old
+        # sessions a few at a time, and the 12-character IDs this used to list
+        # weren't enough for Claude to act on anyway (the old LIMIT 20 also
+        # made the count wrong whenever more than 20 were missing).
         try:
-            gaps = conn.execute("""
-                SELECT session_id, project, started_at
-                FROM sys_sessions
-                WHERE (notes IS NULL OR notes = '')
-                ORDER BY started_at DESC
-                LIMIT 20
-            """).fetchall()
-            if gaps:
+            (missing,) = conn.execute(
+                "SELECT COUNT(*) FROM sys_sessions WHERE notes IS NULL OR notes = ''"
+            ).fetchone()
+            if missing:
                 lines.append("## Sessions Missing Notes")
-                lines.append(f"{len(gaps)} session(s) have no notes. Consider writing notes for these:")
-                for sid, proj, started in gaps:
-                    date = started[:10] if started else "unknown"
-                    short_id = sid[:12] if sid else "?"
-                    lines.append(f"- {date} | {proj} | {short_id}...")
+                lines.append(f"{missing} past session(s) have no notes yet; the startup sweep fills "
+                             "them in over time. Only mention this if the user asks about memory gaps.")
                 lines.append("")
         except Exception:
             pass

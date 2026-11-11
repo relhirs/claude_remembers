@@ -16,6 +16,8 @@ And this happens on literally every message, not just right after you run `/clea
 
 This part does keyword search first since it's quick. If keyword search doesn't turn up anything good, it falls back to meaning based search (basically comparing what your message is about instead of the exact words), that one takes a bit longer to spin up so it only kicks in when the fast option finds nothing.
 
+Three rules keep the results useful. Memories from the session you're currently in are never injected back, since Claude already has that conversation in front of it. Machine-generated messages (subagent hand-backs, slash-command and `!` shell artifacts) are never returned, because they aren't anything you said. And when two results are about equally relevant, the newer one wins: a memory's score is divided by (1 + its age in days / 365), so a year-old memory has to match about twice as well as a brand-new one. Repeated words in your message are only searched once, so they don't use up the 8 keyword slots.
+
 **Every time Claude finishes answering:** the whole exchange gets saved to the database right away. It doesn't wait till the session ends. So if your terminal crashes you don't lose the conversation, just the end of session summary.
 
 **When a session ends**, meaning you ran `/exit`, closed the terminal, or hit `/clear`, there's a background script that reads through the whole conversation and asks Claude Haiku to write an actual summary, what you were doing, what got decided, what's still unfinished, what to pick up next time.
@@ -36,7 +38,22 @@ Everything above happens silently in the background, which is the point, but it 
 - **`tail -20 logs/semantic_search.log`** -- should also be empty. A line here means the meaning-based fallback search is broken (the embedding model failed to load, or a corrupted row in the database couldn't be read) -- which matters because when this is silently broken, you're only ever getting keyword search's results and have no way to tell the difference from "nothing in semantic search matched."
 - **Check everything in one shot:** `tail -n 10 logs/*.log logs/*/*.log 2>/dev/null` dumps the tail of every log at once. For the bigger picture beyond logs -- database integrity, backup freshness, embedding coverage -- `python3 scripts/remember_health.py` is the 9-point dashboard these logs feed into.
 
-## Why "lessons" are kind of a big deal
+## Measuring how well it works
+
+The logs above tell you whether something broke. They can't tell you whether the memory is actually *good* -- `keyword_hit` only means the search returned something, not that it returned the right thing. So there's a small measurement layer on top. It's on by default, stores only ids, names, lengths and counts (never your prompt text or shell commands), and `metrics: enabled: false` in `config.yaml` turns it off without affecting memory itself.
+
+Three tables in the database hold the raw numbers:
+- **`retrieval_events`** -- one row per prompt the hook handled: which path fired, how long it took, which memories it injected (by id), how old they were, how well they matched your words, and how many tokens that cost. Every prompt gets a row, including the ones that were skipped, so injection rate is measurable.
+- **`tool_events`** -- one row per tool call Claude made: the tool name, the file it touched (or just the program name for shell commands), whether it worked, and how big the result was. This is what shows how often Claude searched memory by hand.
+- **`api_usage`** -- one row per API response with the token counts the API itself reported (fresh input, cache reads and writes, output). This is where the real token numbers come from.
+
+And two scripts:
+- **`python3 scripts/remember_baseline.py`** -- a plain-language "before" picture. It replays your real past prompts through the current search code (against a throwaway snapshot copy, never your live database), as the memory stood when you typed each one, and reports how often it found something, how old and how well-matched the results were, and what that cost. Save one before changing how retrieval works, run it again afterwards, and the difference is the effect of the change. `--limit 500` for just the recent prompts, `--label name` to name the saved result, `--json` for raw numbers.
+- **`python3 scripts/backfill_metrics.py`** -- fills `tool_events` and `api_usage` from history captured before this layer existed. Run it once (`--dry-run` first if you like); it's safe to re-run and only ever adds rows. New activity is recorded automatically.
+
+One thing to know about reading the baseline: the "meaning-based search would have kicked in" number is a *count*, not a test. Loading the model for thousands of replays wouldn't tell you anything about live behavior, so the replay only reports how often the fast path came up empty.
+
+## Why "lessons" are useful 
 
 A session summary is tied to one conversation. A lesson is different, it's more like a standalone fact that's supposed to outlive that one session. Like if you spend an hour figuring out some approach causes a bug, that's worth remembering next time you're anywhere near that problem, not just buried somewhere in one session's notes. The summarization step pulls these out automatically whenever there's something that seems worth keeping.
 
