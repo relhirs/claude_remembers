@@ -888,6 +888,58 @@ def test_retrieval_quality_fixes():
               and not hook.is_machine_generated("what did we decide"))
 
 
+def test_live_metrics_report():
+    """remember_metrics.py: windowing, project filter, carry cost, read-only."""
+    print("\n--- Live Metrics Report ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import metrics_utils as mu
+        import remember_metrics as rm
+    except Exception as e:
+        check("import remember_metrics", False, str(e))
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        db = os.path.join(tmp, "m.db")
+        conn = sqlite3.connect(db)
+        conn.executescript("CREATE TABLE transcripts (id INTEGER PRIMARY KEY, content TEXT, raw_json TEXT);"
+                           "CREATE TABLE transcript_embeddings (transcript_id INTEGER);"
+                           "CREATE TABLE sys_sessions (session_id TEXT, notes TEXT);")
+        mu.ensure_metrics_schema(conn)
+        ev = ("INSERT INTO retrieval_events (ts, source, session_id, project, outcome, n_results, "
+              "top_coverage, latency_ms, result_ages_days, same_project_n, injected_tokens_est) "
+              "VALUES (?, 'live', 's1', ?, ?, ?, 0.4, 10, '[2, 100]', 1, 100)")
+        conn.execute(ev, ("2026-11-10T10:00:00Z", "fin", "keyword_hit", 2))
+        conn.execute(ev, ("2026-11-10T10:05:00Z", "oth", "keyword_hit", 2))
+        conn.execute(ev, ("2026-11-10T10:06:00Z", "fin", "no_results", 0))
+        conn.execute("UPDATE retrieval_events SET injected_tokens_est = 0 WHERE n_results = 0")
+        conn.execute(ev, ("2020-01-01T00:00:00Z", "fin", "keyword_hit", 2))  # outside window
+        for i, ts in enumerate(("2026-11-10T10:01:00Z", "2026-11-10T10:07:00Z", "2026-11-10T10:08:00Z")):
+            conn.execute("INSERT INTO api_usage (message_id, session_id, ts, input_tokens) "
+                         "VALUES (?, 's1', ?, 1000)", (f"m{i}", ts))
+        conn.commit()
+        conn.close()
+
+        ro = rm._connect_readonly(db)
+        r = rm.retrieval_facts(ro, "2026-11-01T00:00:00Z", None)
+        check("window excludes old events", r["events"] == 3)
+        check("injection rate counts only events with results", r["injection_rate"] == round(2 / 3, 3))
+        check("median age read from the JSON list", r["median_age_days"] == 51.0)
+        check("project filter", rm.retrieval_facts(ro, "2026-11-01T00:00:00Z", "oth")["events"] == 1)
+        t = rm.token_cost_facts(ro, "2026-11-01T00:00:00Z", None, r)
+        # 100 tokens at 10:00 -> 3 replies follow; 100 at 10:05 -> 2 replies follow
+        check("carry cost = tokens x later replies", t["carry_tokens_reread"] == 100 * 3 + 100 * 2)
+        try:
+            ro.execute("INSERT INTO tool_events (tool_use_id) VALUES ('x')")
+            check("report connection is read-only", False)
+        except sqlite3.OperationalError:
+            check("report connection is read-only", True)
+        ro.close()
+        check("empty window renders a message, not a crash",
+              "No prompts" in rm.render_text({"window_days": 1, "project": None,
+                                              "retrieval": {"events": 0}, "tokens": {},
+                                              "search_anyway": {}, "pipeline": {}}))
+
+
 def test_session_start_is_slim():
     """The session-start hook reports how many sessions lack notes as one
     accurate line, not a capped list of unusable ID fragments."""
@@ -972,6 +1024,7 @@ if __name__ == "__main__":
     test_profile_has_no_repeats()
     test_retrieval_quality_fixes()
     test_session_start_is_slim()
+    test_live_metrics_report()
 
     print("\n" + "=" * 60)
     print(f"  Results: {PASS} passed, {FAIL} failed")
