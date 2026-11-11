@@ -714,7 +714,6 @@ def test_hook_internals():
         spec = importlib.util.spec_from_file_location("ups_hook_under_test", root / "hooks" / "user-prompt-submit.py")
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)
-        hook.fuzzy_correct = None  # keep keywords predictable
 
         check("extract_keywords drops stop-words and short words",
               hook.extract_keywords("What is the frobnicator rollout?") == ["frobnicator", "rollout"])
@@ -833,7 +832,6 @@ def test_retrieval_quality_fixes():
         spec = importlib.util.spec_from_file_location("ups_hook_quality", root / "hooks" / "user-prompt-submit.py")
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)
-        hook.fuzzy_correct = None
 
         # --- repeated keywords must not use up the 8 slots ---
         check("a repeated word is searched once",
@@ -841,10 +839,9 @@ def test_retrieval_quality_fixes():
         many = "alpha bravo charlie delta echo foxtrot golf hotel india juliet"
         distinct = hook.extract_keywords(f"alpha alpha bravo bravo {many}")
         check("repeats don't consume the 8-keyword cap", distinct == many.split()[:8], f"got {distinct}")
-        hook.fuzzy_correct = lambda kws, path: (["worth" if k.startswith("w") else k for k in kws], {})
-        check("typo correction mapping two words to one is collapsed again",
-              hook.build_search_keywords("wlorpt wibble frobnicator", str(db_path)) == ["worth", "frobnicator"])
-        hook.fuzzy_correct = None
+        check("there is no typo correction: unknown words are searched as typed",
+              hook.build_search_keywords("kubernetes frobnicator", str(db_path)) == ["kubernetes", "frobnicator"]
+              and not hasattr(hook, "fuzzy_correct"))
 
         # --- ordering direction, current-session and machine-row exclusion ---
         conn = sqlite3.connect(":memory:")
@@ -940,6 +937,96 @@ def test_live_metrics_report():
                                               "search_anyway": {}, "pipeline": {}}))
 
 
+def test_eval_scoring():
+    """remember_eval.py: session ranking, RRF merge, leak guard, metric math."""
+    print("\n--- Retrieval Eval ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import remember_eval as ev
+    except Exception as e:
+        check("import remember_eval", False, str(e))
+        return
+    check("rows collapse to distinct sessions in order",
+          ev._rank_sessions([(1, "a"), (2, "b"), (3, "a"), (4, None)]) == ["a", "b"])
+    fused = ev._rrf([(1, "a"), (2, "b")], [(2, "b"), (3, "c")])
+    check("RRF puts the row both lists agree on first", fused[0] == (2, "b"))
+    kept = ev._clean("Where is the key", [{"content": "so where is the key stored"},
+                                          {"content": "in zshrc"}])
+    check("leak guard drops rows that quote the question", [r["content"] for r in kept] == ["in zshrc"])
+
+    questions = [{"id": "q1", "kind": "answerable", "expect": ["s1"]},
+                 {"id": "q2", "kind": "answerable", "expect": ["s2", "s9"]},
+                 {"id": "n1", "kind": "no_answer", "expect": []}]
+    blank = {"injected": 0, "sessions": [], "ms": 1.0}
+    per = {"q1": {m: {"sessions": ["x", "s1"], "injected": 2, "ms": 1.0} for m in ev.METHODS},
+           "q2": {m: {"sessions": ["x", "y", "z", "w", "v", "s9"], "injected": 6, "ms": 1.0}
+                  for m in ev.METHODS},
+           "n1": {m: ({"sessions": ["x"], "injected": 1, "ms": 1.0} if m == "keyword" else dict(blank))
+                  for m in ev.METHODS}}
+    m = ev.score(per, questions)
+    check("recall@1 / @5 count first-rank and top-5 hits", m["keyword"]["recall_at_1"] == 0.0
+          and m["keyword"]["recall_at_5"] == 0.5)
+    check("MRR averages 1/rank (a hit at rank 6 scores as found, not as top-5)",
+          m["keyword"]["mrr"] == round((0.5 + 1 / 6) / 2, 3))
+    check("missed question is listed", m["keyword"]["missed_ids"] == ["q2"])
+    check("false injection counts only no-answer questions that injected",
+          m["keyword"]["false_injection_rate"] == 1.0 and m["meaning"]["false_injection_rate"] == 0.0)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "g.yaml")
+        with open(path, "w") as f:
+            f.write("exclude_sessions: [abc]\nquestions:\n  - {id: q1, kind: answerable, question: hi, expect: [s1]}\n")
+        ex, qs = ev.load_golden(path)
+        check("golden set loads with its excluded sessions", ex == ["abc"] and len(qs) == 1)
+
+
+def test_weak_match_gate():
+    """Keyword results are dropped when even the best one is weak, and the bar
+    scales with database size so a small memory is not silenced."""
+    print("\n--- Weak-Match Gate ---")
+    import importlib.util, math
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root, _ = _make_hook_sandbox(tmpdir)
+        spec = importlib.util.spec_from_file_location("ups_hook_gate", root / "hooks" / "user-prompt-submit.py")
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+
+        def build(n_filler):
+            conn = sqlite3.connect(":memory:")
+            conn.execute("""CREATE TABLE transcripts (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT,
+                project TEXT, uuid TEXT UNIQUE, role TEXT, content TEXT, timestamp TEXT, source TEXT)""")
+            conn.execute("CREATE VIRTUAL TABLE transcripts_fts USING fts5(content, content=transcripts, content_rowid=id)")
+            rows = [("target", "2026-03-01T00:00:00Z", "decided the quokka migration needs a zebracode rollback plan")]
+            rows += [(f"f{i}", "2026-03-01T00:00:00Z",
+                      f"note {i} about the common rollout plan{' with a marmot' if i % 20 == 0 else ''} and routine meeting")
+                     for i in range(n_filler)]
+            for i, (sid, ts, content) in enumerate(rows):
+                conn.execute("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp) "
+                             "VALUES (?, 'oth', ?, 'user', ?, ?)", (sid, f"u{i}", content, ts))
+            conn.execute("INSERT INTO transcripts_fts(transcripts_fts) VALUES('rebuild')")
+            conn.commit()
+            return conn
+
+        conn = build(300)
+        strong = hook._keyword_search(conn, '"quokka" OR "zebracode"', "oth")
+        check("a strong match (two rare words) is injected", len(strong) == 1)
+        info = {}
+        weak = hook._keyword_search(conn, '"marmot"', "oth", info=info)
+        check("only a moderately common word matching: nothing injected, flagged weak",
+              weak == [] and info.get("weak") is True)
+        ungated = hook._keyword_search(conn, '"marmot"', "oth", gated=False)
+        check("gated=False still returns the weak rows (for the eval)", len(ungated) >= 1)
+
+        floors = {n: hook._confidence_floor(build(n)) for n in (30, 300)}
+        check("the bar rises with database size", floors[300] < floors[30] < 0)
+        check("the bar is 1.05 x ln(messages)",
+              abs(floors[300] - (-hook.MIN_STRENGTH_PER_LOG_DOC * math.log(301))) < 1e-9)
+        small = build(20)
+        check("a small database is not silenced by the bar",
+              len(hook._keyword_search(small, '"quokka" OR "zebracode"', "oth")) == 1)
+        check("with no docsize table there is no gate (fail open)",
+              hook._confidence_floor(sqlite3.connect(":memory:")) is None)
+
+
 def test_session_start_is_slim():
     """The session-start hook reports how many sessions lack notes as one
     accurate line, not a capped list of unusable ID fragments."""
@@ -1025,6 +1112,8 @@ if __name__ == "__main__":
     test_retrieval_quality_fixes()
     test_session_start_is_slim()
     test_live_metrics_report()
+    test_eval_scoring()
+    test_weak_match_gate()
 
     print("\n" + "=" * 60)
     print(f"  Results: {PASS} passed, {FAIL} failed")
