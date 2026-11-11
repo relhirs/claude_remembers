@@ -9,8 +9,10 @@ Usage:
     python3 write_session_notes.py --notes <text>
     python3 write_session_notes.py --notes <text> --tags "coding,debugging"
     python3 write_session_notes.py --notes-file <path>
+    python3 write_session_notes.py --session-id <uuid-or-prefix> --notes <text>
 
-Session ID is auto-detected from the active session's JSONL file.
+Without --session-id, the session is auto-detected as the most recently modified JSONL
+file for the current directory (which may not be the session you are in if several are open).
 
 Exit codes: 0 = success, 1 = error
 """
@@ -148,7 +150,7 @@ def get_latest_notes(db_path, project=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Write session notes to memory DB")
-    parser.add_argument("--session-id", help=argparse.SUPPRESS)
+    parser.add_argument("--session-id", help="Write notes for this session (full UUID or 8+ char prefix) instead of the auto-detected latest one")
     parser.add_argument("--notes", help="Session notes text")
     parser.add_argument("--notes-file", help="Read notes from file instead of --notes")
     parser.add_argument("--tags", help="Comma-separated session tags (e.g. 'coding,debugging,ai-tools')")
