@@ -96,3 +96,6 @@ Thumbs.db
 # --- KEEP THESE (explicit overrides) ---
 
 !imports/completed/.gitkeep
+
+# personal golden set for retrieval eval
+eval/
