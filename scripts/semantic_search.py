@@ -57,7 +57,7 @@ def semantic_search(conn, config, query, project=None, limit=10):
     """Cosine-similarity search over transcript_embeddings.
 
     Returns a list of dicts sorted by similarity descending:
-    {"similarity": float, "project": str, "timestamp": str, "content": str}
+    {"similarity": float, "project": str, "timestamp": str, "content": str, "id": int, "session_id": str}
     Returns [] (and logs) on any failure instead of raising, so a broken
     embedding model or a corrupt row degrades to "no semantic results"
     rather than crashing whichever hook or MCP call invoked this fallback.
@@ -78,7 +78,7 @@ def semantic_search(conn, config, query, project=None, limit=10):
     try:
         if project:
             rows = conn.execute(
-                """SELECT te.embedding, t.project, t.timestamp, t.content
+                """SELECT te.embedding, t.project, t.timestamp, t.content, t.id, t.session_id
                    FROM transcript_embeddings te
                    JOIN transcripts t ON t.id = te.transcript_id
                    WHERE t.project = ?""",
@@ -86,7 +86,7 @@ def semantic_search(conn, config, query, project=None, limit=10):
             ).fetchall()
         else:
             rows = conn.execute(
-                """SELECT te.embedding, t.project, t.timestamp, t.content
+                """SELECT te.embedding, t.project, t.timestamp, t.content, t.id, t.session_id
                    FROM transcript_embeddings te
                    JOIN transcripts t ON t.id = te.transcript_id"""
             ).fetchall()
@@ -99,13 +99,13 @@ def semantic_search(conn, config, query, project=None, limit=10):
 
     scored = []
     skipped = 0
-    for emb_blob, proj, ts, content in rows:
+    for emb_blob, proj, ts, content, row_id, session_id in rows:
         try:
             emb = np.frombuffer(emb_blob, dtype=np.float32)
             dot = np.dot(query_vec, emb)
             norm = np.linalg.norm(query_vec) * np.linalg.norm(emb)
             sim = float(dot / norm) if norm > 0 else 0.0
-            scored.append((sim, proj, ts, content))
+            scored.append((sim, proj, ts, content, row_id, session_id))
         except Exception:
             skipped += 1
             continue
@@ -115,6 +115,7 @@ def semantic_search(conn, config, query, project=None, limit=10):
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [
-        {"similarity": sim, "project": proj, "timestamp": ts, "content": content}
-        for sim, proj, ts, content in scored[:limit]
+        {"similarity": sim, "project": proj, "timestamp": ts, "content": content,
+         "id": row_id, "session_id": session_id}
+        for sim, proj, ts, content, row_id, session_id in scored[:limit]
     ]

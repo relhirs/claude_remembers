@@ -21,6 +21,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from datetime import datetime, timezone
 
 import yaml
@@ -69,7 +70,7 @@ def _log_retrieval(session_id, outcome, keywords, prompt_text, n_results=0):
 
 # Add scripts/ to path for fuzzy_search / semantic_search imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
-from config_utils import resolve_db_path
+from config_utils import MACHINE_GENERATED_PREFIXES, is_machine_generated, resolve_db_path
 try:
     from fuzzy_search import fuzzy_correct
 except ImportError:
@@ -78,6 +79,17 @@ try:
     from semantic_search import semantic_search
 except ImportError:
     semantic_search = None
+# Measurement layer: optional, so a missing metrics_utils.py can never break
+# retrieval itself (same pattern as fuzzy_search above).
+try:
+    from metrics_utils import (
+        CHARS_PER_TOKEN,
+        is_system_generated_prompt,
+        metrics_enabled,
+        record_retrieval_event,
+    )
+except ImportError:
+    record_retrieval_event = None
 
 STOP_WORDS = {
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
@@ -99,6 +111,16 @@ STOP_WORDS = {
 FTS_RANK_FLOOR = -2.0
 MAX_RESULTS = 5
 
+# Older memories need a stronger match to outrank newer ones: the BM25 rank is
+# divided by (1 + age_days / RECENCY_SCALE_DAYS), so a year-old memory has to
+# score about twice as well as a brand-new one. (This used to multiply the
+# negative rank by a growing factor, which pushed OLD matches to the top.)
+RECENCY_SCALE_DAYS = 365
+
+# Labels retrieval_events rows so before/after comparisons can tell which
+# retrieval behavior produced them. "legacy_fallback" was the original.
+RETRIEVAL_MODE = "fallback_v2"
+
 def normalize_for_match(s):
     """Lowercase and strip everything except letters/digits/slashes.
 
@@ -109,6 +131,68 @@ def normalize_for_match(s):
     return re.sub(r'[^a-z0-9/]', '', s.replace('\\', '/').lower())
 
 
+def extract_keywords(prompt_text):
+    """Search keywords for a prompt: 3+ letter words minus stop-words, max 8.
+
+    Pure function (no DB, no typo correction) so scripts/remember_baseline.py
+    replays history through exactly the code the live hook runs.
+    """
+    words = re.findall(r'[a-zA-Z](?:[a-zA-Z\-]*[a-zA-Z])?', prompt_text.lower())
+    keywords = []
+    for w in words:
+        if len(w) < 3 or w.replace("-", "") in STOP_WORDS or w in STOP_WORDS or w in keywords:
+            continue
+        keywords.append(w)
+    return keywords[:8]
+
+
+def build_search_keywords(prompt_text, db_path):
+    """Keywords for a prompt, typo-corrected, with no repeats.
+
+    The one place both the live hook and the baseline replay build their
+    keywords, so they can't drift apart. Typo correction can map two different
+    words onto the same one, so repeats are removed again afterwards.
+    """
+    keywords = extract_keywords(prompt_text)
+    if fuzzy_correct and keywords:
+        try:
+            keywords, _ = fuzzy_correct(keywords, db_path)
+        except Exception:
+            pass
+    return list(dict.fromkeys(keywords))
+
+
+def format_memories(rows):
+    """The 'Relevant Memories' block injected into Claude's context."""
+    lines = ["## Relevant Memories", ""]
+    for i, (project, timestamp, content, _rank, *_) in enumerate(rows, 1):
+        preview = (content or "")[:400].replace("\n", " ")
+        lines.append(f"{i}. [{(timestamp or '')[:10]}, {project or ''}] {preview}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _coverage(keywords, content):
+    """Share of the distinct keywords that appear in `content` as words."""
+    distinct = set(keywords)
+    if not distinct:
+        return None
+    present = set(re.findall(r'[a-z]+', (content or "").lower()))
+    covered = sum(1 for kw in distinct if all(part in present for part in kw.split("-")))
+    return round(covered / len(distinct), 3)
+
+
+def _age_days(timestamp, now=None):
+    """Days between a stored ISO timestamp and now (or None if unparseable)."""
+    try:
+        then = datetime.fromisoformat((timestamp or "").replace("Z", "+00:00"))
+        if then.tzinfo is None:
+            then = then.replace(tzinfo=timezone.utc)
+        return round(((now or datetime.now(timezone.utc)) - then).total_seconds() / 86400, 1)
+    except (ValueError, TypeError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Post-/clear recovery
 # Detection: event-based (sys_sessions.end_reason='clear' AND
@@ -116,27 +200,48 @@ def normalize_for_match(s):
 # whenever you return, 30 seconds or 3 days later.
 # ---------------------------------------------------------------------------
 
-def _keyword_search(conn, fts_query, cwd_project):
-    """Same project-biased FTS5 search used by the normal path below."""
+def _keyword_search(conn, fts_query, cwd_project, as_of=None, exclude_session=None):
+    """Same project-biased FTS5 search used by the normal path below.
+
+    Rows are (project, timestamp, content, rank, transcript_id).
+    `exclude_session` hides the current session: those messages are already
+    in Claude's context, so injecting them again only wastes tokens.
+    Machine-generated rows (subagent hand-backs, command artifacts) are never
+    returned; they aren't anything the user said.
+    `as_of` is for replaying history (scripts/remember_baseline.py): it hides
+    anything stored at or after that ISO timestamp and measures age from it
+    instead of from now. The live hook never passes it.
+    """
+    age_ref = as_of or "now"
+    time_filter = "AND t.timestamp < ?" if as_of else ""
+    time_args = (as_of,) if as_of else ()
+    session_filter = "AND t.session_id != ?" if exclude_session else ""
+    session_args = (exclude_session,) if exclude_session else ()
+    # Only the first 80 characters are inspected: the markers sit at the very
+    # start, and lowercasing whole (sometimes huge) messages made this ~6x slower.
+    machine_filter = "AND NOT (" + " OR ".join(
+        f"LOWER(LTRIM(SUBSTR(t.content, 1, 80))) LIKE '{prefix}%'"
+        for prefix in MACHINE_GENERATED_PREFIXES) + ")"
+
     rows = []
     if cwd_project:
-        rows = conn.execute("""
-            SELECT t.project, t.timestamp, t.content, fts.rank
+        rows = conn.execute(f"""
+            SELECT t.project, t.timestamp, t.content, fts.rank, t.id
             FROM transcripts_fts fts
             JOIN transcripts t ON t.rowid = fts.rowid
-            WHERE transcripts_fts MATCH ? AND t.project = ?
-            ORDER BY fts.rank * (1.0 + 0.1 * MAX(0, julianday('now') - julianday(t.timestamp)))
+            WHERE transcripts_fts MATCH ? AND t.project = ? {session_filter} {machine_filter} {time_filter}
+            ORDER BY fts.rank / (1.0 + MAX(0, julianday(?) - julianday(t.timestamp)) / ?)
             LIMIT 3
-        """, (fts_query, cwd_project)).fetchall()
+        """, (fts_query, cwd_project, *session_args, *time_args, age_ref, RECENCY_SCALE_DAYS)).fetchall()
 
-    global_rows = conn.execute("""
-        SELECT t.project, t.timestamp, t.content, fts.rank
+    global_rows = conn.execute(f"""
+        SELECT t.project, t.timestamp, t.content, fts.rank, t.id
         FROM transcripts_fts fts
         JOIN transcripts t ON t.rowid = fts.rowid
-        WHERE transcripts_fts MATCH ?
-        ORDER BY fts.rank * (1.0 + 0.1 * MAX(0, julianday('now') - julianday(t.timestamp)))
+        WHERE transcripts_fts MATCH ? {session_filter} {machine_filter} {time_filter}
+        ORDER BY fts.rank / (1.0 + MAX(0, julianday(?) - julianday(t.timestamp)) / ?)
         LIMIT 7
-    """, (fts_query,)).fetchall()
+    """, (fts_query, *session_args, *time_args, age_ref, RECENCY_SCALE_DAYS)).fetchall()
 
     seen = set()
     merged = []
@@ -210,7 +315,8 @@ def _build_post_clear_context(conn, cwd_project, current_session_id, keywords):
         if keywords:
             fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
             try:
-                search_rows = _keyword_search(conn, fts_query, cwd_project)
+                search_rows = _keyword_search(conn, fts_query, cwd_project,
+                                              exclude_session=current_session_id)
             except Exception:
                 search_rows = []
             summary_lower = (notes or "").lower()
@@ -220,7 +326,7 @@ def _build_post_clear_context(conn, cwd_project, current_session_id, keywords):
             ]
             if fresh:
                 lines.append("### Relevant to Your New Message")
-                for proj, ts, content, _rank in fresh:
+                for proj, ts, content, _rank, *_ in fresh:
                     preview = (content or "")[:400].replace("\n", " ")
                     lines.append(f"- [{(ts or '')[:10]}, {proj}] {preview}")
                 lines.append("")
@@ -236,9 +342,42 @@ def _build_post_clear_context(conn, cwd_project, current_session_id, keywords):
         return None
 
 
-def main():
-    raw_input = sys.stdin.read()
+def _note_results(ev, rows, keywords, cwd_project):
+    """Copy what a search returned into the telemetry event.
 
+    top_rank is the strongest BM25 score among the results (most negative is
+    best) and top_coverage the best share of the prompt's keywords that any
+    single result contains; both feed the later "is keyword search confident?"
+    gate. A semantic result has no BM25 rank, so top_rank stays None there.
+    """
+    now = datetime.now(timezone.utc)
+    ranks = [r[3] for r in rows if r[3] is not None]
+    coverages = [c for c in (_coverage(keywords, r[2]) for r in rows) if c is not None]
+    ev["n_results"] = len(rows)
+    ev["result_ids"] = [r[4] if len(r) > 4 else None for r in rows]
+    ev["result_projects"] = [r[0] for r in rows]
+    ev["result_ages_days"] = [_age_days(r[1], now) for r in rows]
+    ev["same_project_n"] = sum(1 for r in rows if r[0] == cwd_project)
+    ev["top_rank"] = min(ranks) if ranks else None
+    ev["top_coverage"] = max(coverages) if coverages else None
+
+
+def _finish_event(ev, started):
+    """Write this prompt's retrieval_events row. Never raises."""
+    try:
+        db_path = ev.pop("_db_path", None)
+        enabled = ev.pop("_metrics_enabled", False)
+        if not db_path or not enabled or record_retrieval_event is None:
+            return
+        ev.setdefault("outcome", "error")
+        ev["latency_ms"] = round((time.perf_counter() - started) * 1000, 1)
+        ev["injected_tokens_est"] = (ev.get("injected_chars") or 0) // CHARS_PER_TOKEN
+        record_retrieval_event(db_path, ev)
+    except Exception:
+        pass
+
+
+def _run(raw_input, ev):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     try:
@@ -254,6 +393,8 @@ def main():
         prompt_text = prompt_text.strip()
 
         current_session_id = input_data.get("session_id", "") or ""
+        ev["session_id"] = current_session_id
+        ev["prompt_chars"] = len(prompt_text)
 
         config_path = os.path.join(root, "config.yaml")
         with open(config_path) as f:
@@ -263,6 +404,11 @@ def main():
         if not os.path.exists(db_path):
             print("{}")
             return
+        if record_retrieval_event is not None:
+            ev["_db_path"] = db_path
+            ev["_metrics_enabled"] = metrics_enabled(config)
+            ev["prompt_kind"] = "system_generated" if is_system_generated_prompt(prompt_text) else "user"
+        ev["mode"] = RETRIEVAL_MODE
 
         # "oth" matches write_exchange.py's detect_project() fallback -
         # without this, a folder with no jsonl_project_mapping entry left
@@ -277,21 +423,15 @@ def main():
             if normalize_for_match(folder) in norm_cwd:
                 cwd_project = prefix
                 break
+        ev["project"] = cwd_project
 
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA busy_timeout=5000;")
 
         # Extract keywords once - used by both post-/clear merge and the
         # normal search path below.
-        words = re.findall(r'[a-zA-Z](?:[a-zA-Z\-]*[a-zA-Z])?', prompt_text.lower())
-        words = [w for w in words if len(w) >= 3]
-        keywords = [w for w in words if w.replace("-", "") not in STOP_WORDS and w not in STOP_WORDS]
-        keywords = keywords[:8]
-        if fuzzy_correct and keywords:
-            try:
-                keywords, _ = fuzzy_correct(keywords, db_path)
-            except Exception:
-                pass
+        keywords = build_search_keywords(prompt_text, db_path)
+        ev["n_keywords"] = len(keywords)
 
         # Post-/clear recovery: event-based, no time window. Runs before the
         # short-prompt skip, same as before - "continue" after /clear must
@@ -302,25 +442,32 @@ def main():
             )
             if post_clear_ctx:
                 conn.close()
+                ev["outcome"] = "post_clear"
+                ev["injected_chars"] = len(post_clear_ctx)
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": post_clear_ctx}}))
                 return
 
         # Skip short/trivial prompts (only reached if not post-/clear)
         if len(prompt_text) < 15:
             conn.close()
+            ev["outcome"] = "skipped_short"
             print("{}")
             return
 
         if not keywords:
             conn.close()
+            ev["outcome"] = "skipped_no_keywords"
             _log_retrieval(current_session_id, "skipped_no_keywords", keywords, prompt_text)
             print("{}")
             return
 
         fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
-        rows = _keyword_search(conn, fts_query, cwd_project)
+        started_kw = time.perf_counter()
+        rows = _keyword_search(conn, fts_query, cwd_project, exclude_session=current_session_id)
+        ev["keyword_ms"] = round((time.perf_counter() - started_kw) * 1000, 1)
 
         if rows:
+            ev["outcome"] = "keyword_hit"
             _log_retrieval(current_session_id, "keyword_hit", keywords, prompt_text, len(rows))
 
         # Semantic fallback: only when keyword search came up empty/weak -
@@ -329,35 +476,54 @@ def main():
         # struck out on the fast path.
         if not rows and semantic_search:
             try:
+                started_sem = time.perf_counter()
                 sem_results = semantic_search(conn, config, prompt_text, project=cwd_project, limit=MAX_RESULTS)
+                ev["semantic_ms"] = round((time.perf_counter() - started_sem) * 1000, 1)
+                if sem_results:
+                    ev["top_similarity"] = round(sem_results[0]["similarity"], 4)
                 rows = [
-                    (r["project"], r["timestamp"], r["content"], None)
-                    for r in sem_results if r["similarity"] > 0.35
+                    (r["project"], r["timestamp"], r["content"], None, r.get("id"))
+                    for r in sem_results
+                    if r["similarity"] > 0.35
+                    and r.get("session_id") != current_session_id
+                    and not is_machine_generated(r["content"])
                 ]
                 if rows:
+                    ev["outcome"] = "semantic_hit"
                     _log_retrieval(current_session_id, "semantic_hit", keywords, prompt_text, len(rows))
             except Exception:
                 pass
         elif not rows and not semantic_search:
+            ev["outcome"] = "no_match_semantic_unavailable"
             _log_retrieval(current_session_id, "no_match_semantic_unavailable", keywords, prompt_text)
 
         conn.close()
 
         if not rows:
+            ev.setdefault("outcome", "no_match")
             _log_retrieval(current_session_id, "no_match", keywords, prompt_text)
             print("{}")
             return
 
-        lines = ["## Relevant Memories", ""]
-        for i, (project, timestamp, content, _rank) in enumerate(rows, 1):
-            preview = (content or "")[:400].replace("\n", " ")
-            lines.append(f"{i}. [{(timestamp or '')[:10]}, {project or ''}] {preview}")
-        lines.append("")
+        _note_results(ev, rows, keywords, cwd_project)
+        context = format_memories(rows)
+        ev["injected_chars"] = len(context)
 
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "\n".join(lines)}}))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}}))
 
     except Exception:
+        ev["outcome"] = "error"
         print("{}")
+
+
+def main():
+    raw_input = sys.stdin.read()
+    started = time.perf_counter()
+    ev = {"ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "source": "live"}
+    try:
+        _run(raw_input, ev)
+    finally:
+        _finish_event(ev, started)
 
 
 if __name__ == "__main__":
