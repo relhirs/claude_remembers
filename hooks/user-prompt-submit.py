@@ -17,6 +17,7 @@ RULE: stdout is SACRED. Only valid JSON goes to stdout.
 """
 
 import json
+import math
 import os
 import re
 import sqlite3
@@ -68,19 +69,15 @@ def _log_retrieval(session_id, outcome, keywords, prompt_text, n_results=0):
     except Exception:
         pass
 
-# Add scripts/ to path for fuzzy_search / semantic_search imports
+# Add scripts/ to path for semantic_search / metrics imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 from config_utils import MACHINE_GENERATED_PREFIXES, is_machine_generated, resolve_db_path
-try:
-    from fuzzy_search import fuzzy_correct
-except ImportError:
-    fuzzy_correct = None
 try:
     from semantic_search import semantic_search
 except ImportError:
     semantic_search = None
 # Measurement layer: optional, so a missing metrics_utils.py can never break
-# retrieval itself (same pattern as fuzzy_search above).
+# retrieval itself (same pattern as semantic_search above).
 try:
     from metrics_utils import (
         CHARS_PER_TOKEN,
@@ -110,6 +107,15 @@ STOP_WORDS = {
 # good keyword match" and triggers the semantic fallback.
 FTS_RANK_FLOOR = -2.0
 MAX_RESULTS = 5
+
+# The best keyword result must clear this bar or nothing is injected: with no
+# real match, BM25 still returns the 5 least-bad rows, which is junk. BM25
+# scores grow with database size (rarer words score higher in a bigger
+# corpus), so the bar is expressed per ln(number of messages): about one
+# fully distinctive keyword's worth of evidence. At ~14K messages that is a
+# BM25 score of -10. A guess tuned on 46 golden questions, not a law: on that
+# set it keeps every question it found and removes all junk on unanswerable ones.
+MIN_STRENGTH_PER_LOG_DOC = 1.05
 
 # Older memories need a stronger match to outrank newer ones: the BM25 rank is
 # divided by (1 + age_days / RECENCY_SCALE_DAYS), so a year-old memory has to
@@ -146,20 +152,17 @@ def extract_keywords(prompt_text):
     return keywords[:8]
 
 
-def build_search_keywords(prompt_text, db_path):
-    """Keywords for a prompt, typo-corrected, with no repeats.
+def build_search_keywords(prompt_text, db_path=None):
+    """Keywords for a prompt, with no repeats.
 
-    The one place both the live hook and the baseline replay build their
-    keywords, so they can't drift apart. Typo correction can map two different
-    words onto the same one, so repeats are removed again afterwards.
+    The one place the live hook, the baseline replay and the eval build their
+    keywords, so they can't drift apart. There is deliberately no typo
+    correction: on the golden-set eval it found no extra memories, ran ~8x
+    slower, and rewrote unknown words into unrelated real ones ("kubernetes"
+    became "subagents"), so nonsense still matched something. `db_path` is
+    unused and kept so existing callers keep working.
     """
-    keywords = extract_keywords(prompt_text)
-    if fuzzy_correct and keywords:
-        try:
-            keywords, _ = fuzzy_correct(keywords, db_path)
-        except Exception:
-            pass
-    return list(dict.fromkeys(keywords))
+    return extract_keywords(prompt_text)
 
 
 def format_memories(rows):
@@ -200,7 +203,8 @@ def _age_days(timestamp, now=None):
 # whenever you return, 30 seconds or 3 days later.
 # ---------------------------------------------------------------------------
 
-def _keyword_search(conn, fts_query, cwd_project, as_of=None, exclude_session=None):
+def _keyword_search(conn, fts_query, cwd_project, as_of=None, exclude_session=None,
+                    info=None, gated=True):
     """Same project-biased FTS5 search used by the normal path below.
 
     Rows are (project, timestamp, content, rank, transcript_id).
@@ -211,6 +215,9 @@ def _keyword_search(conn, fts_query, cwd_project, as_of=None, exclude_session=No
     `as_of` is for replaying history (scripts/remember_baseline.py): it hides
     anything stored at or after that ISO timestamp and measures age from it
     instead of from now. The live hook never passes it.
+    `gated` (default) returns nothing when even the best result is weak (see
+    MIN_STRENGTH_PER_LOG_DOC); pass a dict as `info` to learn that this
+    happened (info["weak"] is set). gated=False is for the eval to compare.
     """
     age_ref = as_of or "now"
     time_filter = "AND t.timestamp < ?" if as_of else ""
@@ -255,7 +262,24 @@ def _keyword_search(conn, fts_query, cwd_project, as_of=None, exclude_session=No
         merged.append(r)
         if len(merged) >= MAX_RESULTS:
             break
+    if gated and merged:
+        floor = _confidence_floor(conn)
+        best = min((r[3] for r in merged if r[3] is not None), default=None)
+        if floor is not None and best is not None and best > floor:
+            if info is not None:
+                info["weak"] = True
+                info["weak_top_rank"] = best
+            return []
     return merged
+
+
+def _confidence_floor(conn):
+    """BM25 score the best keyword result must beat (negative; None = no gate)."""
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM transcripts_fts_docsize").fetchone()[0]
+    except sqlite3.Error:
+        return None
+    return -MIN_STRENGTH_PER_LOG_DOC * math.log(max(n, 2))
 
 
 def _build_post_clear_context(conn, cwd_project, current_session_id, keywords):
@@ -463,8 +487,14 @@ def _run(raw_input, ev):
 
         fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
         started_kw = time.perf_counter()
-        rows = _keyword_search(conn, fts_query, cwd_project, exclude_session=current_session_id)
+        kw_info = {}
+        rows = _keyword_search(conn, fts_query, cwd_project, exclude_session=current_session_id,
+                               info=kw_info)
         ev["keyword_ms"] = round((time.perf_counter() - started_kw) * 1000, 1)
+        if kw_info.get("weak"):
+            ev["outcome"] = "weak_keyword"     # replaced by semantic_hit if the fallback finds something
+            ev["top_rank"] = kw_info["weak_top_rank"]
+            _log_retrieval(current_session_id, "weak_keyword", keywords, prompt_text)
 
         if rows:
             ev["outcome"] = "keyword_hit"

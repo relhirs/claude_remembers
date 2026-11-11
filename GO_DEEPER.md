@@ -14,9 +14,11 @@
 
 And this happens on literally every message, not just right after you run `/clear`. The `/clear` recovery thing below is really just for one specific moment, the message right after you clear mid session. Most of the time when you're bringing up old stuff it has nothing to do with `/clear` at all, like you close your terminal on Monday, open a new one Wednesday, and ask "what did we decide about the database schema" and that's a totally new session that never went near `/clear`. If search only ran right after clearing, that Wednesday question would just come back empty since nothing was ever cleared. This per message search is the whole point of the project, remembering stuff across sessions, not just across a single `/clear`. The `/clear` recovery thing is just a smaller bonus feature on top of that.
 
-This part does keyword search first since it's quick. If keyword search doesn't turn up anything good, it falls back to meaning based search (basically comparing what your message is about instead of the exact words), that one takes a bit longer to spin up so it only kicks in when the fast option finds nothing.
+This part does keyword search first since it's quick. If keyword search doesn't turn up anything good, it falls back to meaning based search (basically comparing what your message is about instead of the exact words), that one takes a bit longer to spin up so it only kicks in when the fast option finds nothing. "Good" is judged by a weak-match gate: if even the best keyword result scores below about one distinctive word's worth of evidence (the bar grows with the size of your memory, so a small database isn't silenced), nothing from keyword search is injected. Without the gate, search always handed back its five least-bad results even when memory had no answer. On a test set of questions with known answers, the gate took junk on unanswerable questions from 100% to 0% without losing a single memory that had been found.
 
 Three rules keep the results useful. Memories from the session you're currently in are never injected back, since Claude already has that conversation in front of it. Machine-generated messages (subagent hand-backs, slash-command and `!` shell artifacts) are never returned, because they aren't anything you said. And when two results are about equally relevant, the newer one wins: a memory's score is divided by (1 + its age in days / 365), so a year-old memory has to match about twice as well as a brand-new one. Repeated words in your message are only searched once, so they don't use up the 8 keyword slots.
+
+There is deliberately no typo correction. An earlier version rewrote words it didn't recognize into the closest real word in your history, which sounds helpful but didn't pay off: on the test set it found no extra memories, made keyword search about 8 times slower, and turned unknown words into unrelated ones ("kubernetes" became "subagents"), so a question about something you never discussed still pulled back confident-looking junk. Searching the words as typed is faster and simply finds nothing when there is nothing, and meaning-based search is what handles wording that doesn't match.
 
 **Every time Claude finishes answering:** the whole exchange gets saved to the database right away. It doesn't wait till the session ends. So if your terminal crashes you don't lose the conversation, just the end of session summary.
 
@@ -47,9 +49,26 @@ Three tables in the database hold the raw numbers:
 - **`tool_events`** -- one row per tool call Claude made: the tool name, the file it touched (or just the program name for shell commands), whether it worked, and how big the result was. This is what shows how often Claude searched memory by hand.
 - **`api_usage`** -- one row per API response with the token counts the API itself reported (fresh input, cache reads and writes, output). This is where the real token numbers come from.
 
-And two scripts:
+And four scripts:
 - **`python3 scripts/remember_baseline.py`** -- a plain-language "before" picture. It replays your real past prompts through the current search code (against a throwaway snapshot copy, never your live database), as the memory stood when you typed each one, and reports how often it found something, how old and how well-matched the results were, and what that cost. Save one before changing how retrieval works, run it again afterwards, and the difference is the effect of the change. `--limit 500` for just the recent prompts, `--label name` to name the saved result, `--json` for raw numbers.
 - **`python3 scripts/backfill_metrics.py`** -- fills `tool_events` and `api_usage` from history captured before this layer existed. Run it once (`--dry-run` first if you like); it's safe to re-run and only ever adds rows. New activity is recorded automatically.
+- **`python3 scripts/remember_metrics.py`** -- what retrieval is doing right now: how often memory was injected, how old and well-matched it was, speed, the measured token cost (including the cost of injected text being re-read on later replies), and pipeline health. `--days 30`, `--project name`, `--markdown` for a table. It reports cost and quality, not "tokens saved", because savings can't be observed directly.
+- **`python3 scripts/remember_eval.py`** -- the memory's self-test. The other scripts show what the system *did*; this one checks whether it did the *right thing*. Nothing needs to be set up or run for your memory to keep working. This is just a way to find out how good it is.
+
+  **The idea.** Take a question you know the answer to, like "where is the anthropic key stored now," and the past session where that answer lives. Ask the search the question, and see whether that session comes back. Do that for a few dozen questions and you have a score. Mix in a few questions that have no answer anywhere in memory, and you also learn something just as important: whether search stays quiet when it should, or hands back junk anyway.
+
+  **It asks every question four ways**, so you can see what each piece contributes:
+  - *Keyword search*: what runs on every message.
+  - *Keyword without the weak-match gate*: the same search with the gate turned off, so you can see exactly what the gate is worth.
+  - *Meaning-based search*: comparing what the question is about instead of its exact words.
+  - *Both together*: the two merged into one ranking.
+
+  **Reading the report.** For each way you get three plain numbers: how often the right memory was among the top 5 results, how often it was ranked first, and how often it injected junk when there was no answer. Higher is better for the first two, lower for the junk rate. 
+
+  **What it's good for.** Deciding things with evidence instead of guesses. The weak-match gate's threshold was set by this test, and so was the decision to drop typo correction. Run it before and after any change to search (`--label name` saves each run) and the difference is the effect of the change. A question counts as found if *any* message from the right session comes back, not one exact message.
+
+  **Where the questions live.** Questions come from your own history, so they stay on your machine: `eval/golden_set.yaml`, which is gitignored. Each entry is a question plus the session ids that hold the answer (any of them counts). Sessions that quote the questions themselves go under `exclude_sessions` so the test can't cheat by finding its own question. `--golden path` points it at a different file.
+
 
 One thing to know about reading the baseline: the "meaning-based search would have kicked in" number is a *count*, not a test. Loading the model for thousands of replays wouldn't tell you anything about live behavior, so the replay only reports how often the fast path came up empty.
 
