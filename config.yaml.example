@@ -177,6 +177,20 @@ semantic_search:
   model: "all-MiniLM-L6-v2"                   # 384-dim embeddings, ~80MB model
 
 # ==============================================================================
+# METRICS (is the memory actually helping?)
+# ==============================================================================
+# Records one row per prompt in retrieval_events (which search path fired, how
+# long it took, how much it injected), one row per tool call in tool_events,
+# and one row per API response in api_usage (token counts). It stores ids,
+# names, lengths and counts only - no prompt text and no shell command text.
+# Everything stays in the local database. Set enabled: false to turn it off;
+# memory itself keeps working either way.
+# View it with: python3 scripts/remember_baseline.py
+
+metrics:
+  enabled: true
+
+# ==============================================================================
 # SESSION SUMMARIZATION
 # ==============================================================================
 # At the end of every session, scripts/summarize_session.py calls Claude

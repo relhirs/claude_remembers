@@ -24,6 +24,7 @@ import time
 
 import yaml
 
+from metrics_utils import ensure_metrics_schema
 from config_utils import (
     resolve_db_path,
     migrate_config_project_paths,
@@ -184,6 +185,10 @@ def migrate_schema(conn, logger):
         END
     """)
     conn.commit()
+
+    # Measurement layer tables (retrieval_events, tool_events, api_usage,
+    # metrics_snapshots). CREATE IF NOT EXISTS, so safe on every startup.
+    ensure_metrics_schema(conn)
 
     return added
 

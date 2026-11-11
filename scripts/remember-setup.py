@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config_utils import ensure_mcp_user_registration, remove_mcp_local_registrations
+from metrics_utils import ensure_metrics_schema
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -657,6 +658,10 @@ def phase_database(cfg):
             else:
                 fail(f"Trigger failed: {e}")
     ok(f"{len(DDL_TRIGGERS)} triggers verified")
+
+    # Measurement layer tables (retrieval events, tool events, token usage)
+    ensure_metrics_schema(conn)
+    ok("metrics tables verified")
 
     # Seed project_registry
     for p in cfg["projects"]:

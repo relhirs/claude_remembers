@@ -97,7 +97,8 @@ def resolve_db_path(cfg):
     return os.path.expanduser(db_path)
 
 
-HISTORY_TABLES = ["transcripts", "sys_sessions", "tool_results", "decisions", "facts"]
+HISTORY_TABLES = ["transcripts", "sys_sessions", "tool_results", "decisions", "facts",
+                  "retrieval_events", "tool_events", "api_usage"]
 
 
 def count_history(conn, prefix):

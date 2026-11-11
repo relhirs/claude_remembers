@@ -17,6 +17,29 @@ import os
 import shutil
 
 
+# Message text the harness writes on the user's behalf: subagent hand-backs,
+# task notices, slash-command and `!` shell-input artifacts. They are stored
+# like any other message, but they are not something the user said, so they
+# are neither prompts worth measuring nor memories worth retrieving. Shared by
+# the retrieval hook and the metrics layer so the two can't drift apart.
+MACHINE_GENERATED_PREFIXES = (
+    "<agent-message",
+    "<task-notification",
+    "<system-reminder",
+    "<local-command",
+    "caveat: the messages below",
+    "<command-name",
+    "<command-message",
+    "<bash-input",
+    "<bash-stdout",
+)
+
+
+def is_machine_generated(text):
+    """True if `text` starts with one of the harness-generated markers."""
+    return (text or "").lstrip()[:60].lower().startswith(MACHINE_GENERATED_PREFIXES)
+
+
 def resolve_db_path(config):
     """Return the expanded, absolute path to the claude_remembers SQLite DB."""
     storage = config["storage"]
