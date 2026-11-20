@@ -21,7 +21,8 @@ import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config_utils import ensure_mcp_user_registration, remove_mcp_local_registrations
+from config_utils import (ensure_mcp_user_registration, remove_mcp_local_registrations,
+                          ensure_venv, venv_python)
 from metrics_utils import ensure_metrics_schema
 
 # ---------------------------------------------------------------------------
@@ -168,7 +169,17 @@ def phase_preflight():
 def phase_dependencies(pip_cmd):
     phase_header(2, 9, "DEPENDENCIES")
 
-    requirements_path = Path(__file__).resolve().parent.parent / "requirements.txt"
+    project_root = Path(__file__).resolve().parent.parent
+    requirements_path = project_root / "requirements.txt"
+    # Install into the project's own venv so a later `brew upgrade python`
+    # can't strand the packages. Hooks and the MCP server run on this Python.
+    try:
+        venv_py = ensure_venv(str(project_root))
+    except Exception as e:
+        fail(f"Could not create .venv: {e}")
+        sys.exit(1)
+    pip_cmd = [venv_py, "-m", "pip"]
+    ok(f"Project Python: {venv_py}")
     if not requirements_path.exists():
         fail(f"requirements.txt not found at {requirements_path}")
         sys.exit(1)
@@ -1065,8 +1076,9 @@ def phase_email(cfg):
     root = cfg["root_path"]
     digest_script = os.path.join(root, "scripts", "remember_digest.py")
     log_dir = os.path.dirname(cfg["db_path"])
-    daily_cron = f'0 8 * * 1-5 /usr/bin/python3 {digest_script} --daily >> {log_dir}/digest.log 2>&1'
-    weekly_cron = f'0 8 * * 1 /usr/bin/python3 {digest_script} >> {log_dir}/digest.log 2>&1'
+    cron_py = venv_python(root) or sys.executable
+    daily_cron = f'0 8 * * 1-5 {cron_py} {digest_script} --daily >> {log_dir}/digest.log 2>&1'
+    weekly_cron = f'0 8 * * 1 {cron_py} {digest_script} >> {log_dir}/digest.log 2>&1'
 
     info("The cron job is what actually triggers the digest on a schedule - without")
     info("it, the digest script exists but nothing runs it automatically.")
@@ -1134,7 +1146,7 @@ def phase_registration(cfg):
     hooks_added = 0
 
     for event, script in zip(HOOK_EVENTS, HOOK_SCRIPTS):
-        hook_cmd = f'"{sys.executable}" "{root / "hooks" / script}"'
+        hook_cmd = f'"{venv_python(str(root)) or sys.executable}" "{root / "hooks" / script}"'
         existing = hooks.get(event, [])
 
         # Check if already registered with same command

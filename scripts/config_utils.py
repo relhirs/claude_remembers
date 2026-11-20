@@ -15,6 +15,8 @@ that key is only present (and only required) in "synced" mode.
 import json
 import os
 import shutil
+import subprocess
+import sys
 
 
 # Message text the harness writes on the user's behalf: subagent hand-backs,
@@ -71,6 +73,32 @@ def resolve_project_path(cfg, project_entry):
     return os.path.join(root, project_entry["folder_name"])
 
 
+def venv_python(root_path):
+    """Path to the project's own Python (root/.venv), or None if not built.
+
+    Hooks and the MCP server must run on this interpreter, not on a bare
+    `python3` from PATH: Homebrew (and other package managers) re-point
+    `python3` at a new version on upgrade, and the new one has none of our
+    packages installed. A venv pins the packages to the project.
+    """
+    exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    path = os.path.join(root_path, ".venv", *exe.split("/"))
+    return path if os.path.exists(path) else None
+
+
+def ensure_venv(root_path):
+    """Create root/.venv if missing and return its Python path.
+
+    Idempotent. Built from whichever Python is running this script.
+    """
+    existing = venv_python(root_path)
+    if existing:
+        return existing
+    subprocess.run([sys.executable, "-m", "venv", os.path.join(root_path, ".venv")],
+                   check=True, capture_output=True, text=True, timeout=300)
+    return venv_python(root_path)
+
+
 def ensure_mcp_user_registration(root_path):
     """Ensure remember-server is registered at Claude Code's global
     "user" MCP scope in ~/.claude.json, so it's available in every
@@ -97,7 +125,7 @@ def ensure_mcp_user_registration(root_path):
         return False
 
     server_path = os.path.join(root_path, "mcp", "server.py")
-    python_path = shutil.which("python3") or "python3"
+    python_path = venv_python(root_path) or sys.executable
     mcp_servers["remember-server"] = {
         "type": "stdio",
         "command": python_path,
