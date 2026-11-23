@@ -401,6 +401,10 @@ def render_report(result, config_mode="on_miss"):
           f"score by about {round(100 / max(n['answerable'], 1))} points"
           + ("; the same decision asked twice counts twice, so the real sample is smaller. " if used and used != n["answerable"] else "; ")
           + "trust the comparison more than the exact numbers."]
+    if n.get("skipped"):
+        L.append(f"({n['skipped']} of these questions were skipped (too short or no usable keywords): search returned "
+                 "nothing for them, so they count as misses in the scores above, or as correctly quiet for "
+                 "questions with no answer.)")
     if info.get("vetting_ran") is False:
         L.append("(The fairness filter that removes questions whose answer was never actually said couldn't run this "
                  "time, so a few misses may be unfair questions rather than search failures.)")

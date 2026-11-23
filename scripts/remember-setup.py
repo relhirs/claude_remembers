@@ -13,6 +13,7 @@ Usage:
 import json
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -1123,8 +1124,19 @@ def phase_email(cfg):
     ok("Email digests configured")
 
 
+# Ends the heredoc in the /remember-explain command. Long and unusual on purpose.
+EXPLAIN_END = "REMEMBER_EXPLAIN_END_7c1f3a9e"
+
+
 def slash_commands(root):
     """The Claude Code slash commands claude_remembers installs, name -> file text."""
+    # remember-explain runs a shell command, so every path in it is shell-quoted
+    # (a project folder with spaces or a $ in its name stays one word), and the
+    # question goes through a quoted heredoc whose end marker is a long token
+    # nobody types by accident (a plain QUESTION line, which a user's question
+    # can contain, would end the heredoc early and run the rest as shell).
+    explain_cmd = (f"{shlex.quote(venv_python(str(root)) or 'python3')} "
+                   f"{shlex.quote(str(Path(root) / 'scripts' / 'remember_explain.py'))}")
     return {
         "remember-import": textwrap.dedent(f"""\
             Import conversations from Claude.ai, ChatGPT, or Gemini into the memory database.
@@ -1259,13 +1271,15 @@ def slash_commands(root):
             The question is what the user typed after /remember-explain: $ARGUMENTS
             If that is empty, ask the user for the question first.
 
-            Run this, with the question between the QUESTION lines exactly as typed (the quotes
-            on 'QUESTION' make the shell treat it as plain text, so quotes and $ signs in the
-            question are safe):
+            Run this, with the question between the two {EXPLAIN_END} lines exactly as typed
+            (the quotes around the marker make the shell treat everything between the lines as
+            plain text, so quotes, backticks and $ signs in the question are safe). Copy the
+            first line as is; do not change the paths. If the question itself contains a line
+            that is exactly {EXPLAIN_END}, stop and ask the user to retype it without that line.
 
-            {venv_python(str(root)) or "python3"} {root}/scripts/remember_explain.py <<'QUESTION'
+            {explain_cmd} <<'{EXPLAIN_END}'
             <the question>
-            QUESTION
+            {EXPLAIN_END}
 
             Optional, only if the user asks for them: add --mode off|on_miss|always to force the
             meaning-search setting, --as-of <ISO time> to ask as of an earlier moment, or

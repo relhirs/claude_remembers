@@ -359,8 +359,10 @@ def compare(old, new):
     if len(old) != len(new):
         return [("<all>", "scenario count", len(old), len(new))]
     for o, n in zip(old, new):
-        for key in o:
-            if key == "ev":
+        for key in sorted(set(o) | set(n)):       # a field only the new run has is a difference too
+            if key not in o or key not in n:
+                diffs.append((o["name"], f"field presence: {key}", key in o, key in n))
+            elif key == "ev":
                 for k in sorted(set(o["ev"]) | set(n["ev"])):
                     if k not in o["ev"] or k not in n["ev"]:
                         diffs.append((o["name"], f"ev key presence: {k}", k in o["ev"], k in n["ev"]))
@@ -368,7 +370,9 @@ def compare(old, new):
                         diffs.append((o["name"], f"ev[{k}]", o["ev"][k], n["ev"][k]))
             elif key == "events":
                 oe, ne = o["events"], n["events"]
-                if (oe is None) != (ne is None) or (oe and len(oe) != len(ne)):
+                # `oe and ...` would skip the length check when the OLD hook wrote
+                # no rows (an empty list is falsy), hiding rows only the new hook writes.
+                if (oe is None) != (ne is None) or (oe is not None and len(oe) != len(ne)):
                     diffs.append((o["name"], "events (row count)", None if oe is None else len(oe),
                                   None if ne is None else len(ne)))
                 elif oe:

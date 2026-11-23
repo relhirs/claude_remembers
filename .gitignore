@@ -97,5 +97,6 @@ Thumbs.db
 
 !imports/completed/.gitkeep
 
-# personal golden set for retrieval eval
-eval/
+# personal golden set for retrieval eval (root only: examples/eval/ is the public synthetic set)
+/eval/
+

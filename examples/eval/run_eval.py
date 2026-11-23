@@ -28,7 +28,9 @@ Options:
   --golden PATH    golden set to use (default: examples/eval/golden_set.yaml).
   --config-from P  take every setting except storage from this config.yaml
                    (default for --db runs: none; synthetic runs use a fixed one).
-  --out DIR        where to write results.
+  --out DIR        where to write results. Required with --db (the default
+                   folder is tracked by git and a real database's results
+                   contain real project names and session ids).
   --keep           keep the temp sandbox and print where it is.
 """
 
@@ -202,6 +204,13 @@ def main():
     p.add_argument("--out")
     p.add_argument("--keep", action="store_true")
     args = p.parse_args()
+    if args.db and not args.out:
+        # The default output folder (examples/eval/results/) is tracked by git, and a
+        # run on a real database writes project prefixes, question keywords and
+        # session ids there. Refuse before anything is created or read.
+        p.error("--db needs --out DIR: results from your own database must not land in "
+                "examples/eval/results/ (tracked by git). Pick a folder outside the repo, "
+                "or under the gitignored eval/ folder.")
 
     st = stamp()
     golden = pathlib.Path(args.golden).resolve()

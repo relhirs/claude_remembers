@@ -50,6 +50,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import importlib.util
 import json
 import os
@@ -58,6 +59,7 @@ import sqlite3
 import statistics
 import sys
 import time
+import types
 
 import yaml
 
@@ -70,6 +72,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_GOLDEN = ROOT / "eval" / "golden_set.yaml"
 METHODS = ("keyword", "keyword_ungated", "meaning", "on_miss", "always")
 KEYWORD_METHODS = ("keyword", "keyword_ungated")      # need no model
+SKIPPED_NOTE = "skipped (too short or no usable keywords)"
 ALL_METHODS = METHODS + ("mcp",)
 METHOD_LABELS = {
     "keyword": "Keyword search only",
@@ -119,6 +122,34 @@ def load_mcp_server(db_path):
     return server
 
 
+@contextlib.contextmanager
+def _read_only_fuzzy(server):
+    """While active, the typo-correction step the MCP tool falls back to when
+    nothing matches cannot write. Left alone, fuzzy_search opens the database
+    read-write and runs CREATE VIRTUAL TABLE IF NOT EXISTS for its vocabulary
+    table. Here its sqlite3 connections are read-only and that table is made in
+    the connection's temporary schema instead (temp tables never touch the
+    file). The correction logic itself is the real one, unchanged, and
+    mcp/server.py and fuzzy_search.py are not edited: only names inside the
+    already-loaded fuzzy_search module are swapped, then put back."""
+    fuzzy = sys.modules.get(getattr(server.fuzzy_correct, "__module__", None))
+    if fuzzy is None:
+        yield
+        return
+    saved = (fuzzy.sqlite3, fuzzy._ensure_vocab_table)
+
+    def ensure_temp_vocab(conn):
+        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.transcripts_fts_vocab "
+                     "USING fts5vocab(main, transcripts_fts, row)")
+
+    fuzzy.sqlite3 = types.SimpleNamespace(connect=lambda path, *a, **k: _ro_connect(path), Connection=sqlite3.Connection)
+    fuzzy._ensure_vocab_table = ensure_temp_vocab
+    try:
+        yield
+    finally:
+        fuzzy.sqlite3, fuzzy._ensure_vocab_table = saved
+
+
 def mcp_search(server, question):
     """Call the real search_transcripts and capture the rows it formats."""
     captured = []
@@ -131,7 +162,8 @@ def mcp_search(server, question):
     server._format_results = capture
     try:
         started = time.perf_counter()
-        server.search_transcripts(question)
+        with _read_only_fuzzy(server):
+            server.search_transcripts(question)
         ms = (time.perf_counter() - started) * 1000
     finally:
         server._format_results = original
@@ -215,7 +247,25 @@ def run_question(semantic, conn, config, db_path, item, exclude, cold_start_ms=0
                       "ids": [f"{r['session_id']}@{r['timestamp']}" for r in mcp_rows],
                       "machine_rows": sum(1 for r in mcp_rows if is_machine_generated(r["preview"])),
                       "injected": len(mcp_rows), "ms": mcp_ms}
+    if trace["skip"]:
+        for method in KEYWORD_METHODS:
+            out[method]["skipped"] = SKIPPED_NOTE
+    if trace["skip"]:
+        for method in KEYWORD_METHODS:
+            out[method]["skipped"] = SKIPPED_NOTE
     if keyword_only:
+        return out
+
+    if trace["skip"]:
+        # retrieve() stopped before any search (too short, or only stop words), so
+        # it recorded no meaning-search step. Every hook method returns nothing.
+        out.update({
+            "meaning": pack([], 0.0, best_similarity=None),
+            "on_miss": pack([], 0.0, fired=False, reason=trace["skip"]),
+            "always": pack([], 0.0),
+        })
+        for method in METHODS:
+            out[method]["skipped"] = SKIPPED_NOTE
         return out
 
     sem = trace["semantic"]
@@ -346,6 +396,7 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
     finally:
         conn.close()
     methods = score(per_question, questions)
+    skipped_ids = [qid for qid, res in per_question.items() if "skipped" in res["keyword"]]
     return {
         "created_at": utc_now(), "git_commit": git_stamp(),
         "params": {"golden": source, "as_of": as_of, "keyword_only": keyword_only,
@@ -354,7 +405,9 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
                    "rrf_k": retrieval.RRF_K, "recency_scale_days": retrieval.RECENCY_SCALE_DAYS,
                    "fts_rank_floor": retrieval.FTS_RANK_FLOOR, "max_results": retrieval.MAX_RESULTS},
         "counts": {"answerable": sum(q["kind"] == "answerable" for q in questions),
-                   "no_answer": sum(q["kind"] == "no_answer" for q in questions)},
+                   "no_answer": sum(q["kind"] == "no_answer" for q in questions),
+                   **({"skipped": len(skipped_ids)} if skipped_ids else {})},
+        **({"skipped_ids": skipped_ids} if skipped_ids else {}),
         "model_load_s": round(model_load_s, 2) if model_load_s is not None else None,
         "methods": methods,
         "per_question": {qid: {m: {k: v for k, v in r.items() if k != "keywords"}
@@ -375,6 +428,10 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
             f"about {round(model_load_s, 1)} s per process."] if model_load_s is not None else [
             "Keyword-only run: meaning, on_miss and always were not run (they need the embedding model)."]
         ) + ([
+            f"{len(skipped_ids)} question(s) were skipped by the hook rule (under {retrieval.SHORT_PROMPT_CHARS} "
+            "characters, or only stop words): the hook methods returned nothing for them, so they count as "
+            "misses when answerable and as correctly quiet when not. The mcp tool is not subject to that rule."]
+            if skipped_ids else []) + ([
             "mcp is the search_transcripts tool as Claude calls it: up to 20 rows, no weak-match gate, "
             "no recency weighting and no machine-message filter; its 'injected' count is rows returned."]
             if include_mcp else []) + ([
@@ -397,6 +454,10 @@ def render_report(r):
     L = ["=" * 66, "  MEMORY CHECK: does search find the right memory?", "=" * 66,
          f"I asked {na} questions whose answer is in memory and {nn} whose answer is not,",
          f"{ways} different ways. Higher is better, except for the junk rate.", ""]
+    if c.get("skipped"):
+        L += [f"NOTE: {c['skipped']} of those questions were skipped (too short or no usable keywords):",
+              "search returned nothing for them, so they count as misses (answerable) or as correctly",
+              "quiet (no answer) in the scores below. Skipped: " + ", ".join(r.get("skipped_ids", [])), ""]
     for method in ALL_METHODS:
         if method not in m:
             continue
