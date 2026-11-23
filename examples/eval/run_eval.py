@@ -55,7 +55,7 @@ DEFAULT_GOLDEN = HERE / "golden_set.yaml"
 # Files whose code decides what retrieval returns. The stamp records whether
 # they match the commit, so a result can be tied to exact retrieval code.
 RETRIEVAL_FILES = ["hooks/user-prompt-submit.py", "mcp/server.py", "scripts/semantic_search.py",
-                   "scripts/config_utils.py", "scripts/fuzzy_search.py"]
+                   "scripts/config_utils.py", "scripts/fuzzy_search.py", "scripts/retrieval.py"]
 MODEL = "all-MiniLM-L6-v2"
 SYNTHETIC_PROJECTS = {"tidepool": "tdp", "ledgerline": "lgl", "quillstack": "qst"}
 

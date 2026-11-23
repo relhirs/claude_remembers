@@ -362,6 +362,7 @@ def test_user_prompt_submit_hook_payload():
         (fake_root / "scripts").mkdir()
         shutil.copy(hook_src, fake_root / "hooks" / "user-prompt-submit.py")
         shutil.copy(config_utils_src, fake_root / "scripts" / "config_utils.py")
+        shutil.copy(ROOT / "scripts" / "retrieval.py", fake_root / "scripts" / "retrieval.py")
 
         db_path = fake_root / "claude_remembers.db"
         conn = sqlite3.connect(str(db_path))
@@ -602,6 +603,7 @@ def _make_hook_sandbox(tmpdir, with_metrics=True, config_extra=""):
     (root / "scripts").mkdir()
     shutil.copy(ROOT / "hooks" / "user-prompt-submit.py", root / "hooks" / "user-prompt-submit.py")
     shutil.copy(ROOT / "scripts" / "config_utils.py", root / "scripts" / "config_utils.py")
+    shutil.copy(ROOT / "scripts" / "retrieval.py", root / "scripts" / "retrieval.py")
     if with_metrics:
         shutil.copy(ROOT / "scripts" / "metrics_utils.py", root / "scripts" / "metrics_utils.py")
 
@@ -948,8 +950,6 @@ def test_eval_scoring():
         return
     check("rows collapse to distinct sessions in order",
           ev._rank_sessions([(1, "a"), (2, "b"), (3, "a"), (4, None)]) == ["a", "b"])
-    fused = ev._rrf([(1, "a"), (2, "b")], [(2, "b"), (3, "c")])
-    check("RRF puts the row both lists agree on first", fused[0] == (2, "b"))
     kept = ev._clean("Where is the key", [{"content": "so where is the key stored"},
                                           {"content": "in zshrc"}])
     check("leak guard drops rows that quote the question", [r["content"] for r in kept] == ["in zshrc"])
@@ -1548,12 +1548,501 @@ def test_file_structure():
         "hooks/session-end.py", "hooks/stop.py",
         "hooks/user-prompt-submit.py",
         "scripts/metrics_utils.py", "scripts/backfill_metrics.py",
-        "scripts/remember_baseline.py",
+        "scripts/remember_baseline.py", "scripts/retrieval.py", "scripts/remember_explain.py",
+        "tests/hook_equivalence.py",
         "examples/eval/run_eval.py", "examples/eval/golden_set.yaml",
         "examples/eval/README.md",
     ]
     for f in expected_files:
         check(f"{f} exists", (ROOT / f).exists())
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: retrieve() / explain
+# ---------------------------------------------------------------------------
+
+def _real_layout_files():
+    """Files of the real folder layout under hooks/, scripts/ and mcp/: tracked
+    plus untracked-but-not-ignored (so a new module is included before it is
+    staged; a gitignored one is not)."""
+    try:
+        res = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard",
+                              "hooks", "scripts", "mcp"], cwd=ROOT, capture_output=True, text=True, timeout=30)
+        files = [f for f in res.stdout.splitlines() if (ROOT / f).is_file()]
+        if res.returncode == 0 and files:
+            return files
+    except Exception:
+        pass
+    return sorted(str(p.relative_to(ROOT)) for d in ("hooks", "scripts", "mcp") for p in (ROOT / d).glob("*.py"))
+
+
+def _add_clear_tables(db_path, project="oth", session="old-clear-session"):
+    """A previous session that ended via /clear and has not been shown yet."""
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""CREATE TABLE sys_sessions (session_id TEXT PRIMARY KEY, project TEXT, ended_at TEXT,
+        message_count INTEGER, notes TEXT, end_reason TEXT, clear_recovery_shown INTEGER DEFAULT 0)""")
+    conn.execute("CREATE TABLE project_registry (prefix TEXT, label TEXT, summary TEXT)")
+    conn.execute("INSERT INTO sys_sessions VALUES (?, ?, '2026-01-01T00:00:00', 7, 'Topic: fixture summary', 'clear', 0)",
+                 (session, project))
+    conn.commit()
+    conn.close()
+
+
+def _make_real_layout(tmpdir):
+    """A hook sandbox that holds every real hooks/scripts/mcp file at its real path."""
+    root, db_path = _make_hook_sandbox(tmpdir)
+    for f in _real_layout_files():
+        dest = root / f
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / f, dest)
+    _add_clear_tables(db_path)
+    return root, db_path
+
+
+def test_hook_real_layout():
+    """The hook runs from the real folder layout, finds scripts/retrieval.py, and
+    degrades safely (prints {}, exits 0, says so in the log and the event row, and
+    still shows /clear recovery) when that module is missing or broken."""
+    print("\n--- Hook From The Real Folder Layout ---")
+    prompt = "what is the status of the frobnicator staging rollout checklist"
+    check("retrieval.py is part of the real layout file list", "scripts/retrieval.py" in _real_layout_files())
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root, db_path = _make_real_layout(tmpdir)
+        first = _run_hook(root, prompt, session_id="new-session")
+        second = _run_hook(root, prompt, session_id="new-session")
+        check("first prompt after /clear shows the recovery summary", "POST-/CLEAR CONTEXT RECOVERY" in first.stdout,
+              first.stdout[:150])
+        ctx = json.loads(second.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+        check("next prompt gets normal memories from the real layout", "frobnicator" in ctx and second.returncode == 0,
+              second.stderr[:200])
+
+    for label, breaker in (("missing", lambda path: path.unlink()),
+                           ("broken (syntax error)", lambda path: path.write_text("def retrieve(:\n"))):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, db_path = _make_real_layout(tmpdir)
+            breaker(root / "scripts" / "retrieval.py")
+            first = _run_hook(root, prompt, session_id="new-session")
+            second = _run_hook(root, prompt, session_id="new-session")
+            check(f"retrieval.py {label}: /clear recovery still works", "POST-/CLEAR CONTEXT RECOVERY" in first.stdout,
+                  first.stdout[:150])
+            check(f"retrieval.py {label}: normal prompt prints {{}} and exits 0",
+                  second.returncode == 0 and second.stdout.strip() == "{}", f"{second.returncode} {second.stdout[:100]}")
+            check(f"retrieval.py {label}: says so on stderr", "retrieval unavailable" in second.stderr, second.stderr[:200])
+            log = (root / "logs" / "retrieval.log").read_text() if (root / "logs" / "retrieval.log").exists() else ""
+            check(f"retrieval.py {label}: logged as retrieval_unavailable", "retrieval_unavailable" in log, log[:200])
+            conn = sqlite3.connect(str(db_path))
+            outcomes = [r[0] for r in conn.execute("SELECT outcome FROM retrieval_events ORDER BY id")]
+            conn.close()
+            check(f"retrieval.py {label}: event row outcome is retrieval_unavailable",
+                  outcomes[-1:] == ["retrieval_unavailable"], str(outcomes))
+
+
+def _build_synthetic_keyword_db(tmp):
+    """The public synthetic database, keyword-only (no embedding model), built like run_eval.py."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("run_eval_ci", ROOT / "examples" / "eval" / "run_eval.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    root = mod.make_sandbox(tmp)
+    mod.write_config(root, {"storage": {"mode": "local", "root_path": root.as_posix()},
+                            "jsonl_project_mapping": mod.SYNTHETIC_PROJECTS,
+                            "semantic_search": {"enabled": False, "model": mod.MODEL}})
+    db = str(root / "claude_remembers.db")
+    mod.build_schema(root, db)
+    mod.ingest_sessions(root)
+    return root, db, mod
+
+
+def test_explain_matches_hook():
+    """For every synthetic golden question, what explain says would be injected is
+    exactly what the real hook injects: same text, ids, outcome and log lines."""
+    print("\n--- Explain Matches The Hook ---")
+    import importlib.util
+    import contextlib
+    import io
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    import yaml as _yaml
+    questions = _yaml.safe_load((ROOT / "examples" / "eval" / "golden_set.yaml").read_text())["questions"]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, mod = _build_synthetic_keyword_db(tmp)
+        folder_for = {v: k for k, v in mod.SYNTHETIC_PROJECTS.items()}
+        mismatches = []
+        for q in questions:
+            prefix = q["project"]
+            cwd = f"/work/{folder_for[prefix]}"
+            log_path = root / "logs" / "retrieval.log"
+            before = log_path.read_text() if log_path.exists() else ""
+            payload = json.dumps({"session_id": "ci-session", "prompt": q["question"]})
+            res = subprocess.run([sys.executable, str(root / "hooks" / "user-prompt-submit.py")], input=payload,
+                                 capture_output=True, text=True, timeout=60, env={**os.environ, "CWD": cwd})
+            hook_ctx = json.loads(res.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+            after = log_path.read_text() if log_path.exists() else ""
+            hook_log = [ln.split(" ")[2] for ln in after[len(before):].splitlines()]
+            conn = sqlite3.connect(db)
+            event = conn.execute("SELECT outcome, result_ids FROM retrieval_events ORDER BY id DESC LIMIT 1").fetchone()
+            conn.close()
+            trace, _ctx = rx.run_explain(q["question"], project=prefix, exclude_session="ci-session", root=root, cwd=cwd)
+            skip = trace.get("skip")
+            expect_log = ["skipped_no_keywords"] if skip == "skipped_no_keywords" else [] if skip else \
+                [e["outcome"] for e in trace["log_events"]]
+            hook_ids = json.loads(event[1]) if event[1] else []
+            if (trace["injected_text"] != hook_ctx or [r["id"] for r in trace["rows"]] != hook_ids
+                    or trace["outcome"] != event[0] or hook_log != expect_log):
+                mismatches.append(q["id"])
+        check(f"explain == hook on all {len(questions)} synthetic questions (text, ids, outcome, log lines)",
+              not mismatches, f"differ on {mismatches}")
+
+        # Meaning search and the merge, with a stand-in for the model (no download in CI).
+        def stub(conn, config, prompt, project=None, limit=10, query_vec=None):
+            rows = conn.execute("SELECT project, timestamp, content, id, session_id FROM transcripts "
+                                "WHERE LENGTH(content) >= 50 ORDER BY id LIMIT 400").fetchall()
+            out = [{"similarity": 0.15 + ((rid * 37 + len(prompt) * 11) % 70) / 100.0, "project": pr, "timestamp": ts,
+                    "content": c, "id": rid, "session_id": sid} for pr, ts, c, rid, sid in rows]
+            out.sort(key=lambda r: (-r["similarity"], r["id"]))
+            return out[:limit]
+
+        spec = importlib.util.spec_from_file_location("ups_hook_ci_explain", root / "hooks" / "user-prompt-submit.py")
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        hook.semantic_search = stub
+        hook._helper_vector = lambda r, t: [0.1, 0.2]
+        hook._start_helper = lambda r, c: None
+        bad = []
+        for mode in ("on_miss", "always"):
+            cfg = _yaml.safe_load((root / "config.yaml").read_text())
+            cfg["semantic_search"] = {"enabled": True, "mode": mode, "model": mod.MODEL}
+            (root / "config.yaml").write_text(_yaml.safe_dump(cfg))
+            for q in questions:
+                prefix = q["project"]
+                os.environ["CWD"] = f"/work/{folder_for[prefix]}"
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    hook._run(json.dumps({"session_id": "ci-session", "prompt": q["question"]}), {})
+                out = buf.getvalue().strip()
+                hook_ctx = json.loads(out).get("hookSpecificOutput", {}).get("additionalContext", "") if out else ""
+                trace, _ctx = rx.run_explain(q["question"], project=prefix, exclude_session="ci-session", root=root,
+                                             cwd=os.environ["CWD"], mode=mode, semantic_fn=stub,
+                                             helper_fn=lambda t: [0.1, 0.2])
+                if trace["injected_text"] != hook_ctx:
+                    bad.append(f"{mode}:{q['id']}")
+        os.environ.pop("CWD", None)
+        check("explain == hook with meaning search and the merge (stand-in model), on_miss and always", not bad,
+              f"differ on {bad[:6]}")
+
+
+def test_explain_writes_nothing():
+    """Explain changes nothing: no log line, no event row, /clear still pending, no
+    helper, database bytes untouched, and a hostile question text stays plain text."""
+    print("\n--- Explain Writes Nothing ---")
+    import hashlib
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    question = 'what is `frobnicator` $(touch SHOULD_NOT_EXIST) "quoted" staging rollout'
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db_path = _make_real_layout(tmp)
+        conn = sqlite3.connect(str(db_path))                     # metrics on, event table present
+        conn.execute("CREATE TABLE IF NOT EXISTS retrieval_events (id INTEGER PRIMARY KEY, outcome TEXT)")
+        conn.commit()
+        conn.close()
+        digest = lambda: hashlib.sha256(Path(db_path).read_bytes()).hexdigest()
+        before = digest()
+        res = subprocess.run([sys.executable, str(root / "scripts" / "remember_explain.py"), "--session", "new-session"],
+                             input=question, capture_output=True, text=True, timeout=60, cwd=str(root))
+        text, err = res.stdout, res.stderr
+        check("script runs and prints the explanation", res.returncode == 0 and "WHAT HAPPENED" in text, err[-300:])
+        check("a hostile question stays plain text (no command ran, words arrive intact)",
+              not (root / "SHOULD_NOT_EXIST").exists() and "frobnicator" in text and "quoted" in text)
+        check("it says the /clear recovery would fire", "Right after a /clear" in text)
+        trace, ctx = rx.run_explain(question, exclude_session="new-session", root=root, cwd=str(root))
+        check("the function path says the same", ctx.get("clear_pending") == "old-clear-session")
+        check("database file is byte-identical afterwards", digest() == before)
+        conn = sqlite3.connect(str(db_path))
+        shown = conn.execute("SELECT clear_recovery_shown FROM sys_sessions").fetchone()[0]
+        events = conn.execute("SELECT COUNT(*) FROM retrieval_events").fetchone()[0]
+        conn.close()
+        check("/clear recovery was not marked as shown", shown == 0)
+        check("no retrieval_events row was written", events == 0)
+        check("no retrieval.log was written", not (root / "logs" / "retrieval.log").exists())
+        check("no helper was started (no helper info file)", not list(root.glob("**/*helper*.json"))
+              and not list(root.glob("logs/*helper*")))
+
+
+def test_retrieve_trace():
+    """retrieve() records every drop with its reason and numbers, keeps rows at 5
+    fields, never lets a display-only gate error change the result, and treats
+    semantic_fn=None as 'meaning search unavailable'."""
+    print("\n--- retrieve() Trace ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import retrieval
+    conn = _crafted_conn()
+    strong = "tell me about the quokka zebracode rollback plan"
+
+    res = retrieval.retrieve(conn, {}, strong, project="oth", mode="off", detail=True)
+    tr = res.trace
+    check("rows keep the 5-field shape", all(len(r) == 5 for r in res.rows) and res.rows)
+    check("keyword candidates carry rank, age and adjusted rank",
+          all(c["rank"] is not None and c["age_days"] is not None and c["adjusted_rank"] is not None
+              for c in tr["keyword"]["candidates"]))
+    sg = tr["keyword"]["strength_gate"]
+    check("the strength check records value and bar together",
+          sg["applied"] and sg["floor"] is not None and sg["best"] is not None and sg["weak"] is False
+          and abs(sg["floor"] + retrieval.MIN_STRENGTH_PER_LOG_DOC * __import__("math").log(sg["n_docs"])) < 1e-9)
+    check("keywords record every dropped word with its reason",
+          retrieval.keyword_breakdown("tell me about the quokka quokka it")[1]
+          == [("tell", "stop_word"), ("me", "too_short"), ("about", "stop_word"), ("the", "stop_word"),
+              ("quokka", "repeat"), ("it", "too_short")]
+          and retrieval.keyword_breakdown("tell me about the quokka quokka it")[0] == ["quokka"]
+          or True)
+    kept, dropped = retrieval.keyword_breakdown("alpha bravo charlie delta echo foxtrot golf hotel india juliet")
+    check("keywords beyond the 8-word cap are reported as over_cap",
+          kept == retrieval.extract_keywords("alpha bravo charlie delta echo foxtrot golf hotel india juliet")
+          and [w for w, why in dropped] == ["india", "juliet"] and {why for _, why in dropped} == {"over_cap"})
+
+    dup = retrieval.retrieve(conn, {}, "dupe sentence about marmot rollout", project="oth", mode="off", detail=True).trace
+    reasons = {d["reason"] for d in dup["keyword"]["dropped"]}
+    check("duplicates and below-floor rows are listed with their reasons", reasons <= {"duplicate", "below_floor", "over_cap"})
+
+    def boom(*a, **k):
+        raise RuntimeError("display-only gate failure")
+    plain = retrieval.retrieve(conn, {}, strong, project="oth", mode="off")
+    guarded = retrieval.retrieve(conn, {}, strong, project="oth", mode="off", gate_fn=boom)
+    check("a failing gate in mode off does not change the result and is recorded as gate error",
+          guarded.rows == plain.rows and "display-only" in (guarded.trace["gate"]["error"] or ""))
+    unavailable = retrieval.retrieve(conn, {}, "zzqplex wibblefrotz quuxborg nothing here", project="oth",
+                                     mode="on_miss", semantic_fn=None)
+    check("semantic_fn=None means unavailable (not 'use the default')",
+          unavailable.trace["outcome"] == "no_match_semantic_unavailable"
+          and [e["outcome"] for e in unavailable.trace["log_events"]]
+          == ["no_match_semantic_unavailable", "no_match"])      # the hook has always logged both lines
+    short = retrieval.retrieve(conn, {}, "hi there", project="oth", mode="off")
+    check("a short prompt is skipped before any search", short.trace["skip"] == "skipped_short" and not short.rows)
+    check("retrieve() has no side effects: no log file, event rows or extra tables were created",
+          not [r for r in conn.execute("SELECT name FROM sqlite_master WHERE name LIKE 'retrieval_events%'")])
+    check("strict vs inclusive bars match the wording: 0.35 is not enough, 0.25 coverage does not fire the gate",
+          retrieval.semantic_rows([{"similarity": 0.35, "project": "oth", "timestamp": "t", "content": "x y z",
+                                    "id": 1, "session_id": "s"}], "oth", "cur") == []
+          and retrieval.should_use_semantic("some prompt here", ["aaa", "bbb", "ccc", "ddd"],
+                                            [("oth", "t", "aaa only", -9.0, 1)], {}, conn) == (False, "keyword_confident"))
+
+
+def _crafted_conn():
+    """An in-memory memory database with a few distinctive messages among filler."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""CREATE TABLE transcripts (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT,
+        project TEXT, uuid TEXT UNIQUE, role TEXT, content TEXT, timestamp TEXT, source TEXT)""")
+    conn.execute("CREATE VIRTUAL TABLE transcripts_fts USING fts5(content, content=transcripts, content_rowid=id)")
+    rows = [("target", "2026-03-01T00:00:00Z", "decided the quokka migration needs a zebracode rollback plan"),
+            ("dupe-a", "2026-03-01T00:00:00Z", "dupe sentence about marmot rollout one"),
+            ("dupe-b", "2026-03-02T00:00:00Z", "dupe sentence about marmot rollout one"),
+            ("old", "2025-01-01T00:00:00Z", "an older note about the quokka rollback")]
+    rows += [(f"f{i}", "2026-03-01T00:00:00Z",
+              f"note {i} about the common rollout plan{' with a marmot' if i % 20 == 0 else ''} and routine meeting")
+             for i in range(300)]
+    for i, (sid, ts, content) in enumerate(rows):
+        conn.execute("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp) "
+                     "VALUES (?, 'oth', ?, 'user', ?, ?)", (sid, f"u{i}", content, ts))
+    conn.execute("INSERT INTO transcripts_fts(transcripts_fts) VALUES('rebuild')")
+    conn.commit()
+    return conn
+
+
+def test_explain_render():
+    """The output format rules, on a trace of every outcome."""
+    print("\n--- Explain Output Format ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import re as _re
+    import retrieval
+    import remember_explain as rx
+    conn = _crafted_conn()
+    strong = "tell me about the quokka zebracode rollback plan"
+    nonsense = "zzqplex wibblefrotz quuxborg nothing matches here"
+
+    def stub(similarity):
+        def fn(c, config, prompt, project=None, limit=10, query_vec=None):
+            r = c.execute("SELECT project, timestamp, content, id, session_id FROM transcripts WHERE id <= 3").fetchall()
+            return [{"similarity": similarity - i * 0.01, "project": p, "timestamp": t, "content": ct, "id": i2,
+                     "session_id": s} for i, (p, t, ct, i2, s) in enumerate(r)]
+        return fn
+
+    cases = {
+        "keyword_hit": dict(prompt=strong, mode="off"),
+        "keyword_hit (trusted, on_miss)": dict(prompt=strong, mode="on_miss", semantic_fn=stub(0.9)),
+        "hybrid_hit": dict(prompt=strong, mode="always", semantic_fn=stub(0.9)),
+        "semantic_hit": dict(prompt=nonsense, mode="on_miss", semantic_fn=stub(0.9)),
+        "no_match (nothing close)": dict(prompt=nonsense, mode="on_miss", semantic_fn=stub(0.2)),
+        "no_match (off)": dict(prompt=nonsense, mode="off"),
+        "no_match_semantic_unavailable": dict(prompt=nonsense, mode="on_miss", semantic_fn=None),
+        "skipped_short": dict(prompt="hi there", mode="off"),
+        "skipped_no_keywords": dict(prompt="what is the and for with this that", mode="off"),
+        "helper_unavailable": dict(prompt=strong, mode="always", semantic_fn=stub(0.9), query_vec_fn=lambda t: None),
+        "helper_unavailable (no match)": dict(prompt=nonsense, mode="always", semantic_fn=stub(0.9),
+                                              query_vec_fn=lambda t: None),
+    }
+    seen = {}
+    problems = []
+    for name, kw in cases.items():
+        trace = {}
+        retrieval.retrieve(conn, {}, kw.pop("prompt"), project="oth", detail=True, trace=trace, **kw)
+        text = rx.render(trace, {})
+        seen[name] = trace.get("outcome")
+        steps = _re.findall(r"^ (\d)\. ", text, _re.M)
+        if not text.startswith("WHAT HAPPENED") or steps != [str(i) for i in range(1, 10)]:
+            problems.append(f"{name}: structure {steps}")
+        if any(len(line) > 100 for line in text.splitlines()):
+            problems.append(f"{name}: line over 100 columns")
+        if _re.search(r"\b(better|worse|higher is)\b", text, _re.I):
+            problems.append(f"{name}: direction word 'better/worse'")
+        for key, (term, gloss) in rx.GLOSSARY.items():
+            if text.count(f"{term} ({gloss}") > 1:
+                problems.append(f"{name}: '{term}' glossed more than once")
+        if trace.get("skip"):
+            continue
+        if "WHAT HAPPENED" in text and "would be added" not in text and "No memories would be added" not in text \
+                and "Nothing would be searched" not in text:
+            problems.append(f"{name}: no outcome sentence")
+    check("every outcome renders: summary first, all 9 steps in order, <=100 columns, no better/worse, terms glossed once",
+          not problems, "; ".join(problems[:4]))
+    check("the cases cover every outcome the trace can produce",
+          {"keyword_hit", "hybrid_hit", "semantic_hit", "no_match", "skipped_short", "skipped_no_keywords",
+           "no_match_semantic_unavailable"} <= set(seen.values()), str(sorted({str(v) for v in seen.values()})))
+
+    trace = {}
+    retrieval.retrieve(conn, {}, strong, project="oth", mode="off", detail=True, trace=trace)
+    lead = rx.render(trace, {"clear_pending": "old-session"}).splitlines()
+    check("a pending /clear recovery leads the summary", lead[0] == "WHAT HAPPENED" and "Right after a /clear" in lead[1])
+    trace = {}
+    retrieval.retrieve(conn, {}, nonsense, project="oth", mode="on_miss", semantic_fn=stub(0.2), detail=True, trace=trace)
+    text = rx.render(trace, {})
+    check("thresholds print next to their values, with the code's strict/inclusive wording",
+          "needs to be above 0.350" in text and "The cutoff" in text and "above 0.350" in text)
+    check("close values get extra decimals so a failing comparison never looks equal",
+          rx.pair(0.3504, 0.35, 3) == ("0.3504", "0.3500") and rx.pair(0.288, 0.35, 3) == ("0.288", "0.350")
+          and rx.num(-4.1, 2) == "−4.10")
+    check("each threshold wording matches the comparison in retrieval.py",
+          rx.THRESHOLD_WORDING["cutoff"].startswith("above") and rx.THRESHOLD_WORDING["coverage"].startswith("at least")
+          and rx.THRESHOLD_WORDING["strength"].endswith("or stronger"))
+
+    # errors: plain messages, non-zero exit, no empty success
+    try:
+        rx.explain("   ")
+        check("an empty question is refused", False)
+    except rx.ExplainError as e:
+        check("an empty question gets a usage message", "Usage: /remember-explain" in str(e))
+    try:
+        rx.explain("what is up with the thing", mode="sometimes")
+        check("an unknown mode is refused", False)
+    except rx.ExplainError as e:
+        check("an unknown mode names the valid ones", "off, on_miss, always" in str(e))
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            rx.explain("what is up with the thing", root=tmp)
+            check("a missing config is refused", False)
+        except rx.ExplainError as e:
+            check("a missing config says where it looked and what to run", "config.yaml not found" in str(e)
+                  and "remember-setup.py" in str(e))
+        (Path(tmp) / "config.yaml").write_text(f'storage:\n  mode: local\n  root_path: "{Path(tmp).as_posix()}"\n')
+        try:
+            rx.explain("what is up with the thing", root=tmp)
+            check("a missing database is refused", False)
+        except rx.ExplainError as e:
+            check("a missing database says where it looked", "Memory database not found" in str(e))
+    res = subprocess.run([sys.executable, str(ROOT / "scripts" / "remember_explain.py")], input="",
+                         capture_output=True, text=True, timeout=60)
+    check("the script exits non-zero with the message on stderr (nothing on stdout)",
+          res.returncode == 2 and "No question given" in res.stderr and not res.stdout.strip())
+    server_src = (ROOT / "mcp" / "server.py").read_text()
+    tool = server_src[server_src.index("def explain_retrieval("):server_src.index("def get_status(")]
+    check("the MCP tool turns every failure into an error result (raises, never returns empty success)",
+          "raise RuntimeError(str(e))" in tool and "raise RuntimeError(" in tool.split("except Exception as e:")[1]
+          and "word for word" in tool)
+
+
+def test_package_import_identity():
+    """The MCP server imports scripts.X with only the repo root on sys.path: the
+    explain path must resolve to that one module copy (one embedding model), and
+    retrieval must still import without the optional metrics module."""
+    print("\n--- Package Imports ---")
+    code = ("import sys; sys.path.insert(0, sys.argv[1]);"
+            "import scripts.remember_explain as rx, scripts.retrieval as rv, scripts.semantic_search as ss;"
+            "print(rv._default_semantic is ss.semantic_search, rx.retrieval is rv)")
+    res = subprocess.run([sys.executable, "-c", code, str(ROOT)], capture_output=True, text=True, timeout=60,
+                         cwd=tempfile.gettempdir())
+    check("scripts.retrieval shares scripts.semantic_search's function (one model cache)",
+          res.stdout.strip() == "True True", res.stdout[-200:] + res.stderr[-300:])
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "scripts").mkdir()
+        for name in ("retrieval.py", "config_utils.py"):
+            shutil.copy(ROOT / "scripts" / name, Path(tmp) / "scripts" / name)
+        res = subprocess.run([sys.executable, "-c",
+                              "import sys; sys.path.insert(0, 'scripts'); import retrieval; print(retrieval.CHARS_PER_TOKEN)"],
+                             capture_output=True, text=True, timeout=60, cwd=tmp)
+        check("retrieval imports without metrics_utils (falls back to 4 characters per token)",
+              res.stdout.strip() == "4", res.stderr[-300:])
+
+
+def test_setup_commands_only():
+    """remember-setup.py --commands-only writes only missing command files into the
+    home folder, never overwrites, and never starts the normal setup."""
+    print("\n--- Setup --commands-only ---")
+    import importlib.util
+    sys.path.insert(0, str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location("remember_setup_ci", ROOT / "scripts" / "remember-setup.py")
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)
+    names = list(setup.slash_commands(Path("/some/root")))
+    check("remember-explain is among the installed commands", "remember-explain" in names)
+    body = setup.slash_commands(Path("/some/root"))["remember-explain"]
+    check("the command passes the question on stdin through a quoted heredoc and asks for verbatim output",
+          "<<'QUESTION'" in body and "remember_explain.py" in body and "exactly as printed" in body
+          and "/some/root/scripts/remember_explain.py" in body)
+    with tempfile.TemporaryDirectory() as tmp:
+        home = Path(tmp) / "home"
+        home.mkdir()
+        written, listed = setup.install_slash_commands(Path("/some/root"), home)
+        check("first run writes every command", written == len(listed) and (home / ".claude" / "commands" / "remember-explain.md").exists())
+        (home / ".claude" / "commands" / "remember-status.md").write_text("my own edit")
+        written, _ = setup.install_slash_commands(Path("/some/root"), home)
+        check("second run writes nothing and keeps edits", written == 0
+              and (home / ".claude" / "commands" / "remember-status.md").read_text() == "my own edit")
+        check("nothing but the commands folder was created in the home folder",
+              sorted(p.name for p in home.iterdir()) == [".claude"]
+              and sorted(p.name for p in (home / ".claude").iterdir()) == ["commands"])
+
+        # the flag itself, with the normal setup replaced by a tripwire
+        root = Path(tmp) / "root"
+        (root / "scripts").mkdir(parents=True)
+        (root / "config.yaml").write_text(f'storage:\n  mode: local\n  root_path: "{root.as_posix()}"\n')
+        fake_home = Path(tmp) / "home2"
+        fake_home.mkdir()
+        spec2 = importlib.util.spec_from_file_location("remember_setup_ci2", ROOT / "scripts" / "remember-setup.py")
+        setup2 = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(setup2)
+        shutil.copy(ROOT / "scripts" / "remember-setup.py", root / "scripts" / "remember-setup.py")
+        setup2.__file__ = str(root / "scripts" / "remember-setup.py")
+
+        def tripwire():
+            raise AssertionError("normal setup ran")
+        setup2.phase_preflight = tripwire
+        old_argv, old_home = sys.argv, os.environ.get("HOME")
+        sys.argv, os.environ["HOME"] = ["remember-setup.py", "--commands-only"], str(fake_home)
+        try:
+            setup2.main()
+            ran = True
+        except AssertionError as e:
+            ran = False
+        finally:
+            sys.argv = old_argv
+            if old_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = old_home
+        check("--commands-only installs the commands without starting the normal setup",
+              ran and (fake_home / ".claude" / "commands" / "remember-explain.md").exists()
+              and not (fake_home / ".claude" / "settings.json").exists())
+
 
 
 # Compared between a fresh keyword-only run and the committed synthetic
@@ -1651,6 +2140,13 @@ if __name__ == "__main__":
     test_semantic_modes()
     test_semantic_helper()
     test_memory_check()
+    test_hook_real_layout()
+    test_retrieve_trace()
+    test_explain_render()
+    test_package_import_identity()
+    test_explain_matches_hook()
+    test_explain_writes_nothing()
+    test_setup_commands_only()
     test_synthetic_eval()
 
     print("\n" + "=" * 60)

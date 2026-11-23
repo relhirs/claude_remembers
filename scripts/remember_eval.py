@@ -63,13 +63,11 @@ import yaml
 
 from config_utils import is_machine_generated, resolve_db_path
 from metrics_utils import ensure_metrics_schema, utc_now
-from remember_baseline import git_stamp, load_hook
+from remember_baseline import git_stamp
+import retrieval
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_GOLDEN = ROOT / "eval" / "golden_set.yaml"
-SEMANTIC_CUTOFF = 0.35
-RRF_K = 60
-CANDIDATES = 30            # meaning-search rows considered before the cutoff
 METHODS = ("keyword", "keyword_ungated", "meaning", "on_miss", "always")
 KEYWORD_METHODS = ("keyword", "keyword_ungated")      # need no model
 ALL_METHODS = METHODS + ("mcp",)
@@ -150,16 +148,6 @@ def _rank_sessions(rows):
     return out
 
 
-def _rrf(*ranked_lists):
-    """Reciprocal Rank Fusion: each list votes 1/(k + rank) for a row; best total wins."""
-    score = {}
-    for lst in ranked_lists:
-        for rank, (row_id, session) in enumerate(lst, 1):
-            entry = score.setdefault(row_id, [0.0, session])
-            entry[0] += 1.0 / (RRF_K + rank)
-    return [(rid, s) for rid, (_, s) in sorted(score.items(), key=lambda kv: -kv[1][0])]
-
-
 def _clean(question, rows):
     """Drop rows that merely quote the question (the questions themselves get
     written into transcripts when they are discussed)."""
@@ -167,37 +155,32 @@ def _clean(question, rows):
     return [r for r in rows if q not in (r["content"] or "").lower()]
 
 
-def run_question(hook, semantic, conn, config, db_path, item, exclude, cold_start_ms=0.0,
+def run_question(semantic, conn, config, db_path, item, exclude, cold_start_ms=0.0,
                  as_of=None, server=None, keyword_only=False):
-    """Ask one question every way, through the hook's own functions so the
-    eval measures what the live hook would do. `cold_start_ms` is charged to
-    on_miss whenever its gate loads the model. `as_of` fixes "now" for the
-    keyword search's recency weighting (None = the clock, as live). `server`
-    (from load_mcp_server) adds the mcp method; `keyword_only` skips every
-    method that needs the embedding model."""
+    """Ask one question every way with ONE retrieve() call (the function the live
+    hook runs), then read each method's rows from what it did. `cold_start_ms`
+    is charged to on_miss whenever its gate loads the model. `as_of` fixes
+    "now" for the keyword search's recency weighting (None = the clock, as
+    live). `server` (from load_mcp_server) adds the mcp method; `keyword_only`
+    skips every method that needs the embedding model."""
     question = item["question"]
     quoted = question.lower().strip()
     exclude_one = exclude[0] if exclude else None
     session_of = {}
 
-    def keyword_rows(keywords, gated, info=None):
-        if not keywords:
-            return [], 0.0
-        fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
-        started = time.perf_counter()
-        raw = hook._keyword_search(conn, fts_query, None, as_of=as_of, exclude_session=exclude_one,
-                                   gated=gated, info=info)
-        ms = (time.perf_counter() - started) * 1000
-        rows = []
-        for row in raw:                      # (project, timestamp, content, rank, id)
+    def leak_filter(kind, row):
+        """Drop rows from excluded sessions and rows that quote the question
+        (the questions themselves get written into transcripts when discussed)."""
+        if kind == "keyword":                # (project, timestamp, content, rank, id)
             found_session = conn.execute("SELECT session_id FROM transcripts WHERE id = ?",
                                          (row[4],)).fetchone()
             session = found_session[0] if found_session else None
             if session in exclude or quoted in (row[2] or "").lower():
-                continue
+                return False
             session_of[row[4]] = session
-            rows.append(row)
-        return rows, ms
+            return True
+        session_of[row["id"]] = row["session_id"]           # meaning search result (dict)
+        return row["session_id"] not in exclude and quoted not in (row["content"] or "").lower()
 
     def pack(rows, ms, **extra):
         return {"sessions": _rank_sessions([(r[4], session_of.get(r[4])) for r in rows]),
@@ -205,14 +188,21 @@ def run_question(hook, semantic, conn, config, db_path, item, exclude, cold_star
                 "machine_rows": sum(1 for r in rows if is_machine_generated(r[2])),
                 "injected": len(rows), "ms": ms, **extra}
 
-    keywords = hook.build_search_keywords(question)
-    kw_info = {}
-    kw_rows, kw_ms = keyword_rows(keywords, gated=True, info=kw_info)
-    ug_rows, ug_ms = keyword_rows(keywords, gated=False)
+    # mode "always" with no helper function embeds in-process, so meaning,
+    # always and on_miss can all be read from one pass.
+    trace = {}
+    result = retrieval.retrieve(conn, config, question, project=None, exclude_session=exclude_one,
+                                as_of=as_of, mode="off" if keyword_only else "always",
+                                semantic_fn=semantic.semantic_search, row_filter=leak_filter, trace=trace)
+    keywords = trace["keywords"]["kept"]
+    if trace["skip"]:                        # nothing to search: every method returns nothing
+        kw_rows, ug_rows, kw_ms = [], [], 0.0
+    else:
+        kw_rows, ug_rows, kw_ms = trace["keyword_rows"], trace["ungated_rows"], trace["keyword"]["ms"]
 
     out = {
         "keyword": pack(kw_rows, kw_ms, keywords=keywords),
-        "keyword_ungated": pack(ug_rows, ug_ms, keywords=keywords),
+        "keyword_ungated": pack(ug_rows, kw_ms, keywords=keywords),
     }
     if server is not None:
         # Same leak filters as above (excluded sessions, rows quoting the
@@ -228,23 +218,18 @@ def run_question(hook, semantic, conn, config, db_path, item, exclude, cold_star
     if keyword_only:
         return out
 
-    started = time.perf_counter()
-    found = semantic.semantic_search(conn, config, question, project=None, limit=CANDIDATES)
-    sem_ms = (time.perf_counter() - started) * 1000
-    usable = []
-    for r in found:
-        session_of[r["id"]] = r["session_id"]
-        if r["session_id"] not in exclude and quoted not in (r["content"] or "").lower():
-            usable.append(r)
-    sem_rows = hook.semantic_rows(usable, None, exclude_one)
-    best_similarity = round(usable[0]["similarity"], 3) if usable else None
+    sem = trace["semantic"]
+    sem_ms = sem["ms"] or 0.0
+    sem_rows = trace.get("semantic_rows", [])
+    first = sem["usable_first_similarity"]
+    best_similarity = round(first, 3) if first is not None else None
 
-    always_rows = hook.merge_results(kw_rows, sem_rows)
-    fires, reason = hook.should_use_semantic(question, keywords, kw_rows, kw_info, conn)
+    always_rows = result.rows
+    fires, reason = trace["gate"]["fires"], trace["gate"]["reason"]
     on_miss_rows = always_rows if fires else kw_rows
 
     out.update({
-        "meaning": pack(sem_rows[:hook.MAX_RESULTS], sem_ms, best_similarity=best_similarity),
+        "meaning": pack(sem_rows[:retrieval.MAX_RESULTS], sem_ms, best_similarity=best_similarity),
         "on_miss": pack(on_miss_rows, kw_ms + (sem_ms + cold_start_ms if fires else 0.0),
                         fired=fires, reason=reason),
         "always": pack(always_rows, kw_ms + sem_ms),
@@ -340,7 +325,6 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
     The defaults (no mcp, clock time, all model methods) are what
     remember_check.py relies on."""
     db_path = resolve_db_path(config)
-    hook = load_hook()
     spec = importlib.util.spec_from_file_location("semantic_search", ROOT / "scripts" / "semantic_search.py")
     semantic = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(semantic)
@@ -355,7 +339,7 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
         # module level, and loading it first would hide that import's ~3 s
         # from the cold-start cost charged to on_miss.
         server = load_mcp_server(db_path) if include_mcp else None
-        per_question = {q["id"]: run_question(hook, semantic, conn, config, db_path, q, exclude,
+        per_question = {q["id"]: run_question(semantic, conn, config, db_path, q, exclude,
                                               cold_start_ms=(model_load_s or 0.0) * 1000, as_of=as_of,
                                               server=server, keyword_only=keyword_only)
                         for q in questions}
@@ -366,9 +350,9 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
         "created_at": utc_now(), "git_commit": git_stamp(),
         "params": {"golden": source, "as_of": as_of, "keyword_only": keyword_only,
                    "methods_run": list(methods),
-                   "semantic_cutoff": SEMANTIC_CUTOFF,
-                   "rrf_k": RRF_K, "recency_scale_days": hook.RECENCY_SCALE_DAYS,
-                   "fts_rank_floor": hook.FTS_RANK_FLOOR, "max_results": hook.MAX_RESULTS},
+                   "semantic_cutoff": retrieval.SEMANTIC_CUTOFF,
+                   "rrf_k": retrieval.RRF_K, "recency_scale_days": retrieval.RECENCY_SCALE_DAYS,
+                   "fts_rank_floor": retrieval.FTS_RANK_FLOOR, "max_results": retrieval.MAX_RESULTS},
         "counts": {"answerable": sum(q["kind"] == "answerable" for q in questions),
                    "no_answer": sum(q["kind"] == "no_answer" for q in questions)},
         "model_load_s": round(model_load_s, 2) if model_load_s is not None else None,

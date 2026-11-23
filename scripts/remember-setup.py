@@ -951,7 +951,7 @@ def phase_config(cfg):
             Type these in Claude Code for direct access:
             /remember-question, /remember-search, /remember-history, /remember-recap, /remember-decide,
             /remember-health, /remember-status, /remember-import, /remember-questionnaire, /remember-add-project,
-            /remember-export
+            /remember-export, /remember-explain
 
             ## FILE VERSIONING
             After creating or modifying any file, run:
@@ -1123,84 +1123,9 @@ def phase_email(cfg):
     ok("Email digests configured")
 
 
-# Phase 8: Registration + Ingestion
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-
-def phase_registration(cfg):
-    phase_header(8, 9, "REGISTRATION & INGESTION")
-    root = Path(cfg["root_path"])
-    home = Path.home()
-
-    # --- Register hooks in ~/.claude/settings.json ---
-    settings_path = home / ".claude" / "settings.json"
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if settings_path.exists():
-        with open(settings_path) as f:
-            settings = json.load(f)
-    else:
-        settings = {}
-
-    hooks = settings.get("hooks", {})
-    hooks_added = 0
-
-    for event, script in zip(HOOK_EVENTS, HOOK_SCRIPTS):
-        hook_cmd = f'"{venv_python(str(root)) or sys.executable}" "{root / "hooks" / script}"'
-        existing = hooks.get(event, [])
-
-        # Check if already registered with same command
-        already = False
-        for entry in existing:
-            for h in entry.get("hooks", []):
-                if h.get("command") == hook_cmd:
-                    already = True
-                    break
-
-        if not already:
-            new_entry = {
-                "matcher": "",
-                "hooks": [{"type": "command", "command": hook_cmd}]
-            }
-            if existing:
-                existing.append(new_entry)
-            else:
-                existing = [new_entry]
-            hooks[event] = existing
-            hooks_added += 1
-
-    if hooks_added > 0:
-        settings["hooks"] = hooks
-        info(f"Will add {hooks_added} hook(s) to {settings_path}")
-        info("Hooks are what capture sessions automatically (start/end/compact) -")
-        info("without them, nothing gets saved to memory on its own.")
-        if ask_yn("Register hooks?"):
-            with open(settings_path, "w") as f:
-                json.dump(settings, f, indent=4)
-            ok(f"{hooks_added} hooks registered")
-        else:
-            warn("Hooks not registered - memory won't auto-capture sessions")
-    else:
-        ok("All 6 hooks already registered")
-
-    # --- Register MCP server (global "user" scope - one entry covers
-    # every project folder, now and for any added later) ---
-    info("This is what lets Claude QUERY memory during a session (search,")
-    info("lookup_fact, etc.) - without it, sessions get captured but not searchable.")
-    if ensure_mcp_user_registration(str(root)):
-        ok("MCP server registered (user scope, applies to all projects)")
-    else:
-        ok("MCP server already registered")
-    removed = remove_mcp_local_registrations()
-    if removed:
-        info(f"Cleaned up {len(removed)} stale per-project MCP registration(s) that would")
-        info("otherwise conflict with the user-scope one above.")
-
-    # --- Install custom slash commands ---
-    commands_dir = home / ".claude" / "commands"
-    commands_dir.mkdir(parents=True, exist_ok=True)
-
-    slash_commands = {
+def slash_commands(root):
+    """The Claude Code slash commands claude_remembers installs, name -> file text."""
+    return {
         "remember-import": textwrap.dedent(f"""\
             Import conversations from Claude.ai, ChatGPT, or Gemini into the memory database.
 
@@ -1328,18 +1253,124 @@ def phase_registration(cfg):
             This imports their answers into the memory database so Claude
             knows who they are across every session.
         """),
+        "remember-explain": textwrap.dedent(f"""\
+            Explain, step by step, how memory retrieval handles one question.
+
+            The question is what the user typed after /remember-explain: $ARGUMENTS
+            If that is empty, ask the user for the question first.
+
+            Run this, with the question between the QUESTION lines exactly as typed (the quotes
+            on 'QUESTION' make the shell treat it as plain text, so quotes and $ signs in the
+            question are safe):
+
+            {venv_python(str(root)) or "python3"} {root}/scripts/remember_explain.py <<'QUESTION'
+            <the question>
+            QUESTION
+
+            Optional, only if the user asks for them: add --mode off|on_miss|always to force the
+            meaning-search setting, --as-of <ISO time> to ask as of an earlier moment, or
+            --project <prefix> to pick the project.
+
+            Show the output exactly as printed, in a code block, without summarizing, rounding or
+            rewording it. If the script prints an error instead, show that message as is.
+        """),
     }
 
-    cmds_added = 0
-    for name, content in slash_commands.items():
+
+def install_slash_commands(root, home):
+    """Write any missing ~/.claude/commands/<name>.md. Existing files are never
+    overwritten. Returns (number written, all command names)."""
+    commands_dir = Path(home) / ".claude" / "commands"
+    commands_dir.mkdir(parents=True, exist_ok=True)
+    commands = slash_commands(root)
+    written = 0
+    for name, content in commands.items():
         cmd_path = commands_dir / f"{name}.md"
         if not cmd_path.exists():
             with open(cmd_path, "w") as f:
                 f.write(content)
-            cmds_added += 1
+            written += 1
+    return written, list(commands)
 
+
+
+# Phase 8: Registration + Ingestion
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+def phase_registration(cfg):
+    phase_header(8, 9, "REGISTRATION & INGESTION")
+    root = Path(cfg["root_path"])
+    home = Path.home()
+
+    # --- Register hooks in ~/.claude/settings.json ---
+    settings_path = home / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if settings_path.exists():
+        with open(settings_path) as f:
+            settings = json.load(f)
+    else:
+        settings = {}
+
+    hooks = settings.get("hooks", {})
+    hooks_added = 0
+
+    for event, script in zip(HOOK_EVENTS, HOOK_SCRIPTS):
+        hook_cmd = f'"{venv_python(str(root)) or sys.executable}" "{root / "hooks" / script}"'
+        existing = hooks.get(event, [])
+
+        # Check if already registered with same command
+        already = False
+        for entry in existing:
+            for h in entry.get("hooks", []):
+                if h.get("command") == hook_cmd:
+                    already = True
+                    break
+
+        if not already:
+            new_entry = {
+                "matcher": "",
+                "hooks": [{"type": "command", "command": hook_cmd}]
+            }
+            if existing:
+                existing.append(new_entry)
+            else:
+                existing = [new_entry]
+            hooks[event] = existing
+            hooks_added += 1
+
+    if hooks_added > 0:
+        settings["hooks"] = hooks
+        info(f"Will add {hooks_added} hook(s) to {settings_path}")
+        info("Hooks are what capture sessions automatically (start/end/compact) -")
+        info("without them, nothing gets saved to memory on its own.")
+        if ask_yn("Register hooks?"):
+            with open(settings_path, "w") as f:
+                json.dump(settings, f, indent=4)
+            ok(f"{hooks_added} hooks registered")
+        else:
+            warn("Hooks not registered - memory won't auto-capture sessions")
+    else:
+        ok("All 6 hooks already registered")
+
+    # --- Register MCP server (global "user" scope - one entry covers
+    # every project folder, now and for any added later) ---
+    info("This is what lets Claude QUERY memory during a session (search,")
+    info("lookup_fact, etc.) - without it, sessions get captured but not searchable.")
+    if ensure_mcp_user_registration(str(root)):
+        ok("MCP server registered (user scope, applies to all projects)")
+    else:
+        ok("MCP server already registered")
+    removed = remove_mcp_local_registrations()
+    if removed:
+        info(f"Cleaned up {len(removed)} stale per-project MCP registration(s) that would")
+        info("otherwise conflict with the user-scope one above.")
+
+    # --- Install custom slash commands ---
+    cmds_added, names = install_slash_commands(root, home)
     if cmds_added > 0:
-        ok(f"{cmds_added} slash commands installed: " + ", ".join(f"/{n}" for n in slash_commands))
+        ok(f"{cmds_added} slash commands installed: " + ", ".join(f"/{n}" for n in names))
     else:
         ok("All slash commands already installed")
 
@@ -1526,6 +1557,7 @@ def phase_health_check(cfg):
 
     /remember-import         Import conversations (Claude.ai, ChatGPT, Gemini)
     /remember-status         Check memory health and statistics
+    /remember-explain        Show every step of retrieval for one question
     /remember-add-project    Register a new project (folder path, no prompts)
     /remember-questionnaire  Fill out or update your memory profile
 """)
@@ -1783,6 +1815,20 @@ def main():
         else:
             fail("config.yaml not found. Run remember-setup.py first (without --questionnaire).")
             sys.exit(1)
+        return
+
+    # Handle --commands-only mode: write any missing slash-command files, nothing else
+    if "--commands-only" in sys.argv:
+        config_path = Path(__file__).resolve().parent.parent / "config.yaml"
+        if not config_path.exists():
+            fail("config.yaml not found. Run remember-setup.py first (without --commands-only).")
+            sys.exit(1)
+        import yaml
+        with open(config_path) as f:
+            root_path = yaml.safe_load(f)["storage"]["root_path"]
+        written, names = install_slash_commands(Path(root_path), Path.home())
+        ok(f"{written} slash command(s) written" if written else "All slash commands already installed")
+        info("Commands: " + ", ".join(f"/{n}" for n in names))
         return
 
     # Normal setup flow

@@ -567,6 +567,37 @@ def search_semantic(
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
+def explain_retrieval(
+    question: str,
+    project: str | None = None,
+    mode: str | None = None,
+    as_of: str | None = None,
+    exclude_session: str | None = None,
+) -> str:
+    """Explain step by step how memory retrieval handles one question, with the real numbers:
+    search words, match strength vs the bar it must clear, whether meaning search ran and why,
+    what was left out, and what would be added to Claude's context. It runs the same retrieve()
+    function as the live hook and writes nothing.
+    When the user asks how something was found, quote the WHAT HAPPENED summary and the numbered
+    step headlines word for word; do not paraphrase the numbers.
+    Args: question - the question to explain; project - project prefix (default: from the working
+    folder); mode - force off, on_miss or always (default: the configured setting); as_of - ISO
+    time to ask as of (default: now); exclude_session - session id to leave out (default: the
+    newest session for the working folder)."""
+    try:
+        from scripts.remember_explain import ExplainError, explain
+    except Exception as e:
+        raise RuntimeError(
+            f"explain_retrieval is unavailable: scripts/remember_explain.py could not be imported "
+            f"({type(e).__name__}: {e}). Search tools still work.")
+    try:
+        return explain(question, project=project, mode=mode, as_of=as_of,
+                       exclude_session=exclude_session, root=ROOT)
+    except ExplainError as e:
+        raise RuntimeError(str(e))
+
+
+@mcp.tool()
 def get_status() -> str:
     """Returns database stats: sessions, messages, DB size, backup info, semantic status."""
     conn = get_db()
