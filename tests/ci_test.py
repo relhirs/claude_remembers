@@ -1549,9 +1549,79 @@ def test_file_structure():
         "hooks/user-prompt-submit.py",
         "scripts/metrics_utils.py", "scripts/backfill_metrics.py",
         "scripts/remember_baseline.py",
+        "examples/eval/run_eval.py", "examples/eval/golden_set.yaml",
+        "examples/eval/README.md",
     ]
     for f in expected_files:
         check(f"{f} exists", (ROOT / f).exists())
+
+
+# Compared between a fresh keyword-only run and the committed synthetic
+# results: ranked ids, outcomes, text fingerprints and metrics (all derived
+# from rank order). Never raw BM25 scores, similarities or timings.
+SYNTH_KEYWORD_METHODS = ("keyword", "keyword_ungated", "mcp")
+SYNTH_QUESTION_KEYS = ("sessions", "ids", "injected", "machine_rows")
+SYNTH_METRIC_KEYS = ("recall_at_1", "recall_at_3", "recall_at_5", "mrr", "false_injection_rate",
+                     "answerable_with_nothing_returned", "missed_ids", "machine_rows_returned",
+                     "by_tag", "recency")
+SYNTH_REPLAY_KEYS = ("id", "outcome", "result_ids", "output_sha256", "gate_fires", "gate_reason")
+
+
+def synthetic_differences(ref_dir, new_dir, methods=SYNTH_KEYWORD_METHODS):
+    """List every difference between two run_eval.py result folders."""
+    ref = json.loads((Path(ref_dir) / "eval.json").read_text())
+    new = json.loads((Path(new_dir) / "eval.json").read_text())
+    diffs = []
+    for m in methods:
+        for k in SYNTH_METRIC_KEYS:
+            if ref["methods"][m].get(k) != new["methods"][m].get(k):
+                diffs.append(f"{m}.{k}: {ref['methods'][m].get(k)} -> {new['methods'][m].get(k)}")
+        for q in ref["per_question"]:
+            for k in SYNTH_QUESTION_KEYS:
+                if ref["per_question"][q][m].get(k) != new["per_question"].get(q, {}).get(m, {}).get(k):
+                    diffs.append(f"{q}.{m}.{k}")
+    for name in ("replay_questions.jsonl", "replay_prompts.jsonl"):
+        read = lambda d: [{k: r.get(k) for k in SYNTH_REPLAY_KEYS}
+                          for r in map(json.loads, (Path(d) / name).read_text().splitlines())]
+        a, b = read(ref_dir), read(new_dir)
+        if len(a) != len(b):
+            diffs.append(f"{name}: {len(a)} records -> {len(b)}")
+        diffs += [f"{name}: {x['id']}" for x, y in zip(a, b) if x != y]
+    return diffs
+
+
+def test_synthetic_eval():
+    """examples/eval: rebuild the public synthetic database from scratch
+    (real schema, real ingest, real hook and MCP code in a sandbox) and check
+    the keyword paths still return exactly what the committed results say.
+    Keyword-only, because meaning search needs the embedding model download."""
+    print("\n--- Synthetic Eval (keyword-only) ---")
+    results = ROOT / "examples" / "eval" / "results"
+    runs = []
+    for d in (results.iterdir() if results.exists() else []):
+        info = d / "run.json"
+        if info.exists():
+            meta = json.loads(info.read_text())
+            if not meta.get("keyword_only"):
+                runs.append((meta["date"], d))
+    check("committed synthetic results exist", bool(runs))
+    if not runs:
+        return
+    ref = max(runs)[1]
+    with tempfile.TemporaryDirectory() as tmp:
+        res = subprocess.run([sys.executable, str(ROOT / "examples" / "eval" / "run_eval.py"),
+                              "--keyword-only", "--out", tmp], capture_output=True, text=True, timeout=900)
+        check("run_eval.py --keyword-only builds and scores the synthetic set", res.returncode == 0,
+              res.stderr[-800:])
+        if res.returncode != 0:
+            return
+        meta = json.loads((Path(tmp) / "run.json").read_text())
+        check("synthetic database: 22 sessions, 54 messages, 3 projects",
+              meta["database_facts"]["sessions"] == 22 and meta["database_facts"]["messages"] == 54
+              and len(meta["database_facts"]["projects"]) == 3, str(meta["database_facts"]))
+        diffs = synthetic_differences(ref, tmp)
+        check(f"keyword, keyword_ungated, mcp and the hook replay match {ref.name}", not diffs,
+              f"{len(diffs)} differences, e.g. {diffs[:5]}")
 
 
 if __name__ == "__main__":
@@ -1581,6 +1651,7 @@ if __name__ == "__main__":
     test_semantic_modes()
     test_semantic_helper()
     test_memory_check()
+    test_synthetic_eval()
 
     print("\n" + "=" * 60)
     print(f"  Results: {PASS} passed, {FAIL} failed")

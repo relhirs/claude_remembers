@@ -114,14 +114,17 @@ One thing to know about reading the baseline: the "meaning-based search would ha
 
 **The idea.** Take a question you know the answer to, like "where is the anthropic key stored now," and the past session where that answer lives. Ask the search the question, and see whether that session comes back. Do that for a few dozen questions and you have a score. Mix in a few questions that have no answer anywhere in memory, and you also learn something just as important: whether search stays quiet when it should, or hands back junk anyway.
 
-**It asks every question five ways**, so you can see what each piece contributes:
+**It asks every question six ways**, so you can see what each piece contributes:
 - *Keyword search only.*
 - *Keyword search without the weak-match gate*: the same search with the gate turned off, so you can see exactly what the gate is worth.
 - *Meaning-based search only.*
 - *`on_miss`*: keyword search, plus meaning search only when the gate says keyword search can't be trusted. This is the default mode.
 - *`always`*: keyword and meaning search together on every prompt.
+- *The MCP lookup tool (`search_transcripts`)*: what Claude gets when it searches memory by hand mid-conversation. It is a separate search from the automatic one above (no gate, no recency weighting, up to 20 results), so it gets its own score.
 
-**Reading the report.** For each way you get three plain numbers: how often the right memory was among the top 5 results, how often it was ranked first, and how often it injected junk when there was no answer. Higher is better for the first two, lower for the junk rate. 
+**Reading the report.** For each way you get three plain numbers: how often the right memory was among the top 5 results, how often it was ranked first, and how often it injected junk when there was no answer. Higher is better for the first two, lower for the junk rate. It also counts how often a machine-generated message (a subagent hand-back, command output) came back, which should be never.
+
+**A public version anyone can rerun.** Your own questions can't be shared, so `examples/eval/` holds a small invented dataset (three made-up projects, 54 messages) and 26 questions. `python3 examples/eval/run_eval.py` builds it into a throwaway database with the real code and scores it, without touching your config or memory. See `examples/eval/README.md`.
 
 **What it's good for.** Deciding things with evidence instead of guesses. The weak-match gate's threshold was set by this test, and so was the decision to drop typo correction. Run it before and after any change to search (`--label name` saves each run) and the difference is the effect of the change. A question counts as found if *any* message from the right session comes back, not one exact message.
 
