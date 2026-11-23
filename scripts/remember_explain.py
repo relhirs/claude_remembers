@@ -117,18 +117,36 @@ def short_snippet(text, n=80):
     return f'"{text[:n]}{"…" if len(text) > n else ""}"'
 
 
-def result_lines(view, kind="keyword", marker=""):
-    """Two lines per result: the snippet, then where it is from and its numbers."""
-    where = f'{view.get("project") or ""} · {(view.get("timestamp") or "")[:10]}'
-    if kind == "keyword":
-        age = "" if view.get("age_days") is None else f' · {view["age_days"]:g} days old'
-        adj = "" if view.get("adjusted_rank") is None else f' · adjusted for age {bm25(view["adjusted_rank"])}'
-        second = f'{where} · BM25 {bm25(view["rank"])}{age}{adj} · id {view.get("id")}'
-    elif view.get("similarity") is not None:
-        second = f'{where} · similarity {num(view["similarity"], 3)} · id {view.get("id")}'
-    else:
-        second = f'{where} · found by meaning search · id {view.get("id")}'
-    return [f"      {marker}{short_snippet(view['snippet'])}", f"          {second}"]
+def table(headers, rows, indent=6, width=100, right=()):
+    """A plain-text table that lines up in a monospace block (a terminal or a chat
+    code block). Columns are separated by ' | '. If the table is too wide, the
+    widest columns shrink and their cells wrap onto extra lines, so no line passes
+    `width`. Columns listed in `right` (by position) are right-aligned numbers."""
+    cols = len(headers)
+    cells = [[str(c) for c in r] for r in rows]
+    w = [max([len(h)] + [len(r[i]) for r in cells]) for i, h in enumerate(headers)]
+    avail = width - indent - 3 * (cols - 1)
+    while sum(w) > avail:
+        i = max(range(cols), key=lambda k: w[k])
+        if w[i] <= max(len(headers[i]), 8):
+            break
+        w[i] -= 1
+
+    def line(parts):
+        out = [(t.rjust(w[i]) if i in right else t.ljust(w[i])) for i, t in enumerate(parts)]
+        return " " * indent + " | ".join(out).rstrip()
+
+    lines = [line(headers), " " * indent + "-+-".join("-" * n for n in w)]
+    for r in cells:
+        wrapped = [textwrap.wrap(t, w[i], break_long_words=True, break_on_hyphens=False) or [""]
+                   for i, t in enumerate(r)]
+        for k in range(max(len(x) for x in wrapped)):
+            lines.append(line([x[k] if k < len(x) else "" for x in wrapped]))
+    return lines
+
+
+def _day(view):
+    return (view.get("timestamp") or "")[:10]
 
 
 def top_n(items, n=5):
@@ -169,6 +187,13 @@ def _gate_sentence(gate, trace, g):
         return (f"keyword results look trustworthy: the best result has {found} of {n_kw} search words "
                 f"({num(cov, 2)}, needs {rule('coverage', gate['min_coverage'], 2)}) and no memory phrasing")
     return "the check could not be completed"
+
+
+def _plural_gloss(g, key):
+    """The glossary term in the plural, with its explanation after it the first time:
+    'machine messages (text the tools wrote, not you or Claude)'."""
+    name, sep, rest = g(key).partition(" (")
+    return name + "s" + (sep + rest if sep else "")
 
 
 def THISRULE(t):
@@ -252,13 +277,16 @@ def summarize(trace, ctx, g):
             text = "No memories would be added. Keyword search found nothing usable."
     lines.append(wrap(text, 2))
     proj = ctx.get("project_label")
-    lines.append(f"  Project: {inp['project']}" + (f" ({proj})" if proj else ""))
     sess = inp.get("exclude_session")
-    lines.append(f"  Current {g('session')} to leave out: "
-                 + (f"{sess[:8]}… (Claude already has it)" if sess else "none given"))
     src = "forced for this explanation" if inp.get("mode_source") == "given" else "from your config"
-    lines.append(f"  {g('setting')[0].upper() + g('setting')[1:]}: {inp['mode']}, {src}")
-    lines.append(f"  As of: {inp['as_of'] or 'now'}")
+    lines.append("")
+    lines += table(["Setting", "Value"], [
+        ("Project", f"{inp['project']}" + (f" ({proj})" if proj else "")),
+        ("Conversation left out",
+         f"{sess[:8]}… ({g('session')} that Claude already has)" if sess else "none given"),
+        (g('setting')[0].upper() + g('setting')[1:], f"{inp['mode']}, {src}"),
+        ("As of", inp['as_of'] or 'now'),
+    ], indent=2)
     if ctx.get("project_note"):
         lines.append(wrap(ctx["project_note"], 2))
     return lines
@@ -353,8 +381,12 @@ def _render(trace, ctx):
     if cands:
         body.append(textwrap.fill(f"Ranked by {g('bm25')}, {g('recency')}:", width=100,
                                   initial_indent="      ", subsequent_indent="        "))
-        for v in shown:
-            body.extend(result_lines(v, "keyword"))
+        body += table(["#", "Memory", "Project", "Date", "BM25", "Adjusted", "Days old", "id"],
+                      [(i, short_snippet(v["snippet"], 70), v.get("project") or "", _day(v), bm25(v["rank"]),
+                        "" if v.get("adjusted_rank") is None else bm25(v["adjusted_rank"]),
+                        "" if v.get("age_days") is None else f"{v['age_days']:g}", v.get("id"))
+                       for i, v in enumerate(shown, 1)], right={0, 4, 5, 6, 7})
+        body.append("      (Adjusted = the BM25 score after the age adjustment; it decides the order.)")
         if more:
             body.append(f"      … and {more} more, all weaker")
     step(3, head, body if body else None)
@@ -423,8 +455,14 @@ def _render(trace, ctx):
                 f"{THRESHOLD_WORDING['cutoff'].format(t=num(retrieval.SEMANTIC_CUTOFF, 3))}.",
                 width=100, initial_indent="      ", subsequent_indent="        "))
             shown6, more6 = top_n(cands6)
-            for c in shown6:
-                body6.extend(result_lines(c, "meaning", marker="" if c["status"] == "kept" else "(left out) "))
+            status_words = {"kept": "kept", "below_cutoff": "left out: below the cutoff",
+                            "current_session": "left out: this conversation",
+                            "machine_message": "left out: machine message"}
+            body6 += table(["#", "Memory", "Project", "Date", "Similarity", "id", "Result"],
+                           [(i, short_snippet(c["snippet"], 70), c.get("project") or "", _day(c),
+                             "" if c.get("similarity") is None else num(c["similarity"], 3), c.get("id"),
+                             status_words.get(c["status"], c["status"]))
+                            for i, c in enumerate(shown6, 1)], right={0, 4, 5})
             if more6:
                 body6.append(f"      … and {more6} more, all further")
         if sem.get("error"):
@@ -442,9 +480,11 @@ def _render(trace, ctx):
         if sg.get("weak"):
             parts.append((len(cands), "set aside by the strength check"))
         sqlf = kw.get("sql_filtered") or {}
-        for key, label in (("current_session", f"from this {g('session')}"), ("machine_message", f"{g('machine')}s"),
-                           ("after_as_of", "newer than the as-of time")):
-            if sqlf.get(key):
+        for key in ("current_session", "machine_message", "after_as_of"):
+            if sqlf.get(key):                    # the glossary term is used up only when it is shown
+                label = {"current_session": lambda: f"from this {g('session')}",
+                         "machine_message": lambda: _plural_gloss(g, "machine"),
+                         "after_as_of": lambda: "newer than the as-of time"}[key]()
                 notes.append((sqlf[key], label))
     names_m = {"below_cutoff": "below the meaning cutoff", "current_session": "from this conversation",
                "machine_message": "machine messages"}
@@ -455,9 +495,18 @@ def _render(trace, ctx):
              f"What was left out, and why: {total} in all: " + " · ".join(f"{c} {t}" for c, t in parts) + ".")
     detail7 = None
     if notes:
-        detail7 = ("      also, counted just for this explanation (the real search removes them before ranking): "
-                   + " · ".join(f"{c} matching messages {t}" for c, t in notes))
-    step(7, head7, detail7)
+        detail7 = ["      Also counted just for this explanation (the real search removes these before ranking):"]
+        detail7 += table(["Matching messages", "Which"], [(c, t) for c, t in notes], right={0})
+    body7 = table(["Left out", "Reason"], [(c, t) for c, t in parts], right={0}) if parts else None
+    why5 = None
+    if any(d["reason"] == "over_cap" for d in kw.get("dropped", [])):
+        why5 = textwrap.fill(
+            f"Why {retrieval.MAX_RESULTS}? It is a fixed limit (MAX_RESULTS in scripts/retrieval.py), set when the "
+            "hook was written and not tuned against the eval. What it does: whatever is added to Claude's context "
+            f"on every prompt stays small ({trace.get('injected_chars', 0)} characters, about "
+            f"{trace.get('tokens_est', 0)} tokens for this question). The results over the limit are not errors: they "
+            "come after the first 5 in the search's order (matches from your current project first, then the rest by score).", width=100, initial_indent="      ", subsequent_indent="      ")
+    step(7, head7, body7, why5, detail7)
 
     # 8. final list
     rows = trace.get("rows", [])
@@ -466,12 +515,11 @@ def _render(trace, ctx):
     if not rows:
         step(8, "Final list: empty.")
     else:
-        body8 = []
         shown8, more8 = top_n(rows)
-        for i, v in enumerate(shown8, 1):
-            m = merge.get(v["id"], {})
-            src = {"keyword": "keyword search", "meaning": "meaning search", "both": "both searches"}.get(m.get("source"), "keyword search")
-            body8.append(f"      {i}. {src} · id {v['id']} · {short_snippet(v['snippet'], 60)}")
+        srcs = {"keyword": "keyword search", "meaning": "meaning search", "both": "both searches"}
+        body8 = table(["#", "Found by", "id", "Memory"],
+                      [(i, srcs.get(merge.get(v["id"], {}).get("source"), "keyword search"), v["id"],
+                        short_snippet(v["snippet"], 70)) for i, v in enumerate(shown8, 1)], right={0, 2})
         if more8:
             body8.append(f"      … and {more8} more")
         both = any(m.get("source") == "both" for m in merge.values()) or (

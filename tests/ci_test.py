@@ -1959,6 +1959,37 @@ def test_explain_render():
           {"keyword_hit", "hybrid_hit", "semantic_hit", "no_match", "skipped_short", "skipped_no_keywords",
            "no_match_semantic_unavailable"} <= set(seen.values()), str(sorted({str(v) for v in seen.values()})))
 
+    # tables: the lists and the settings are aligned tables, every column bar lines up
+    trace = {}
+    retrieval.retrieve(conn, {}, strong, project="oth", mode="always", semantic_fn=stub(0.9), detail=True, trace=trace)
+    lines = rx.render(trace, {}).splitlines()
+    heads = [i for i, l in enumerate(lines) if l.lstrip().startswith(("Setting ", "# |", "Left out |"))]
+    aligned = bool(heads)
+    for h in heads:
+        bars = [k for k, ch in enumerate(lines[h]) if ch == "|"]
+        for row in lines[h + 2:]:                      # rows continue until a line without a bar
+            if "|" not in row:
+                break
+            aligned &= [k for k, ch in enumerate(row) if ch == "|"] == bars
+    names = [lines[h].strip().split(" ")[0] for h in heads]
+    check("settings, keyword results, meaning results, left-out reasons and the final list are tables with aligned columns",
+          aligned and names.count("#") == 3 and "Setting" in names and "Left" in names, str(names))
+    trace["keyword"]["sql_filtered"] = {"matching_total": 20, "current_session": 6, "machine_message": 5}
+    text = rx.render(trace, {})
+    check("the 'also counted' note has no comma after 'also', no 'message (…)s', and is a table",
+          "Also counted just for this explanation" in text and "also," not in text.lower()
+          and ")s" not in text and "machine messages (text the tools wrote" in text
+          and any(l.strip().startswith("6 | from this conversation") or "| from this conversation" in l
+                  for l in text.splitlines()), text[text.find("Also counted"):][:400])
+    capped = {}
+    retrieval.retrieve(conn, {}, "dupe sentence about marmot rollout", project="oth", mode="off", detail=True, trace=capped)
+    text_capped, text_plain = rx.render(capped, {}), rx.render(trace, {})
+    check("when results are cut at the limit, step 7 says why the limit is 5 (and what that means), else it stays quiet",
+          "Why 5? It is a fixed limit (MAX_RESULTS" in text_capped and "not tuned against the eval" in text_capped
+          and "Why 5?" not in text_plain)
+    t = rx.table(["a", "b"], [("x" * 200, "1"), ("y", "22")], indent=4, width=60, right={1})
+    check("a table too wide for the screen shrinks its widest column and wraps, never passing the width",
+          max(len(l) for l in t) <= 60 and len(t) > 4 and t[0].count("|") == 1)
     trace = {}
     retrieval.retrieve(conn, {}, strong, project="oth", mode="off", detail=True, trace=trace)
     lead = rx.render(trace, {"clear_pending": "old-session"}).splitlines()
