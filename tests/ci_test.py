@@ -1733,6 +1733,69 @@ def test_explain_matches_hook():
               f"differ on {bad[:6]}")
 
 
+def test_hook_project_bias_by_folder():
+    """Which project the real hook favors depends on the folder, and only on whether a
+    mapping entry matched: a mapped folder favors its project, an unmapped one favors
+    none, a folder mapped to "oth" on purpose still favors "oth". One question (the
+    synthetic q01) and a few invented "oth" rows make the three results differ."""
+    print("\n--- Hook Project Bias By Folder ---")
+    import yaml as _yaml
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import retrieval as _retrieval
+    q = _yaml.safe_load((ROOT / "examples" / "eval" / "golden_set.yaml").read_text())["questions"][0]
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, mod = _build_synthetic_keyword_db(tmp)
+        conn = sqlite3.connect(db)
+        for i in range(5):          # invented; the insert trigger puts them in the search index
+            conn.execute("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp, source) "
+                         "VALUES (?, 'oth', ?, 'user', ?, '2026-05-01T00:00:00Z', 'test')",
+                         (f"inv-oth-{i}", f"inv-{i}", f"Invented note {i}: the species picker came up once during "
+                          "an unrelated chat about lunch plans and nothing else."))
+        conn.commit()
+        base_cfg = _yaml.safe_load((root / "config.yaml").read_text())
+
+        def injected(project):
+            trace = {}
+            _retrieval.retrieve(conn, base_cfg, q["question"], project=project, exclude_session="ci-session",
+                                mode="off", trace=trace)
+            return trace["injected_text"]
+
+        def hook_says(folder, mapping):
+            (root / "config.yaml").write_text(_yaml.safe_dump({**base_cfg, "jsonl_project_mapping": mapping}))
+            res = subprocess.run([sys.executable, str(root / "hooks" / "user-prompt-submit.py")],
+                                 input=json.dumps({"session_id": "ci-session", "prompt": q["question"]}),
+                                 capture_output=True, text=True, timeout=60, env={**os.environ, "CWD": folder})
+            return json.loads(res.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+
+        synthetic = mod.SYNTHETIC_PROJECTS
+        cases = [   # name, folder, mapping, project the hook must favor, project it must NOT behave as
+            ("mapped folder favors its project", "/work/tidepool", synthetic, "tdp", None),
+            ("unmapped folder favors none", "/work/unmapped-folder", synthetic, None, "oth"),
+            ("folder mapped to oth still favors oth", "/work/other", {**synthetic, "other": "oth"}, "oth", None)]
+        for name, folder, mapping, want, not_want in cases:
+            expect, other = injected(want), injected(not_want)
+            if expect == other:
+                check(f"{name}: fixture can tell the two searches apart", False,
+                      "both searches inject the same text, so this row would pass for any rule")
+                continue
+            got = hook_says(folder, mapping)
+            check(name, got == expect and got != other)
+
+        # explain describes the search the hook runs, including in an unmapped folder
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import remember_explain as rx
+        (root / "config.yaml").write_text(_yaml.safe_dump({**base_cfg, "jsonl_project_mapping": synthetic}))
+        trace, ctx = rx.run_explain(q["question"], exclude_session="ci-session", root=root, cwd="/work/unmapped-folder")
+        check("explain in an unmapped folder searches with no project and says so",
+              trace["injected_text"] == injected(None) and trace["inputs"]["project"] is None
+              and "no project is favored" in ctx.get("project_note", ""))
+        trace, ctx = rx.run_explain(q["question"], project="tdp", exclude_session="ci-session", root=root,
+                                    cwd="/work/unmapped-folder")
+        check("explain with a chosen project says the hook here would favor none",
+              trace["injected_text"] == injected("tdp") and "would favor none" in ctx.get("project_note", ""))
+        conn.close()
+
+
 def test_explain_writes_nothing():
     """Explain changes nothing: no log line, no event row, /clear still pending, no
     helper, database bytes untouched, and hostile question text sent on stdin is not executed.
@@ -2722,6 +2785,50 @@ def test_run_eval_refuses_db_without_out():
     check("nothing was written into examples/eval/results/", listing() == before)
 
 
+def test_run_eval_stamp_untracked():
+    """Finding 15: an untracked .py under hooks/, mcp/ or scripts/ is copied into the
+    eval sandbox, so the stamp must not claim the retrieval code matches the commit."""
+    print("\n--- run_eval.py: stamp sees untracked code ---")
+    spec = importlib.util.spec_from_file_location("run_eval_stamp", ROOT / "examples" / "eval" / "run_eval.py")
+    re_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(re_mod)
+
+    def fake_git(untracked):
+        def run(*a):
+            out = {"rev-parse": "abc1234\n", "ls-files": untracked, "status": ""}.get(a[0], "")
+            return subprocess.CompletedProcess(a, 0, stdout=out, stderr="")
+        return run
+    clean = re_mod.stamp(git=fake_git(""))
+    dirty = re_mod.stamp(git=fake_git("scripts/new_tool.py\nscripts/notes.txt\n"))
+    check("no untracked code: stamp says the code matches", clean["retrieval_code_matches_commit"] is True)
+    check("one untracked .py: stamp says it does not match", dirty["retrieval_code_matches_commit"] is False)
+    check("only the .py file is counted", dirty["untracked_code_files"] == 1)
+
+
+def test_compare_tool_logic():
+    """remember_compare: the sign test says what the plan promises, and the
+    cross-check names the question whose bias-on side differs from a reference."""
+    print("\n--- remember_compare.py: sign test and cross-check ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import remember_compare as rc
+    finally:
+        sys.path.remove(str(ROOT / "scripts"))
+    p, plain = rc.sign_test(3, 0)
+    check("3 vs 0 gives p = 0.25 and says luck is not ruled out", p == 0.25 and "rule out luck" in plain, plain)
+    check("0 vs 0 says nothing changed", rc.sign_test(0, 0)[0] == 1.0)
+    check("10 vs 0 is called a clear direction", "clear direction" in rc.sign_test(10, 0)[1])
+    with tempfile.TemporaryDirectory() as d:
+        ref = Path(d) / "cap_study.json"
+        ref.write_text(json.dumps({"policies": {"F4-ctf": {"per_question": {
+            "q1": {"found_flag": True, "first_pos": 1, "ids": [5]},
+            "q2": {"found_flag": False, "first_pos": None, "ids": [7]}}}}}))
+        mk = lambda found, pos, ids: {"j": {"on": {"on_miss": {"found": found, "first_pos": pos, "ids": ids}}}}
+        recs = [{"id": "q1", **mk(True, 1, [5])}, {"id": "q2", **mk(False, None, [8])}, {"id": "q3", **mk(False, None, [])}]
+        check("cross-check names only the questions that differ or are missing",
+              rc.cross_check(recs, ref) == ["q2", "q3"])
+
+
 def test_hook_equivalence_compare():
     """tests/hook_equivalence.py compare() must notice a retrieval_events row that only
     the new hook writes (it used to miss it when the old hook wrote none)."""
@@ -2741,6 +2848,36 @@ def test_hook_equivalence_compare():
           len(he.compare([run([row])], [run([{**row, "n_results": 2}])])) == 1)
     check("a recorded field that only the new run has is a difference",
           len(he.compare([run([])], [run([], helper_started=1)])) == 1)
+
+    # labeled scenarios (B1.3): the pass rule and the label check
+    def res(name, outcome="keyword_hit", **extra):
+        return {"name": name, "stdout_sha": "x", "log": [], "ev": {"outcome": outcome}, "events": [], **extra}
+    mapped = {"name": "m", "folder_kind": "mapped", "expected_prefix": "tdp"}
+    unmapped = {"name": "u", "folder_kind": "unmapped", "expected_prefix": None}
+    clear = {"name": "clear:unmapped-pending", "folder_kind": "unmapped", "expected_prefix": None}
+    same = [res("m"), res("u")]
+    changed_u = [res("m"), res("u", outcome="semantic_hit")]
+    check("an unmapped difference that equals the stand-in passes",
+          he.judge([mapped, unmapped], same, changed_u, changed_u, private=True)["ok"])
+    check("an unmapped difference that does not equal the stand-in fails",
+          not he.judge([mapped, unmapped], same, changed_u, same, private=True)["ok"])
+    check("a mapped difference fails",
+          not he.judge([mapped, unmapped], same, [res("m", outcome="semantic_hit"), res("u")],
+                       [res("m"), res("u")], private=False)["ok"])
+    probe = lambda project, entry: {"_probe": {"project": project, "entry_match": entry}}
+    labels = [mapped, unmapped]
+    check("labels the old project_for_cwd agrees with pass",
+          he.check_labels(labels, [res("m", **probe("tdp", True)), res("u", **probe("oth", False))]) == [])
+    check("an unmapped label the old project_for_cwd contradicts fails",
+          he.check_labels(labels, [res("m", **probe("tdp", True)), res("u", **probe("tdp", True))]) == ["u"])
+    check("a mapped label the old project_for_cwd contradicts fails",
+          he.check_labels(labels, [res("m", **probe("oth", False)), res("u", **probe("oth", False))]) == ["m"])
+    check("a private run with no changed unmapped scenario fails; a synthetic one passes",
+          not he.judge([mapped, unmapped], same, same, same, private=True)["ok"]
+          and he.judge([mapped, unmapped], same, same, same, private=False)["ok"])
+    check("post-/clear in an unmapped folder must match the plain old hook",
+          not he.judge([clear], [res("clear:unmapped-pending")], [res("clear:unmapped-pending", outcome="post_clear")],
+                       [res("clear:unmapped-pending", outcome="post_clear")], private=False)["ok"])
 
 
 if __name__ == "__main__":
@@ -2775,6 +2912,7 @@ if __name__ == "__main__":
     test_explain_render()
     test_package_import_identity()
     test_explain_matches_hook()
+    test_hook_project_bias_by_folder()
     test_explain_writes_nothing()
     test_setup_commands_only()
     test_explain_command_template()
@@ -2785,6 +2923,8 @@ if __name__ == "__main__":
     test_cap_study_output_allowlist()
     test_eval_mcp_is_read_only()
     test_run_eval_refuses_db_without_out()
+    test_run_eval_stamp_untracked()
+    test_compare_tool_logic()
     test_hook_equivalence_compare()
     test_synthetic_eval()
 

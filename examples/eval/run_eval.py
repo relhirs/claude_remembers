@@ -43,6 +43,16 @@ Options:
   --cap-study-as-of ISO
                    fixed "now" for the study (its --as-of), for a golden set
                    with no as_of. A golden set's own as_of wins.
+  --compare NAME   also run scripts/remember_compare.py NAME (Phase 4, Part B: the
+                   same questions asked two ways, e.g. project-bias) inside the
+                   sandbox and write compare_NAME.json and .txt next to the other
+                   results. Measurement only; needs the embedding model.
+  --compare-project NAME, --compare-as-of ISO
+                   like the cap-study options: the project every question is
+                   searched as, and a fixed "now" for a golden set with no as_of.
+  --compare-check FILE
+                   a cap_study.json from the same dataset; the comparison's
+                   bias-on side must equal it question by question.
 """
 
 import argparse
@@ -77,14 +87,27 @@ def _git(*args):
     return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, timeout=30)
 
 
-def stamp():
-    commit = _git("rev-parse", "--short", "HEAD").stdout.strip() or None
+# Folders whose untracked .py files end up in the sandbox (make_sandbox copies
+# every scripts/*.py) and so can change what a run measures.
+SANDBOX_CODE_DIRS = ["hooks", "mcp", "scripts"]
+
+
+def stamp(git=None):
+    """git: injectable runner (same call shape as _git), for tests."""
+    git = git or _git
+    commit = git("rev-parse", "--short", "HEAD").stdout.strip() or None
+    untracked = [f for f in git("ls-files", "--others", "--exclude-standard", "--",
+                                *SANDBOX_CODE_DIRS).stdout.splitlines() if f.endswith(".py")]
     return {
         "date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "commit": commit,
         # Tracked files only: an untracked scratch file says nothing about the code.
-        "uncommitted_changes": bool(_git("status", "--porcelain", "--untracked-files=no").stdout.strip()),
-        "retrieval_code_matches_commit": _git("diff", "--quiet", "HEAD", "--", *RETRIEVAL_FILES).returncode == 0,
+        "uncommitted_changes": bool(git("status", "--porcelain", "--untracked-files=no").stdout.strip()),
+        # Untracked .py files in hooks/, mcp/, scripts/ are copied into the sandbox
+        # (finding 15), so they count against "the code is the commit's code".
+        "untracked_code_files": len(untracked),
+        "retrieval_code_matches_commit": git("diff", "--quiet", "HEAD", "--", *RETRIEVAL_FILES).returncode == 0
+                                         and not untracked,
         "python": platform.python_version(),
         "sqlite": sqlite3.sqlite_version,
         "platform": sys.platform,
@@ -230,7 +253,15 @@ def main():
     p.add_argument("--cap-study", action="store_true")
     p.add_argument("--cap-study-project")
     p.add_argument("--cap-study-as-of")
+    p.add_argument("--compare", choices=["project-bias"])
+    p.add_argument("--compare-project")
+    p.add_argument("--compare-as-of")
+    p.add_argument("--compare-check")
     args = p.parse_args()
+    if args.compare and args.keyword_only:
+        p.error("--compare needs the embedding model: drop --keyword-only")
+    if (args.compare_project or args.compare_as_of or args.compare_check) and not args.compare:
+        p.error("--compare-project, --compare-as-of and --compare-check only apply with --compare")
     if args.cap_study and args.keyword_only:
         p.error("--cap-study needs the embedding model: drop --keyword-only")
     if (args.cap_study_project or args.cap_study_as_of) and not args.cap_study:
@@ -325,6 +356,18 @@ def main():
             if args.cap_study_as_of:
                 study_args += ["--as-of", args.cap_study_as_of]
             run_script(root, "remember_cap_study.py", *study_args)
+
+        if args.compare:
+            print(f"Running the {args.compare} comparison...", file=sys.stderr)
+            cmp_args = [args.compare, "--golden", str(root / "golden_set.yaml"), "--out", str(out),
+                        "--git-commit", ev["git_commit"]]
+            if args.compare_project:
+                cmp_args += ["--default-project", args.compare_project]
+            if args.compare_as_of:
+                cmp_args += ["--as-of", args.compare_as_of]
+            if args.compare_check:
+                cmp_args += ["--check-against", str(pathlib.Path(args.compare_check).resolve())]
+            run_script(root, "remember_compare.py", *cmp_args)
 
         (out / "run.json").write_text(json.dumps(run_info, indent=2) + "\n")
         (out / "eval.json").write_text(json.dumps(ev, indent=2) + "\n")

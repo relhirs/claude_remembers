@@ -5,8 +5,8 @@ hook_equivalence.py - Prove two versions of hooks/user-prompt-submit.py behave i
 Not part of CI (it needs a database and, for the synthetic set, the embedding
 model to build one). Run it by hand around any change to the hook:
 
-    .venv/bin/python tests/hook_equivalence.py --ref 8859c80                 # synthetic set
-    .venv/bin/python tests/hook_equivalence.py --ref 8859c80 --dataset private \\
+    .venv/bin/python tests/hook_equivalence.py --ref 2d1805e                 # synthetic set
+    .venv/bin/python tests/hook_equivalence.py --ref 2d1805e --dataset private \\
         --db eval/snapshots/private-2026-11-23.db --golden eval/golden_set.yaml \\
         --config-from config.yaml --limit 300
 
@@ -26,7 +26,25 @@ search and the helper were called, and whether the /clear mark was set.
 Message text is only ever compared as hashes, so a private run prints no
 memory content; a mismatch names the scenario and the field only.
 
-Exit code 0 = identical, 1 = something differs.
+Every scenario is LABELED when it is created: folder_kind "mapped" (some mapping
+entry matches its folder) or "unmapped" (none does). Nothing reads the code under
+test to decide a label. The OLD hook's own project_for_cwd() then confirms every
+label before any comparison; a contradicted label stops the run.
+
+Three runs make the proof for a change in how unmapped folders rank results
+(Phase 4, B1): the old hook, the new hook, and "old hook without bias" (the old
+hook with its retrieve() wrapped so project="oth" becomes None, on unmapped
+scenarios only). It passes when
+  1. every mapped scenario (including every folder mapped to "oth") is identical
+     to the old hook on every field;
+  2. every unmapped scenario is identical to "old hook without bias";
+  3. clear:unmapped-pending is also identical to the plain old hook (post-/clear
+     is untouched);
+  4. on a private run, at least one unmapped scenario really changed.
+Without a label-aware change, use a ref whose hook behaves the same and the
+unmapped scenarios simply match the old hook too.
+
+Exit code 0 = identical (as above), 1 = something differs.
 """
 
 import argparse
@@ -101,7 +119,7 @@ def _clean_event(row):
     return out
 
 
-def run_scenarios(root, scenarios):
+def run_scenarios(root, scenarios, strip_oth_bias=False):
     import contextlib
     import importlib.util
     import io
@@ -116,6 +134,13 @@ def run_scenarios(root, scenarios):
     db_path = base_config["storage"]["local_db_path"]
     log_path = root / "logs" / "retrieval.log"
     helper = {"started": 0}
+    real_retrieve = getattr(hook, "retrieve", None)
+
+    def retrieve_without_oth_bias(*a, **k):
+        # the stand-in: the old hook's search with its catch-all project favored by nobody
+        if k.get("project") == "oth":
+            k["project"] = None
+        return real_retrieve(*a, **k)
     hook._start_helper = lambda r, c: helper.__setitem__("started", helper["started"] + 1)
 
     results = []
@@ -137,6 +162,13 @@ def run_scenarios(root, scenarios):
         hook._helper_vector = (lambda r, t: [0.1, 0.2]) if mode == "always_up" else (lambda r, t: None)
         helper["started"] = 0
         os.environ["CWD"] = sc["cwd"]
+        if real_retrieve is not None:
+            hook.retrieve = (retrieve_without_oth_bias
+                             if strip_oth_bias and sc.get("folder_kind") == "unmapped" else real_retrieve)
+        # what THIS sandbox's hook says about the folder, for the label check
+        norm = hook.normalize_for_match
+        probe = {"project": hook.project_for_cwd(cfg, sc["cwd"]),
+                 "entry_match": any(norm(f) in norm(sc["cwd"]) for f in (cfg.get("jsonl_project_mapping") or {}))}
 
         conn = sqlite3.connect(db_path)
         pending = sc.get("pending_clear")
@@ -202,6 +234,7 @@ def run_scenarios(root, scenarios):
             "semantic_calls": None if stub is None else stub.calls,
             "helper_started": helper["started"],
             "clear_shown": shown,
+            "_probe": probe,
         })
     return results
 
@@ -238,11 +271,27 @@ def build_variant(base, label, source, db_src, base_config):
     return root
 
 
-def cwd_for(project, mapping):
+UNMAPPED_CWD = "/work/unmapped-folder"
+
+
+def folder_for(project, mapping):
+    """(folder, label, prefix the folder was built from). A mapping entry for the
+    project gives a "mapped" folder; the fallback folder is "unmapped". The label
+    is set here, from how the folder was made, never from the hook's answer."""
     for folder, prefix in mapping.items():
         if prefix == project:
-            return f"/work/{folder}"
-    return "/work/unmapped-folder"
+            return f"/work/{folder}", "mapped", prefix
+    return UNMAPPED_CWD, "unmapped", None
+
+
+def cwd_for(project, mapping):
+    return folder_for(project, mapping)[0]
+
+
+def _labeled(sc, project, mapping):
+    cwd, kind, prefix = folder_for(project, mapping)
+    sc.update({"cwd": cwd, "folder_kind": kind, "expected_prefix": prefix})
+    return sc
 
 
 def make_scenarios(db_path, mapping, golden_path, limit):
@@ -258,23 +307,31 @@ def make_scenarios(db_path, mapping, golden_path, limit):
             for q in questions:
                 project = q.get("project") or main_project
                 for mode in MODES:
-                    scenarios.append({"name": f"q:{q['id']}:{mode}", "prompt": q["question"],
-                                      "session_id": "equiv-session", "cwd": cwd_for(project, mapping),
-                                      "mode": mode})
+                    scenarios.append(_labeled({"name": f"q:{q['id']}:{mode}", "prompt": q["question"],
+                                               "session_id": "equiv-session", "mode": mode}, project, mapping))
+                # the same question from a folder no mapping entry matches
+                for mode in MODES:
+                    scenarios.append({"name": f"qu:{q['id']}:{mode}", "prompt": q["question"],
+                                      "session_id": "equiv-session", "cwd": UNMAPPED_CWD, "mode": mode,
+                                      "folder_kind": "unmapped", "expected_prefix": None})
+                # and from a folder deliberately mapped to "oth" (only if the config has one)
+                if "oth" in mapping.values():
+                    scenarios.append(_labeled({"name": f"mapped-oth:{q['id']}:on_miss", "prompt": q["question"],
+                                               "session_id": "equiv-session", "mode": "on_miss"}, "oth", mapping))
 
         rows = conn.execute(
             "SELECT session_id, project, content FROM transcripts WHERE type = 'user' AND role = 'user' "
             "AND is_subagent = 0 AND LENGTH(TRIM(content)) > 0 ORDER BY timestamp").fetchall()
         stride = max(1, len(rows) // limit) if limit else 1
         for i, (sid, project, content) in enumerate(rows[::stride]):
-            scenarios.append({"name": f"p:{i}", "prompt": content[:4000], "session_id": sid,
-                              "cwd": cwd_for(project, mapping), "mode": MODES[i % 4]})
+            scenarios.append(_labeled({"name": f"p:{i}", "prompt": content[:4000], "session_id": sid,
+                                       "mode": MODES[i % 4]}, project, mapping))
         sample = next((c for _, _, c in rows if len(c.strip()) >= 15), "what did we decide about the plan")
         long_prompt = sample[:300]
     finally:
         conn.close()
 
-    cwd = cwd_for(main_project, mapping)
+    cwd, cwd_kind, cwd_prefix = folder_for(main_project, mapping)
     edge = [
         ("edge:empty-prompt", {"prompt": ""}),
         ("edge:short-prompt", {"prompt": "ok thanks"}),
@@ -289,10 +346,11 @@ def make_scenarios(db_path, mapping, golden_path, limit):
     for name, extra in edge:
         for mode in MODES:
             sc = {"name": f"{name}:{mode}", "session_id": "equiv-session", "cwd": cwd, "mode": mode,
-                  "prompt": long_prompt}
+                  "prompt": long_prompt, "folder_kind": cwd_kind, "expected_prefix": cwd_prefix}
             sc.update(extra)
             scenarios.append(sc)
-    scenarios += [
+    base = {"folder_kind": cwd_kind, "expected_prefix": cwd_prefix}
+    scenarios += [{**base, **sc} for sc in [
         {"name": "edge:semantic-missing:on_miss", "prompt": "zzqplex wibblefrotz quuxborg nothing matches here",
          "session_id": "equiv-session", "cwd": cwd, "mode": "on_miss", "semantic": "missing"},
         {"name": "edge:semantic-missing:always", "prompt": long_prompt, "session_id": "equiv-session",
@@ -304,17 +362,21 @@ def make_scenarios(db_path, mapping, golden_path, limit):
         {"name": "edge:metrics-off", "prompt": long_prompt, "session_id": "equiv-session", "cwd": cwd,
          "mode": "on_miss", "config_extra": {"metrics": {"enabled": False}}},
         {"name": "edge:unmapped-folder", "prompt": long_prompt, "session_id": "equiv-session",
-         "cwd": "/nowhere/special", "mode": "on_miss"},
-    ]
+         "cwd": "/nowhere/special", "mode": "on_miss", "folder_kind": "unmapped", "expected_prefix": None},
+    ]]
     pending = {"session": "equiv-old-clear", "project": main_project}
-    scenarios += [
+    scenarios += [{**base, **sc} for sc in [
         {"name": "clear:first-prompt", "prompt": long_prompt, "session_id": "equiv-new-session", "cwd": cwd,
          "mode": "on_miss", "pending_clear": pending},
         {"name": "clear:second-prompt", "prompt": long_prompt, "session_id": "equiv-new-session", "cwd": cwd,
          "mode": "on_miss"},
         {"name": "clear:short-prompt", "prompt": "continue", "session_id": "equiv-new-session-2", "cwd": cwd,
          "mode": "on_miss", "pending_clear": pending},
-    ]
+    ]]
+    # an unmapped folder with a pending /clear under "oth": post-/clear must be untouched
+    scenarios.append({"name": "clear:unmapped-pending", "prompt": long_prompt, "session_id": "equiv-new-session-3",
+                      "cwd": UNMAPPED_CWD, "mode": "on_miss", "folder_kind": "unmapped", "expected_prefix": None,
+                      "pending_clear": {"session": "equiv-old-clear-unmapped", "project": "oth"}})
     return scenarios
 
 
@@ -334,11 +396,12 @@ def build_synthetic_db(base):
     return db
 
 
-def run_variant(root, scenarios, out_dir):
+def run_variant(root, scenarios, out_dir, strip_oth_bias=False):
     sc_file = pathlib.Path(out_dir) / f"{root.name}-scenarios.json"
     out_file = pathlib.Path(out_dir) / f"{root.name}-results.json"
     sc_file.write_text(json.dumps(scenarios))
-    res = subprocess.run([sys.executable, str(SELF), "--runner", str(root), str(sc_file), str(out_file)],
+    res = subprocess.run([sys.executable, str(SELF), "--runner", str(root), str(sc_file), str(out_file)]
+                         + (["--strip-oth-bias"] if strip_oth_bias else []),
                          capture_output=True, text=True, timeout=3600, cwd=str(root))
     if res.returncode != 0:
         raise SystemExit(f"runner failed for {root.name}:\n{res.stderr[-3000:]}")
@@ -360,6 +423,8 @@ def compare(old, new):
         return [("<all>", "scenario count", len(old), len(new))]
     for o, n in zip(old, new):
         for key in sorted(set(o) | set(n)):       # a field only the new run has is a difference too
+            if key.startswith("_"):               # label probes, not behavior
+                continue
             if key not in o or key not in n:
                 diffs.append((o["name"], f"field presence: {key}", key in o, key in n))
             elif key == "ev":
@@ -386,9 +451,62 @@ def compare(old, new):
     return diffs
 
 
+def check_labels(scenarios, old_results):
+    """Names of scenarios whose label the OLD hook's own project_for_cwd() contradicts.
+    unmapped: no entry matches and the project is "oth". mapped: an entry matches and
+    the project is the prefix the folder was built from."""
+    probes = {r["name"]: r["_probe"] for r in old_results}
+    bad = []
+    for sc in scenarios:
+        probe = probes[sc["name"]]
+        if sc["folder_kind"] == "unmapped":
+            ok = probe["project"] == "oth" and not probe["entry_match"]
+        else:
+            ok = probe["entry_match"] and probe["project"] == sc["expected_prefix"]
+        if not ok:
+            bad.append(sc["name"])
+    return bad
+
+
+def _fields(diffs):
+    out = {}
+    for _name, field, _a, _b in diffs:
+        out[field] = out.get(field, 0) + 1
+    return out
+
+
+def judge(scenarios, old, new, standin, private):
+    """The pass rule (see the module docstring). Returns a report; report["ok"] is the verdict."""
+    O, N, S = ({r["name"]: r for r in rs} for rs in (old, new, standin))
+    rep = {"mapped_total": 0, "mapped_differ": {}, "unmapped_total": 0, "unmapped_changed": {},
+           "unmapped_not_standin": {}, "clear_unmapped_differs": None}
+    for sc in scenarios:
+        name = sc["name"]
+        vs_old = compare([O[name]], [N[name]])
+        if sc["folder_kind"] == "mapped":
+            rep["mapped_total"] += 1
+            if vs_old:
+                rep["mapped_differ"][name] = _fields(vs_old)
+            continue
+        rep["unmapped_total"] += 1
+        vs_standin = compare([S[name]], [N[name]])
+        if vs_standin:
+            rep["unmapped_not_standin"][name] = _fields(vs_standin)
+        if vs_old:
+            rep["unmapped_changed"][name] = _fields(vs_old)
+        if name == "clear:unmapped-pending":
+            rep["clear_unmapped_differs"] = bool(vs_old)
+    rep["private_exercised"] = bool(rep["unmapped_changed"])
+    rep["ok"] = (not rep["mapped_differ"] and not rep["unmapped_not_standin"]
+                 and not rep["clear_unmapped_differs"]
+                 and (rep["private_exercised"] or not private))
+    return rep
+
+
 def main():
     if len(sys.argv) >= 5 and sys.argv[1] == "--runner":
-        results = run_scenarios(sys.argv[2], json.loads(pathlib.Path(sys.argv[3]).read_text()))
+        results = run_scenarios(sys.argv[2], json.loads(pathlib.Path(sys.argv[3]).read_text()),
+                                strip_oth_bias="--strip-oth-bias" in sys.argv[5:])
         pathlib.Path(sys.argv[4]).write_text(json.dumps(results))
         return 0
 
@@ -424,8 +542,19 @@ def main():
         print(f"{len(scenarios)} scenarios; old = {args.ref}, new = working tree", file=sys.stderr)
         old_root = build_variant(base, "old", args.ref, db, base_config)
         new_root = build_variant(base, "new", "worktree", db, base_config)
+        standin_root = build_variant(base, "oldnobias", args.ref, db, base_config)
         old = run_variant(old_root, scenarios, base)
+        # label check first: no comparison number is written if a label is wrong
+        bad_labels = check_labels(scenarios, old)
+        if bad_labels:
+            print(f"LABEL CHECK FAILED: the old hook's project_for_cwd() contradicts the label of "
+                  f"{len(bad_labels)} scenarios: {bad_labels[:40]}")
+            return 1
+        n_un = sum(1 for sc in scenarios if sc["folder_kind"] == "unmapped")
+        print(f"label check passed: {len(scenarios) - n_un} mapped and {n_un} unmapped scenarios agree "
+              "with the old hook's project_for_cwd()")
         new = run_variant(new_root, scenarios, base)
+        standin = run_variant(standin_root, scenarios, base, strip_oth_bias=True)
 
         if snapshot_sha:
             after = hashlib.sha256(pathlib.Path(db).read_bytes()).hexdigest()
@@ -433,7 +562,7 @@ def main():
             if after != snapshot_sha:
                 return 1
 
-        diffs = compare(old, new)
+        diffs = []                                  # replaced by the labeled rules below
         kinds = {}
         for r in new:
             kinds[r["stdout_kind"]] = kinds.get(r["stdout_kind"], 0) + 1
@@ -442,13 +571,34 @@ def main():
             outcomes[r["ev"].get("outcome")] = outcomes.get(r["ev"].get("outcome"), 0) + 1
         print(f"scenarios: {len(old)}  stdout kinds: {kinds}")
         print(f"outcomes seen: {dict(sorted(outcomes.items(), key=lambda kv: str(kv[0])))}")
-        if diffs:
-            print(f"DIFFERENCES: {len(diffs)}")
-            for name, field, a, b in diffs[:40]:
-                print(f"  {name} :: {field}: old={a!r} new={b!r}")
+        rep = judge(scenarios, old, new, standin, private=args.dataset == "private")
+        print(f"mapped scenarios: {rep['mapped_total']}, differing from the old hook: {len(rep['mapped_differ'])}")
+        print(f"unmapped scenarios: {rep['unmapped_total']}, changed vs the old hook: {len(rep['unmapped_changed'])}, "
+              f"unchanged: {rep['unmapped_total'] - len(rep['unmapped_changed'])}")
+        for name, fields in list(rep["unmapped_changed"].items())[:60]:
+            print(f"  changed: {name} :: fields {dict(sorted(fields.items()))}")
+        if len(rep["unmapped_changed"]) > 60:
+            print(f"  ... and {len(rep['unmapped_changed']) - 60} more changed unmapped scenarios")
+        n_oth = sqlite3.connect(pathlib.Path(db).resolve().as_uri() + "?mode=ro", uri=True).execute(
+            "SELECT COUNT(*) FROM transcripts WHERE project = 'oth'").fetchone()[0]
+        if n_oth == 0:
+            print("this dataset has no `oth` rows, so it does not exercise the change")
+        print(f"clear:unmapped-pending identical to the plain old hook: {rep['clear_unmapped_differs'] is False}")
+        if rep["mapped_differ"]:
+            print("FAIL: mapped scenarios must be identical to the old hook:")
+            for name, fields in list(rep["mapped_differ"].items())[:40]:
+                print(f"  {name} :: fields {dict(sorted(fields.items()))}")
+        if rep["unmapped_not_standin"]:
+            print("FAIL: unmapped scenarios must equal 'old hook without bias':")
+            for name, fields in list(rep["unmapped_not_standin"].items())[:40]:
+                print(f"  {name} :: fields {dict(sorted(fields.items()))}")
+        if args.dataset == "private" and not rep["private_exercised"]:
+            print("FAIL: no unmapped scenario changed, so this private run did not exercise the change")
+        if not rep["ok"]:
             return 1
-        print("IDENTICAL: stdout bytes, log lines, ev (incl. key presence), event rows, "
-              "meaning-search and helper calls, /clear mark.")
+        print("PASS: mapped scenarios identical to the old hook; unmapped scenarios identical to the old hook "
+              "without bias (stdout bytes, log lines, ev incl. key presence, event rows, meaning-search and "
+              "helper calls, /clear mark).")
         return 0
     finally:
         if args.keep:

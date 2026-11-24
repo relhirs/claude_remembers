@@ -119,20 +119,28 @@ def normalize_for_match(s):
     return re.sub(r'[^a-z0-9/]', '', s.replace('\\', '/').lower())
 
 
-def project_for_cwd(config, cwd):
-    """Project prefix for a working folder: the first jsonl_project_mapping
-    entry (in file order) whose folder appears in it. "oth" matches
-    write_exchange.py's detect_project() fallback - without it, a folder with
-    no mapping entry left the project None here (but still wrote project="oth"
-    when capturing messages), silently disabling post-/clear recovery and
-    project-biased ranking for that folder."""
-    cwd_project = "oth"
+def mapped_project_for_cwd(config, cwd):
+    """The prefix of the first jsonl_project_mapping entry (in file order) whose
+    folder appears in `cwd`, or None when no entry matches ("mapped" means some
+    entry matched, never "the project is oth")."""
     norm_cwd = normalize_for_match(cwd)
     for folder, prefix in config.get("jsonl_project_mapping", {}).items():
         if normalize_for_match(folder) in norm_cwd:
-            cwd_project = prefix
-            break
-    return cwd_project
+            return prefix
+    return None
+
+
+def project_for_cwd(config, cwd):
+    """Project label for a working folder: the mapped prefix, else "oth".
+
+    "oth" matches write_exchange.py's detect_project() fallback. It is kept so an
+    unmapped folder still finds its post-/clear session and is logged under the
+    label its messages are stored with (commit c26a868). It is NOT used to rank
+    search results: for an unmapped folder _run passes project=None to retrieve(),
+    so no project is favored. That reverses the ranking half of c26a868, on the
+    Phase 4 measurement (with bias off, 32 of 38 private questions found instead
+    of 29). A folder that is mapped to "oth" on purpose still favors "oth"."""
+    return mapped_project_for_cwd(config, cwd) or "oth"
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +313,9 @@ def _run(raw_input, ev):
         sem_mode = semantic_mode(config) if retrieve is not None else None
         ev["mode"] = f"{sem_mode}_v3" if retrieve is not None else "retrieval_unavailable"
 
-        cwd_project = project_for_cwd(config, os.environ.get("CWD", os.getcwd()))
+        cwd = os.environ.get("CWD", os.getcwd())
+        bias_project = mapped_project_for_cwd(config, cwd)   # None: no project favored in search
+        cwd_project = bias_project or "oth"                   # post-/clear lookup and telemetry
         ev["project"] = cwd_project
 
         conn = sqlite3.connect(db_path)
@@ -367,7 +377,7 @@ def _run(raw_input, ev):
         # or recorded before the failure still is.
         trace = {}
         try:
-            result = retrieve(conn, config, prompt_text, project=cwd_project,
+            result = retrieve(conn, config, prompt_text, project=bias_project,
                               exclude_session=current_session_id, mode=sem_mode,
                               query_vec_fn=lambda text: _helper_vector(root, text),
                               semantic_fn=semantic_search, gate_fn=should_use_semantic, trace=trace)

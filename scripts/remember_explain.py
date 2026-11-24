@@ -281,7 +281,7 @@ def summarize(trace, ctx, g):
     src = "forced for this explanation" if inp.get("mode_source") == "given" else "from your config"
     lines.append("")
     lines += table(["Setting", "Value"], [
-        ("Project", f"{inp['project']}" + (f" ({proj})" if proj else "")),
+        ("Project", f"{inp['project']}" + (f" ({proj})" if proj else "") if inp["project"] else "none (folder not mapped)"),
         ("Conversation left out",
          f"{sess[:8]}… ({g('session')} that Claude already has)" if sess else "none given"),
         (g('setting')[0].upper() + g('setting')[1:], f"{inp['mode']}, {src}"),
@@ -593,12 +593,18 @@ def run_explain(question, *, project=None, mode=None, as_of=None, exclude_sessio
     hook = _load_hook()
     cwd = cwd or os.environ.get("CWD") or os.getcwd()
     ctx = {}
+    hook_bias = hook.mapped_project_for_cwd(config, cwd)      # what the hook favors here (None = nobody)
     if project is None:
-        project = hook.project_for_cwd(config, cwd)
-        if not any(hook.normalize_for_match(f) in hook.normalize_for_match(cwd)
-                   for f in (config.get("jsonl_project_mapping") or {})):
-            ctx["project_note"] = (f"This folder isn't mapped to a project, so I searched as '{project}'; "
-                                   "pass a project to change that.")
+        project = hook_bias
+        if hook_bias is None:
+            ctx["project_note"] = ("This folder isn't mapped to a project, so no project is favored. "
+                                   "/clear recovery still checks 'oth'.")
+    else:
+        if project != hook_bias:
+            ctx["project_note"] = (f"You chose project '{project}', so it is favored. "
+                                   f"The hook here would favor {repr(hook_bias) if hook_bias else 'none'}.")
+    # /clear recovery is not about ranking: an unmapped folder still checks 'oth', as the hook does.
+    clear_project = project or "oth"
     if exclude_session is None:
         exclude_session = detect_session_id(cwd)
 
@@ -606,7 +612,8 @@ def run_explain(question, *, project=None, mode=None, as_of=None, exclude_sessio
     conn.execute("PRAGMA busy_timeout=5000;")
     try:
         try:
-            row = conn.execute("SELECT label FROM project_registry WHERE prefix = ?", (project,)).fetchone()
+            row = (conn.execute("SELECT label FROM project_registry WHERE prefix = ?", (project,)).fetchone()
+                   if project else None)
             ctx["project_label"] = row[0] if row and row[0] else None
         except sqlite3.Error:
             pass
@@ -620,7 +627,7 @@ def run_explain(question, *, project=None, mode=None, as_of=None, exclude_sessio
             raise ExplainError(f"The search failed ({type(e).__name__}: {e}). Try again, or run scripts/remember_health.py.")
         if exclude_session:
             try:
-                pending = hook._find_pending_clear(conn, project, exclude_session)
+                pending = hook._find_pending_clear(conn, clear_project, exclude_session)
                 if pending:
                     ctx["clear_pending"] = pending[0]
             except sqlite3.Error:
