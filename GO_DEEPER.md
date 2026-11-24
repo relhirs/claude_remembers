@@ -1,15 +1,30 @@
 # How this works
 
-- [What happens step by step](#what-happens-step-by-step)
+- [The short version](#the-short-version)
+- [What happens to one message](#what-happens-to-one-message)
 - [How per-message search works](#how-per-message-search-works)
+- [One question, start to finish](#one-question-start-to-finish)
+- [Known limits and corrections](#known-limits-and-corrections)
+- [What happens step by step](#what-happens-step-by-step)
 - [How to verify it's working](#how-to-verify-its-working)
 - [Measuring how well it works](#measuring-how-well-it-works)
 - [Why "lessons" are useful](#why-lessons-are-useful)
 - [Getting the most out of it](#getting-the-most-out-of-it)
-- [The four slash commands](#the-four-slash-commands)
+- [The five slash commands](#the-five-slash-commands)
 - [If you want to poke around directly](#if-you-want-to-poke-around-directly)
 - [Bringing in history from other AI tools](#bringing-in-history-from-other-ai-tools)
 - [What this doesn't do](#what-this-doesnt-do)
+
+## The short version
+
+Claude Code forgets everything when a session ends. This project saves every conversation to a database on your own computer. Before Claude reads each message you send, it searches that database and quietly adds the few memories that look relevant.
+
+The search tries your own words first, because that is fast. When the words don't line up, it falls back on meaning. At most 5 memories are added, and anything from the conversation you're already in is never repeated back.
+
+**Look at this first:** type `/remember-explain` followed by a question. It shows every step of the search for that question, with the real numbers, and changes nothing.
+
+<details>
+<summary>The three pieces: hooks, a database, an MCP connection</summary>
 
 **Hooks.** Claude Code lets you set up scripts that fire automatically at certain points, like when you start a session, when you send a message, when Claude's done answering, or when a session ends. This project uses six of those. You never actually run them yourself, they just happen in the background.
 
@@ -17,41 +32,58 @@
 
 **An MCP connection.** This is how Claude asks the database stuff like "what did we decide about X" or "find anything about Y." You don't need to memorize tool names or anything, just talk to Claude normally and it figures out which tools to use.
 
-## What happens step by step
+</details>
 
-### When you open a project and type `claude`
+## What happens to one message
 
-The session start hook checks if there are any new chat logs it hasn't seen, pulls them in, backs up the database, and gives Claude a quick summary of what happened last time plus anything that got left unfinished.
+These are the nine steps `/remember-explain` prints, in its own words. In its headings the `N` stands for a number that changes from run to run. When your question is too short, step 2 reads "Search words: skipped" instead, and when nothing is found, step 9 reads "Would add nothing to Claude's context". The dotted lines are the filters. Step 7 only appears in the explanation, the hook never does it. For what each step does and the code behind it, see [One question, start to finish](#one-question-start-to-finish).
 
-### Every time you send a message
+```mermaid
+flowchart TD
+    CL["Hook only: a pending /clear pick-up is checked before step 1"]
+    S1["1. Long enough to search?"]
+    S2["2. Picked N search words"]
+    S3["3. Keyword search"]
+    S4["4. Strength check"]
+    S5["5. Should meaning search run?"]
+    S6["6. Meaning search"]
+    S7["7. What was left out, and why"]
+    S8["8. Final list"]
+    S9["9. Would add N memories to Claude's context"]
+    F1["Left out inside the keyword query: your current conversation, machine messages, anything newer than the as-of time"]
+    F2["Left out after meaning search: your current conversation, machine messages, anything not above the 0.35 cutoff"]
 
-A hook digs through the database for anything relevant to what you just typed and quietly tosses it into Claude's context before Claude even sees your message.
-
-And this happens on literally every message, not just right after you run `/clear`. The `/clear` recovery thing below is really just for one specific moment, the message right after you clear mid session. Most of the time when you're bringing up old stuff it has nothing to do with `/clear` at all, like you close your terminal on Monday, open a new one Wednesday, and ask "what did we decide about the database schema" and that's a totally new session that never went near `/clear`. If search only ran right after clearing, that Wednesday question would just come back empty since nothing was ever cleared. This per message search is the whole point of the project, remembering stuff across sessions, not just across a single `/clear`. The `/clear` recovery thing is just a smaller bonus feature on top of that.
-
-*How it decides what to inject is covered in [How per-message search works](#how-per-message-search-works).*
-
-### Every time Claude finishes answering
-
-The whole exchange gets saved to the database right away. It doesn't wait till the session ends. So if your terminal crashes you don't lose the conversation, just the end of session summary.
-
-### When a session ends
-
-When a session ends, meaning you ran `/exit`, closed the terminal, or hit `/clear`, there's a background script that reads through the whole conversation and asks Claude Haiku to write an actual summary, what you were doing, what got decided, what's still unfinished, what to pick up next time.
-
-If that call fails for whatever reason (no API key, no internet, hit a rate limit) it falls back to a simpler note instead, putting together just the project name, how many messages were in the session, the time range, and a tiny preview of your first message. That fallback note isn't nearly as useful as a real generated summary, but at least it's clearly marked as a fallback and the session still ends up in the database with something attached to it. The alternative would be writing nothing at all, which means that session disappears from your history since nothing ever points back to it. Either way something gets written, just a question of how useful it ends up being.
-
-### When a session doesn't end cleanly
-
-What if the session doesn't end cleanly at all -- if you just close the terminal tab, force-quit, or your machine sleeps or crashes mid-conversation, none of that gives Claude Code a chance to fire the end-of-session hook. This means that the session would just sit there forever with no summary and no notes permanently. The fix for this doesn't try to catch the crash itself (nothing can run code after the process is already gone) -- so instead, every time you start a **new** session anywhere, it checks for any *other* session that's still missing a summary and whose last message is more than 30 minutes old, and runs the normal summarization pass on it then, tagged so you can tell it was caught late rather than a real `/exit`/`/clear`. It only does a few of these per startup so it can't slow down the session you're trying to start. This only ever looks at sessions other than the one currently starting, and once a session gets picked up this way it's marked as handled, so it won't get re-swept by a later startup too. If you come back to a chat you'd only paused (not force-quit) and it got summarized while you were out for over half an hour, that's expected and harmless -- the provisional summary just gets fully overwritten with the real one whenever you actually do end that session for real. The "lessons" pulled out of that session (see below) aren't affected by this either -- before writing any lesson, it checks what's already been recorded for that same session and skips anything already there, so even though the summarization step can potentially run twice on the same conversation, nothing gets duplicated in your lessons.
-
-### When you run `/clear`
-
-In the old version, running this command only tried to bring back context if you came back within five minutes, and even then it just dumped the last ten raw messages at you. Now there's no time limit at all, so whenever you come back, even days later, your next message gets the real summary from before mixed with a normal search based on whatever you just typed. It only does this once per `/clear` though, so it won't keep repeating itself on every message after.
+    CL -.-> S1
+    S1 -->|"15 or more characters"| S2
+    S1 -->|"under 15: steps 2 to 6 show as skipped"| S7
+    S2 -->|"at least one usable word"| S3
+    S2 -->|"no usable words: steps 3 to 6 show as skipped"| S7
+    S3 --> S4
+    S4 --> S5
+    S5 -->|"yes"| S6
+    S5 -->|"no: step 6 shows as skipped"| S7
+    S6 --> S7
+    S7 --> S8
+    S8 --> S9
+    F1 -.- S3
+    F2 -.- S6
+```
 
 ## How per-message search works
 
+Two searches, one merge, and a short list of rules. The tables show the whole picture. The folds hold the full wording.
+
 ### Keyword first, meaning-based as the backup
+
+| Mode | When meaning search runs | What it costs |
+|---|---|---|
+| `on_miss` (the default) | Only when keyword results look unreliable: a weak best match, few of your words matched, or you're asking about the past | The model loads on demand, about 3 seconds and about 600 MB while it is loaded. Nothing runs in the background |
+| `always` | On every message, through a small helper that keeps the model loaded | Milliseconds per search. The helper holds memory and quits by itself after `idle_shutdown_min` minutes of nothing (30 by default) |
+
+You choose in `config.yaml` under `semantic_search: mode:`.
+
+<details>
+<summary>The full explanation: why keyword first, the four signals, and the helper</summary>
 
 This part does keyword search first since it's quick. Keyword search only matches the words you typed, so it misses a memory that says the same thing in different words. That's what meaning-based search is for: it compares what your message is about instead of its exact words. The catch is cost: the model that does this takes about 3 seconds to load and about 600 MB of memory while it's loaded, so you can pick when it runs with `semantic_search: mode:` in `config.yaml`:
 
@@ -60,7 +92,23 @@ This part does keyword search first since it's quick. Keyword search only matche
 
 When both searches run, their results are merged and meaning search looks across everything you've saved, not just the current project. `python3 scripts/remember_eval.py` (below) shows which mode finds more on your own history, so you can decide whether `always` is worth its memory.
 
+</details>
+
 ### Rules that keep the results useful
+
+| Rule | Why it exists | Evidence |
+|---|---|---|
+| Never add the conversation you're in | Claude already has it | The `session_filter` in `scripts/retrieval.py:266` |
+| Never add machine-written messages | They aren't anything you said | Filter at `scripts/retrieval.py:270`. On the author's history the hook and the tool flag the same 348 of 15,714 messages |
+| Favor your project only in a mapped folder | A folder with no mapping isn't a project you chose | Favoring `oth` pushed the right answer out for 3 of 38 questions and helped none (small sample, p = 0.25) |
+| When two results match about equally, the newer one wins | So an old answer doesn't outrank a newer one that matches as well | Score divided by (1 + age in days / 365), `scripts/retrieval.py:111`. On the public set, q16 and q17 can only be won this way |
+| Search each repeated word once | So repeats don't use up the 8 keyword slots | `scripts/retrieval.py:71` and `scripts/retrieval.py:128` |
+| Drop weak matches instead of padding | Search used to hand back its five least-bad results even when memory had nothing | Floor of −2.0 per result (`scripts/retrieval.py:69`) and a bar of 1.05 × ln(messages) for the best one (`scripts/retrieval.py:81`) |
+| At most 5 per message | A fixed ceiling on what is added to Claude's context | `scripts/retrieval.py:70`. The cap study found nothing better to ship |
+| No typo correction | It found no extra memories, ran about 8 times slower, and turned "kubernetes" into "subagents" | Noted at `scripts/retrieval.py:163` |
+
+<details>
+<summary>The rules in full, and why there is no typo correction</summary>
 
 These rules belong to the automatic search the hook runs before every message. Claude's own memory lookup tool shares some of them; the table at the end of this section shows which.
 
@@ -74,7 +122,36 @@ These rules belong to the automatic search the hook runs before every message. C
 
 There is deliberately no typo correction in the automatic search. An earlier version rewrote words it didn't recognize into the closest real word in your history, which sounds helpful but didn't pay off: on the test set it found no extra memories, made keyword search about 8 times slower, and turned unknown words into unrelated ones ("kubernetes" became "subagents"), so a question about something you never discussed still pulled back confident-looking junk. Searching the words as typed is faster and simply finds nothing when there is nothing, and meaning-based search is what handles wording that doesn't match. (Claude's own lookup tool and the command-line search scripts do fix typos, in different ways; see the table below.)
 
+</details>
+
 ### Where search runs, and how the paths differ
+
+The same memory can be searched three ways. They were built for different jobs, so they are deliberately not identical.
+
+| Difference | Hook (automatic) | Lookup tool (Claude, by hand) | Command-line scripts | Why it stays |
+|---|---|---|---|---|
+| Recency | Newer wins | None | None | The tool looks up one specific past fact, where an old exact match is often right |
+| Typo fix | None | Only when nothing matched | Always, before searching | Claude can judge a "Did you mean" note. The hook injects silently |
+| Meaning-search results | 30 candidates, cutoff 0.35, at most 5 | 10 by default, no cutoff | Up to 10 or 5 | Claude reads the similarity score. The hook has to pick for Claude |
+| Machine-message filter | Hides them (strips spaces only) | Hides them (strips spaces, tabs and newlines) | None | A message starting with a newline gets past the hook's check: 0 of 348 on the author's history |
+| Weak-match gate | Yes, in every mode | None | None | Measured, not shipped |
+
+```mermaid
+flowchart TD
+    DB[("The SQLite database")]
+    H["Hook: user-prompt-submit.py calls retrieve() in scripts/retrieval.py"]
+    X["Explain: explain_retrieval in mcp/server.py runs scripts/remember_explain.py"]
+    M["Lookup tool: search_transcripts in mcp/server.py, with its own SQL"]
+    C["Scripts: remember_search.py and remember_query.py, with their own SQL"]
+
+    H --> DB
+    X -.->|"calls the same retrieve()"| H
+    M --> DB
+    C --> DB
+```
+
+<details>
+<summary>The full table, and the weak-match gate measured for the lookup tool</summary>
 
 The same memory can be searched three ways: the automatic search in the hook, the lookup tool Claude calls by hand (`search_transcripts` in `mcp/server.py`), and the command-line scripts (`remember_search.py`, `remember_query.py`). They were built for different jobs and are deliberately not identical. Each row says what the difference is and why it stays; the "why" is a reason, not a claim about the code.
 
@@ -93,6 +170,266 @@ The same memory can be searched three ways: the automatic search in the hook, th
 
 The bar is tuned for the hook's search words. The lookup tool picks words differently (it allows digits, up to 10 words, and keeps repeats), so its scores aren't on exactly the same scale, and Claude writes short keyword queries, which may score lower than the full questions this was tested on. The trade was 4 deep answers and 3 real calls for a cleaner "nothing found" answer, and that didn't look worth it. A possible future change, not done here: show Claude each result's match score so it can judge strength for itself instead of having a gate decide. The simulation is `python3 scripts/remember_compare.py mcp-gate --simulate` (via `examples/eval/run_eval.py --compare mcp-gate`).
 
+</details>
+
+## One question, start to finish
+
+This section shows one real run of `/remember-explain`, pasted as it came out, so you can check every step against the code. It shows *what* happens. The *reasons* are already in [What happens step by step](#what-happens-step-by-step) and [How per-message search works](#how-per-message-search-works), so they are not repeated here.
+
+### What was run
+
+Everything below ran on the invented public example in `examples/eval/`, from a mapped folder (project `tdp`), with the time fixed so results don't drift. Each question was run twice and the two outputs matched exactly.
+
+<details>
+<summary>How to reproduce it, and what each choice means</summary>
+
+- **The data is invented.** It is the public example in `examples/eval/` (three made-up projects, 54 messages), never real memory. To build it and keep the sandbox: `python3 examples/eval/run_eval.py --keep --out <a folder outside the repo>`. The last line it prints is the sandbox path. (Without `--out` it writes a results folder inside `examples/eval/results/`.)
+- **The command**, from the `root` folder inside that sandbox: `echo "<the question>" | CWD=<a folder whose name contains tidepool> python3 scripts/remember_explain.py --as-of 2026-06-01T00:00:00Z`. The fixed `--as-of` time stops the age adjustment from drifting as the calendar moves.
+- **The kind of folder: a mapped project.** The sandbox config maps any folder whose path contains `tidepool` to the project `tdp` (`examples/eval/run_eval.py:88`), and the folder I gave contained that name, so search favors `tdp`. From an unmapped folder the Project row reads `none (folder not mapped)`, a note says no project is favored, and the ranking can change. I tried question 1 from an unmapped folder: the same four memories came back, with the last two in the other order. That matches the saved comparison `examples/eval/results/2026-11-24-5505026/compare_project-bias.json`, where question 1 is the only one of the 26 whose results change when the project is not favored. I did not try question 2 there.
+- **It is the real code.** `scripts/remember_explain.py` calls `retrieve()` at `scripts/retrieval.py:531`, the same function the hook calls at `hooks/user-prompt-submit.py:380`. Explain writes nothing and never sends anything to Claude.
+- **No conversation was skipped.** The hook leaves out the session you are in. Here none was given, so the line reads "none given".
+- **Each question was run twice**, and the two outputs matched exactly (checked with `cmp`). When meaning search runs, the model prints a one-line notice on stderr. It is not part of the output below.
+
+</details>
+
+### The two questions, and why these two
+
+Both are questions 1 and 10 of `examples/eval/golden_set.yaml`, and both have the same right answer: the session `syn-tdp-04`, which says where the species picker's list comes from. They ask for it in different words.
+
+1. **"where does the species picker get its list of species from?"** uses the answer's own words, so keyword search can answer it.
+2. **"how does the app know which sea creatures someone can choose from?"** shares no search word with any stored message (its search words are app, sea, creatures, someone and choose), so keyword search finds nothing and only meaning search can help.
+
+I did not pick the best-looking questions. I tried two other meaning-only questions first (q12 and q13), and they were misses, so they could not show meaning search working. Question 2 is one of the three of the seven meaning-only questions that the default mode finds (see `examples/eval/results/2026-11-24-5505026/eval.txt`).
+
+### Question 1: keyword search answers it
+
+<details>
+<summary>The full output, pasted unedited</summary>
+
+```
+WHAT HAPPENED
+  4 memories would be added, all from keyword search. Keyword search found strong matches (best
+  −8.39, needs −4.19 or stronger). Keyword results looked trustworthy, so meaning search was
+  skipped.
+
+  Setting                | Value
+  -----------------------+--------------------------
+  Project                | tdp
+  Conversation left out  | none given
+  Meaning-search setting | on_miss, from your config
+  As of                  | 2026-06-01T00:00:00Z
+
+STEP BY STEP  (the numbered lines alone tell the story)
+ 1. Long enough to search? Yes: 59 characters, needs at least 15.
+ 2. Picked 4 search words, set 7 aside.
+      kept: species, picker, its, list
+      set aside: where, does, the, get, from (too common to help) · of (under 3 letters) · species
+          (repeat)
+      query sent to FTS5 (SQLite's full-text search): "species" OR "picker" OR "its" OR "list"
+ 3. Keyword search found 8 possible matches and kept 4.
+      Ranked by BM25 score (how strongly the words match; more negative = stronger match), adjusted
+        for age (older memories need a stronger match to rank as high):
+      # | Memory                           | Project | Date       |  BM25 | Adjusted | Days old | id
+      --+----------------------------------+---------+------------+-------+----------+----------+---
+      1 | "Where should the list in the    | tdp     | 2025-11-20 | −8.39 |    −5.50 |    192.4 | 41
+        | species picker come from?        |         |            |       |          |          |
+        | Hardcoding it i…"                |         |            |       |          |          |
+      2 | "The species picker now loads a  | tdp     | 2025-11-20 | −5.55 |    −3.63 |    192.4 | 42
+        | bundled CSV exported from the    |         |            |       |          |          |
+        | regional …"                      |         |            |       |          |          |
+      3 | "Offline edit conflicts now use  | tdp     | 2025-09-14 | −3.64 |    −2.13 |    259.4 | 36
+        | field-level last-writer-wins:    |         |            |       |          |          |
+        | each fiel…"                      |         |            |       |          |          |
+      4 | "Sounds good. Everything is      | lgl     | 2026-05-10 | −2.94 |    −2.77 |     21.3 | 18
+        | committed, and tomorrow's list   |         |            |       |          |          |
+        | is in the no…"                   |         |            |       |          |          |
+      (Adjusted = the BM25 score after the age adjustment; it decides the order.)
+ 4. Strength check: passed, the best match was strong enough.
+      best −8.39; the best result must reach −4.19 or stronger (this bar rises as memory grows: 1.05
+          × ln(54 messages))
+      minimum for any single result (weaker results are dropped one by one): −2.0 or stronger
+ 5. Should meaning search run? No: keyword results look trustworthy: the best result has 3 of 4
+    search words (0.75, needs at least 0.25) and no memory phrasing.
+      Mode on_miss (meaning search runs only when keyword results look unreliable). It checks
+        coverage (how many of your search words a result contains) and memory phrasing (phrases like
+        "what did we decide").
+ 6. Meaning search: skipped, because keyword results looked trustworthy.
+ 7. What was left out, and why: 4 in all: 3 duplicates (same project and opening words) · 1 too weak
+    for any single result (−2.0 or stronger needed).
+      Left out | Reason
+      ---------+---------------------------------------------------------
+             3 | duplicates (same project and opening words)
+             1 | too weak for any single result (−2.0 or stronger needed)
+ 8. Final list: 4 memories.
+      # | Found by       | id | Memory
+      --+----------------+----+---------------------------------------------------------------------
+      1 | keyword search | 41 | "Where should the list in the species picker come from? Hardcoding
+        |                |    | it i…"
+      2 | keyword search | 42 | "The species picker now loads a bundled CSV exported from the
+        |                |    | regional …"
+      3 | keyword search | 36 | "Offline edit conflicts now use field-level last-writer-wins: each
+        |                |    | fiel…"
+      4 | keyword search | 18 | "Sounds good. Everything is committed, and tomorrow's list is in the
+        |                |    | no…"
+ 9. Would add 4 memories to Claude's context: 741 characters, about 185 tokens (roughly 3/4 of a
+    word each: Claude's reading budget).
+```
+
+</details>
+
+What to notice: memories 41 and 42 are the right answer, both from `syn-tdp-04`. Memories 36 and 18 are noise that matched on the common words "list" and "its". Keyword search only counts words, so it cannot tell them apart from real answers, and all four would be added.
+
+### Question 2: it needs meaning search
+
+<details>
+<summary>The full output, pasted unedited</summary>
+
+```
+WHAT HAPPENED
+  2 memories would be added, all from meaning search. Keyword search found nothing usable, so
+  meaning search ran and found 2 close enough.
+
+  Setting                | Value
+  -----------------------+--------------------------
+  Project                | tdp
+  Conversation left out  | none given
+  Meaning-search setting | on_miss, from your config
+  As of                  | 2026-06-01T00:00:00Z
+
+STEP BY STEP  (the numbered lines alone tell the story)
+ 1. Long enough to search? Yes: 66 characters, needs at least 15.
+ 2. Picked 5 search words, set 7 aside.
+      kept: app, sea, creatures, someone, choose
+      set aside: how, does, the, know, which, can, from (too common to help)
+      query sent to FTS5 (SQLite's full-text search): "app" OR "sea" OR "creatures" OR "someone" OR
+          "choose"
+ 3. Keyword search found 0 possible matches and kept 0.
+ 4. Strength check: skipped, there were no keyword matches to check.
+ 5. Should meaning search run? Yes: keyword search found nothing.
+      Mode on_miss (meaning search runs only when keyword results look unreliable). It checks
+        coverage (how many of your search words a result contains) and memory phrasing (phrases like
+        "what did we decide").
+ 6. Meaning search found 30 candidates and kept 2.
+      Ranked by similarity (how close in meaning, 0 to 1; higher = closer). The cutoff (the bar a
+        result must clear): above 0.350.
+      # | Memory                  | Project | Date       | Similarity | id | Result
+      --+-------------------------+---------+------------+------------+----+------------------------
+      1 | "Where should the list  | tdp     | 2025-11-20 |      0.408 | 41 | kept
+        | in the species picker   |         |            |            |    |
+        | come from? Hardcoding   |         |            |            |    |
+        | it i…"                  |         |            |            |    |
+      2 | "Tide predictions are   | tdp     | 2026-02-12 |      0.370 | 49 | kept
+        | now computed on the     |         |            |            |    |
+        | device from harmonic    |         |            |            |    |
+        | constant…"              |         |            |            |    |
+      3 | "The species picker now | tdp     | 2025-11-20 |      0.295 | 42 | left out: below the
+        | loads a bundled CSV     |         |            |            |    | cutoff
+        | exported from the       |         |            |            |    |
+        | regional …"             |         |            |            |    |
+      4 | "<task-notification> <t | tdp     | 2026-02-11 |      0.260 | 45 | left out: below the
+        | ask-id>bg-7731</task-id |         |            |            |    | cutoff
+        | > <status>completed</st |         |            |            |    |
+        | at…"                    |         |            |            |    |
+      5 | "The tidal-chart screen | tdp     | 2026-02-12 |      0.254 | 48 | left out: below the
+        | showed yesterday's      |         |            |            |    | cutoff
+        | tides again this        |         |            |            |    |
+        | morning, wh…"           |         |            |            |    |
+      … and 25 more, all further
+ 7. What was left out, and why: 28 in all: 28 meaning-search results below the meaning cutoff.
+      Left out | Reason
+      ---------+------------------------------------------------
+            28 | meaning-search results below the meaning cutoff
+ 8. Final list: 2 memories.
+      # | Found by       | id | Memory
+      --+----------------+----+---------------------------------------------------------------------
+      1 | meaning search | 41 | "Where should the list in the species picker come from? Hardcoding
+        |                |    | it i…"
+      2 | meaning search | 49 | "Tide predictions are now computed on the device from harmonic
+        |                |    | constant…"
+ 9. Would add 2 memories to Claude's context: 333 characters, about 83 tokens (roughly 3/4 of a word
+    each: Claude's reading budget).
+```
+
+</details>
+
+What to notice: keyword search found nothing, so step 5 sent it to meaning search. Memory 41 (similarity 0.408) is from the right session. Memory 49 (0.370) is about tide predictions and is unrelated, but it scored just over the 0.350 bar. Memory 42, the actual answer, scored 0.295 and was left out. So this run found the right session, with one unrelated memory beside it. It is not a clean win, and not every meaning-only question works: on the same data, 4 of the 7 are missed (`missed_ids` in the same `eval.json`: q09, q12, q13 and q15). For q13 the right memory scored 0.343, just under the bar.
+
+### The nine steps, and where each one lives
+
+All line numbers are in the code as of this commit.
+
+| # | What happens | Code |
+|---|---|---|
+| 1 | Counts the characters. Under 15, nothing is searched | `scripts/retrieval.py:72`, `scripts/retrieval.py:580` (the hook has its own check at `hooks/user-prompt-submit.py:344`) |
+| 2 | Keeps words of 3 or more letters, drops stop words and repeats, at most 8 | `scripts/retrieval.py:128`, `scripts/retrieval.py:143` |
+| 3 | Full-text search: up to 3 from your project, up to 7 from everywhere, drops duplicates and anything weaker than −2.0, keeps 5 | `scripts/retrieval.py:257`, `scripts/retrieval.py:595` |
+| 4 | The best result must beat 1.05 × ln(messages), or all keyword results are dropped | `scripts/retrieval.py:247`, `scripts/retrieval.py:604` |
+| 5 | In `on_miss` mode, decides whether keyword results look unreliable | `scripts/retrieval.py:352`, `scripts/retrieval.py:657` |
+| 6 | The 30 closest by meaning, from all projects. Keeps those above 0.35 | `scripts/retrieval.py:371`, `scripts/retrieval.py:666` |
+| 7 | Counts what was left out and why. Explanation only | `scripts/retrieval.py:507`, `scripts/remember_explain.py:475` |
+| 8 | Merges the two lists by rank, keeps at most 5 | `scripts/retrieval.py:385`, `scripts/retrieval.py:690` |
+| 9 | Builds the "Relevant Memories" text and estimates its tokens. The hook then hands it to Claude | `scripts/retrieval.py:176`, `hooks/user-prompt-submit.py:399` |
+
+<details>
+<summary>Each step in words, with every line reference</summary>
+
+All line numbers are in the code as of this commit.
+
+1. **Long enough to search?** It counts the characters in your question. Under 15, nothing is searched and every later step shows as skipped. Both questions passed (59 and 66 characters). The number 15 is `scripts/retrieval.py:72` and the check is `scripts/retrieval.py:580`. The hook has its own check with the number written in, at `hooks/user-prompt-submit.py:344`, which runs before it calls `retrieve()`.
+
+2. **Picked search words.** It lowercases the question and keeps words of 3 or more letters, dropping stop words and repeats, up to 8 words. In question 1 the second "species" is set aside as a repeat, and "its" is kept because it is not on the stop list, which is how it later matched noise. The word rules are `scripts/retrieval.py:128` (`extract_keywords`), the stop list is `scripts/retrieval.py:52`, and the 8-word limit is `scripts/retrieval.py:71`. The reasons shown next to each dropped word come from `scripts/retrieval.py:143` (`keyword_breakdown`). The search text is built at `scripts/retrieval.py:589`.
+
+3. **Keyword search.** SQLite's full-text search looks for any of the words. In a mapped folder it takes up to 3 results from your project and up to 7 from everywhere, removes duplicates and anything weaker than −2.0, and keeps at most 5. Question 1 found 8 possible matches and kept 4. Question 2 found none. See `scripts/retrieval.py:257` (`_keyword_candidates`), the two limits at `scripts/retrieval.py:282` and `scripts/retrieval.py:291`, the weak-result floor at `scripts/retrieval.py:69` and `scripts/retrieval.py:309`, and the cap at `scripts/retrieval.py:314`. It is called at `scripts/retrieval.py:595`.
+
+4. **Strength check.** The best keyword result must beat a bar that grows with the size of memory: 1.05 × ln(54 messages) gives 4.19 here. Question 1's best was −8.39, so it passed. Question 2 had nothing to check. If the best result were too weak, all keyword results would be dropped. The calculation is `scripts/retrieval.py:247` (`_strength_gate`), the 1.05 is `scripts/retrieval.py:81`, and the dropping happens at `scripts/retrieval.py:604`.
+
+5. **Should meaning search run?** In the default `on_miss` mode it runs only when the keyword results look unreliable. Question 1 said no: its best result had 3 of the 4 search words (0.75, and 0.25 is enough) and the question has no "what did we decide" phrasing. Question 2 said yes because keyword search found nothing. See `scripts/retrieval.py:352` (`should_use_semantic`), the 0.25 at `scripts/retrieval.py:98`, the phrasing list at `scripts/retrieval.py:101`, and the call at `scripts/retrieval.py:657`. In `always` mode this step is not asked: see `scripts/retrieval.py:640`.
+
+6. **Meaning search.** It compares the question's meaning with the stored messages, takes the 30 closest from all projects, and keeps those above 0.35. Question 1 skipped it. Question 2 got 30 candidates and kept 2. See `scripts/retrieval.py:371` (`semantic_rows`), the cutoff at `scripts/retrieval.py:88`, the 30 at `scripts/retrieval.py:89`, and the calls at `scripts/retrieval.py:666` and `scripts/retrieval.py:678`.
+
+7. **What was left out, and why.** This step exists only in the explanation. The hook never does it. It counts what was set aside along the way: duplicates, results under the floor, results the strength check dropped, and meaning results under the cutoff. In question 1, 4 were left out: 3 as duplicates (same project and same opening words, which is what happens when the project search and the all-projects search find the same memories) and 1 as too weak. The counting uses `retrieve(detail=True)`, with `scripts/retrieval.py:507` (`count_filtered`), and the wording is at `scripts/remember_explain.py:475`.
+
+8. **Final list.** The keyword and meaning lists are merged by rank, so a memory both found moves up, duplicates are removed, and at most 5 stay. Question 1 had only keyword results and Question 2 only meaning results, so no memory was found by both. See `scripts/retrieval.py:385` (`merge_results`), the cap at `scripts/retrieval.py:403`, and the call at `scripts/retrieval.py:690`.
+
+9. **Would add to Claude's context.** The final memories become a short "Relevant Memories" text block: the date, project and the first 400 characters of each. The token count is the characters divided by 4 (`scripts/retrieval.py:718`), which is an estimate. The block is built at `scripts/retrieval.py:176` (`format_memories`) and `scripts/retrieval.py:710`. The hook then hands it to Claude at `hooks/user-prompt-submit.py:399`. Explain stops before that point.
+
+</details>
+
+### The path as a picture
+
+The diagram is at the top of this page, under [What happens to one message](#what-happens-to-one-message), so it isn't repeated here.
+
+Question 1 took the path 1, 2, 3, 4, 5 (no), 7, 8, 9. Question 2 took 1, 2, 3, 4 (nothing to check), 5 (yes), 6, 7, 8, 9.
+
+Not shown here: the `always` mode, the `/clear` pick-up, and a keyword result that fails the strength check. Each of those changes the middle of the path, and `retrieve()` at `scripts/retrieval.py:531` handles them.
+
+## Vector search vs a regular database
+
+<!-- Reserved. To be written. -->
+
+## Known limits and corrections
+
+| Limit or correction | In plain words |
+|---|---|
+| The self-test and the hook searched differently | The self-test asks with no project. From commit `c26a868` until the Phase 4 change the hook always had one, so the self-test was about 8 points too optimistic on the author's history: 32 of 38 answerable questions found with no project, 29 asked the way the hook searched. Unmapped folders now search with no project, so they match the self-test. A mapped folder still favors its project, which only the public example measures |
+| Three questions are a small sample | The 32 versus 29 gap is 3 questions against 0. A sign test gives p = 0.25, so luck can't be ruled out |
+| The cap of 5 | The study's rule found the same 29 of 38 as the cap of 5, within noise. Bigger limits found 3 to 5 more answers at about 1.2 to 1.9 times the tokens. Nothing shipped |
+| The lookup tool has no weak-match gate | A simulated gate cleaned up 8 of 8 questions with no answer but would have hidden 4 answers that are found today. Not shipped |
+| The fixed time only reaches keyword search | The self-test's `as_of` applies to keyword search. Meaning search ignores it |
+| The machine-message check is not identical everywhere | 60 characters in Python, 80 in the hook's SQL, and the hook strips spaces only, so a message that starts with a newline gets past it |
+| Folder-to-project matching has quirks | It is a substring test, and three rules can disagree when one entry's name contains another's. Documented, not changed |
+| What the system can't do | It can't see tool output, it is single user and single machine, and the first meaning search in a session needs a few seconds to warm up. See [What this doesn't do](#what-this-doesnt-do) |
+
+<details>
+<summary>The correction about what the self-test measured, in full</summary>
+
+**A correction about what this test measured.** The self-test asks every question with no current project. From commit `c26a868` until the Phase 4 change, the live hook always had one, because a folder with no mapping was treated as `oth`. On the author's history that made the self-test about 8 points too optimistic: asked with no project it found 32 of 38 answerable questions, and asked the way the hook really searched it found 29 (three questions, a small sample: p = 0.25, not proof). Unmapped folders now search with no project again, so the self-test matches them. In a mapped project folder the hook still favors that project, which the self-test does not measure. The 32 and 29 come from the paired comparison (`examples/eval/run_eval.py --compare project-bias`), not from memory notes. On the public example, where every question is asked from its own mapped project, favoring the project changed which memories came back for 1 of 26 questions and the number found for none.
+
+</details>
+
+<details>
+<summary>Known quirks in how folders and projects are matched, in full</summary>
+
 **Known quirks in how folders and projects are matched** (documented, not changed, because each fix would change which project messages are filed under):
 - Three rules turn a folder into a project: the hook takes the first `jsonl_project_mapping` entry, in file order, whose name appears in the folder path; live capture tries the longest name first, on the transcript file's path before the folder; and the importer goes in file order, file path first, then the folder recorded in the transcript. They agree for ordinary names and can disagree when one entry's name contains another's.
 - The match is a substring test, so an entry named `other` also matches "another" or "brother". On the author's history no stored `oth` message was affected.
@@ -102,7 +439,87 @@ The bar is tuned for the hook's search words. The lookup tool picks words differ
 - The machine-message check is 60 characters in Python (`is_machine_generated`, used by the metrics layer and eval) and 80 in the hook's SQL. It only matters at the edges; on the author's history all three definitions flag the same 348 of 15,714 messages.
 - The fixed time the self-test uses (`as_of`) applies to keyword search only. Meaning search ignores it, so a run at a fixed time could still see newer messages through meaning search. The cap study checked that this can't change the numbers reported here.
 
+</details>
+
+## What happens step by step
+
+```mermaid
+flowchart TD
+    A["You open a project and type claude. SessionStart runs startup_check.py, then hands Claude the recent session summaries"]
+    B["You send a message. user-prompt-submit.py searches and adds what it finds"]
+    C["Claude finishes answering. stop.py saves the exchange"]
+    D["The conversation is compacted. pre-compact.py saves anything unsaved, post-compact.py hands memory context back"]
+    E["The session ends. session-end.py starts the summary in the background and backs up the database"]
+    G["After /clear, your next message gets that summary plus the normal search, once"]
+
+    A --> B
+    B --> C
+    C -->|"your next message"| B
+    B -.->|"any time"| D
+    C -->|"session ends"| E
+    E -->|"next session, which also summarizes sessions that never ended cleanly"| A
+    E -->|"if the reason was /clear"| G
+    G --> B
+```
+
+The six hooks fire at these moments. You never run them yourself. Each moment is written out in the fold.
+
+<details>
+<summary>Each moment in words</summary>
+
+### When you open a project and type `claude`
+
+The session start hook checks if there are any new chat logs it hasn't seen, pulls them in, backs up the database, and gives Claude a quick summary of what happened last time plus anything that got left unfinished.
+
+### Every time you send a message
+
+A hook digs through the database for anything relevant to what you just typed and quietly tosses it into Claude's context before Claude even sees your message.
+
+And this happens on literally every message, not just right after you run `/clear`. The `/clear` recovery thing below is really just for one specific moment, the message right after you clear mid session. Most of the time when you're bringing up old stuff it has nothing to do with `/clear` at all, like you close your terminal on Monday, open a new one Wednesday, and ask "what did we decide about the database schema" and that's a totally new session that never went near `/clear`. If search only ran right after clearing, that Wednesday question would just come back empty since nothing was ever cleared. This per message search is the whole point of the project, remembering stuff across sessions, not just across a single `/clear`. The `/clear` recovery thing is just a smaller bonus feature on top of that.
+
+*How it decides what to inject is covered in [How per-message search works](#how-per-message-search-works).*
+
+*To watch it handle one real question, step by step, with the code lines for each step, see [One question, start to finish](#one-question-start-to-finish).*
+
+### Every time Claude finishes answering
+
+The whole exchange gets saved to the database right away. It doesn't wait till the session ends. So if your terminal crashes you don't lose the conversation, just the end of session summary.
+
+### When a session ends
+
+When a session ends, meaning you ran `/exit`, closed the terminal, or hit `/clear`, there's a background script that reads through the whole conversation and asks Claude Haiku to write an actual summary, what you were doing, what got decided, what's still unfinished, what to pick up next time.
+
+If that call fails for whatever reason (no API key, no internet, hit a rate limit) it falls back to a simpler note instead, putting together just the project name, how many messages were in the session, the time range, and a tiny preview of your first message. That fallback note isn't nearly as useful as a real generated summary, but at least it's clearly marked as a fallback and the session still ends up in the database with something attached to it. The alternative would be writing nothing at all, which means that session disappears from your history since nothing ever points back to it. Either way something gets written, just a question of how useful it ends up being.
+
+### When a session doesn't end cleanly
+
+What if the session doesn't end cleanly at all -- if you just close the terminal tab, force-quit, or your machine sleeps or crashes mid-conversation, none of that gives Claude Code a chance to fire the end-of-session hook. This means that the session would just sit there forever with no summary and no notes permanently. The fix for this doesn't try to catch the crash itself (nothing can run code after the process is already gone) -- so instead, every time you start a **new** session anywhere, it checks for any *other* session that's still missing a summary and whose last message is more than 30 minutes old, and runs the normal summarization pass on it then, tagged so you can tell it was caught late rather than a real `/exit`/`/clear`. It only does a few of these per startup so it can't slow down the session you're trying to start. This only ever looks at sessions other than the one currently starting, and once a session gets picked up this way it's marked as handled, so it won't get re-swept by a later startup too. If you come back to a chat you'd only paused (not force-quit) and it got summarized while you were out for over half an hour, that's expected and harmless -- the provisional summary just gets fully overwritten with the real one whenever you do end that session for real. The "lessons" pulled out of that session (see below) aren't affected by this either -- before writing any lesson, it checks what's already been recorded for that same session and skips anything already there, so even though the summarization step can potentially run twice on the same conversation, nothing gets duplicated in your lessons.
+
+### When you run `/clear`
+
+In the old version, running this command only tried to bring back context if you came back within five minutes, and even then it just dumped the last ten raw messages at you. Now there's no time limit at all, so whenever you come back, even days later, your next message gets the real summary from before mixed with a normal search based on whatever you just typed. It only does this once per `/clear` though, so it won't keep repeating itself on every message after.
+
+### When Claude Code compacts the conversation
+
+Compaction, whether you run `/compact` or it happens automatically, shrinks what Claude is holding in its context. Just before it, `hooks/pre-compact.py` saves any messages that haven't been saved yet, so the shrink loses nothing. Just after it, `hooks/post-compact.py` hands Claude the recent session notes and the project summary again, so it has memory straight away instead of starting blank.
+
+</details>
+
 ## How to verify it's working
+
+Everything runs silently, so check the logs. They are all under `logs/` (gitignored, local only). Run `tail -20 <file>` from the project root to see the end of one.
+
+| Log | What a line means | Healthy looks like |
+|---|---|---|
+| `retrieval.log` | One line per message saying what search did (`keyword_hit`, `semantic_hit`, `hybrid_hit`, `weak_keyword`, `no_match` and a few more) | A hit when you ask about something you know is in your history |
+| `summarize_session.log` | Written when a session ends. `WARN` is a retry, `ERROR` means the note fell back to a plain placeholder | Mostly empty |
+| `hooks.log` | A hook failed to launch, or its context build threw | Empty or missing |
+| `semantic_search.log` | Meaning search is broken (the model failed to load, or a corrupted row) | Empty |
+
+One command for all of them: `tail -n 10 logs/*.log logs/*/*.log 2>/dev/null`. For the bigger picture (database integrity, backup freshness, embedding coverage), run `python3 scripts/remember_health.py`, the 9-point dashboard.
+
+<details>
+<summary>The same list with every detail</summary>
 
 Everything above happens silently in the background, which is the point, but it also means you have no idea whether any of it is working unless you check. A handful of log files under `logs/` (gitignored, local only) exist specifically so you can check instead of guess. None of this needs a conversation, just run these from the project root.
 
@@ -112,7 +529,24 @@ Everything above happens silently in the background, which is the point, but it 
 - **`tail -20 logs/semantic_search.log`** -- should also be empty. A line here means the meaning-based fallback search is broken (the embedding model failed to load, or a corrupted row in the database couldn't be read) -- which matters because when this is silently broken, you're only ever getting keyword search's results and have no way to tell the difference from "nothing in semantic search matched."
 - **Check everything in one shot:** `tail -n 10 logs/*.log logs/*/*.log 2>/dev/null` dumps the tail of every log at once. For the bigger picture beyond logs -- database integrity, backup freshness, embedding coverage -- `python3 scripts/remember_health.py` is the 9-point dashboard these logs feed into.
 
+</details>
+
 ## Measuring how well it works
+
+The logs say whether something broke, not whether the results are good, so there is a measurement layer on top. It is on by default, stores only ids, names, lengths and counts (never your prompt text), and `metrics: enabled: false` turns it off.
+
+| What | How you get it | What it tells you |
+|---|---|---|
+| Raw numbers | Tables `retrieval_events`, `tool_events`, `api_usage` | What search did, which tools Claude used, the real token counts |
+| A "before" picture | `python3 scripts/remember_baseline.py` | Replays your real past prompts through today's search code. Save one before a change, run it again after |
+| Right now | `python3 scripts/remember_metrics.py` | How often memory was injected, how old and well matched, how fast, what it cost |
+| Is search right for you? | The Memory Check, `python3 scripts/remember_check.py`, which runs by itself every couple of weeks | Whether search finds the right memories, in a sentence or two |
+| The self-test | `python3 scripts/remember_eval.py` | Asks every question six ways and checks whether the right session comes back |
+| A public rerun | `python3 examples/eval/run_eval.py` | The same test on invented data anyone can check |
+| Is a cap of 5 right? | `scripts/remember_cap_study.py` | Replays 17 policies. Nothing shipped |
+
+<details>
+<summary>Everything in this section, in full</summary>
 
 The logs above tell you whether something broke. They can't tell you whether the memory is *good* -- `keyword_hit` only means the search returned something, not that it returned the right thing. So there's a small measurement layer on top. It's on by default, stores only ids, names, lengths and counts (never your prompt text or shell commands), and `metrics: enabled: false` in `config.yaml` turns it off without affecting memory itself.
 
@@ -160,7 +594,7 @@ One thing to know about reading the baseline: the "meaning-based search would ha
 
 **A public version anyone can rerun.** Your own questions can't be shared, so `examples/eval/` holds a small invented dataset (three made-up projects, 54 messages) and 26 questions. `python3 examples/eval/run_eval.py` builds it into a throwaway database with the real code and scores it, without touching your config or memory. See `examples/eval/README.md`.
 
-**A correction about what this test measured.** The self-test asks every question with no current project. From commit `c26a868` until the Phase 4 change, the live hook always had one, because a folder with no mapping was treated as `oth`. On the author's history that made the self-test about 8 points too optimistic: asked with no project it found 32 of 38 answerable questions, and asked the way the hook really searched it found 29 (three questions, a small sample: p = 0.25, not proof). Unmapped folders now search with no project again, so the self-test matches them. In a mapped project folder the hook still favors that project, which the self-test does not measure. The 32 and 29 come from the paired comparison (`examples/eval/run_eval.py --compare project-bias`), not from memory notes. On the public example, where every question is asked from its own mapped project, favoring the project changed which memories came back for 1 of 26 questions and the number found for none.
+**A correction about what this test measured.** The full wording moved to [Known limits and corrections](#known-limits-and-corrections).
 
 **What it's good for.** Deciding things with evidence instead of guesses. The weak-match gate's threshold was set by this test, and so was the decision to drop typo correction. Run it before and after any change to search (`--label name` saves each run) and the difference is the effect of the change. A question counts as found if *any* message from the right session comes back, not one exact message.
 
@@ -173,20 +607,47 @@ The hook injects at most 5 memories. `scripts/remember_cap_study.py` asked wheth
 - Bigger limits found 3 to 5 more answers (32 to 34 of 38) at about 1.2 to 1.9 times the tokens (no cap at all: 34, at 2.4 times). The keyword search only fetches 3 project rows and 7 other rows, which limits the candidates on 45 of 46 questions, so those gains are lower bounds, and bigger limits weren't measured.
 - Shipping anything other than 5 would need a separate injection limit, because the weak-match gate and the meaning-search gate currently look at the same top 5.
 
+</details>
+
 ## Why "lessons" are useful
+
+A lesson is a standalone fact pulled out of a session so it outlives that one conversation. It only works from what gets said in text, not from what gets run.
+
+<details>
+<summary>The full explanation</summary>
 
 A session summary is tied to one conversation. A lesson is different, it's more like a standalone fact that's supposed to outlive that one session. Like if you spend an hour figuring out some approach causes a bug, that's worth remembering next time you're anywhere near that problem, not just buried somewhere in one session's notes. The summarization step pulls these out automatically whenever there's something that seems worth keeping.
 
 The catch here is it only works off what gets said, not what gets run. Claude Code doesn't save the actual output of tool calls, so stuff like code execution results, notebook cell outputs, whatever a command printed, none of that goes into this memory system. Only the plain text of your messages and Claude's replies gets captured. So if Claude runs something and sees a cool result, that result only makes it into memory if Claude types it out in the reply. There's a standing instruction in the global Claude Code config telling Claude to do exactly that, say real findings out loud instead of just quietly moving on, because otherwise a real result can happen and just never get remembered.
 
+</details>
+
 ## Getting the most out of it
+
+Set up the API key, add your real projects, run `python3 scripts/batch_embed.py` once in a while, and just talk normally.
+
+<details>
+<summary>Why each one helps</summary>
 
 - **Set up the API key.** Without it the session summaries are pretty plain and mechanical. With it they're more useful, providing real reasoning about what happened instead of just a message count.
 - **Add your real projects.** Run `/remember-add-project` for each one (see below).
 - **Running `python3 scripts/batch_embed.py` every once in a while is still worth it.** New messages, including imported ones, get embedded automatically as they come in now. This script is just a catch up pass for anything that slipped through, like if semantic search was turned off in `config.yaml` during an import and you've since turned it back on. It's pretty quick, like a few seconds for thousands of messages.
 - **Just talk normally.** You don't need slash commands or any special phrasing. Just ask "what did we decide about the database schema" the same way you'd ask a person.
 
-## The four slash commands
+</details>
+
+## The five slash commands
+
+| Command | What it does |
+|---|---|
+| `/remember-add-project` | Registers a project folder |
+| `/remember-import` | Brings in a Claude.ai, ChatGPT or Gemini export. You pick the folder |
+| `/remember-status` | Session and message counts, a per-project breakdown, last backup time, embedding coverage |
+| `/remember-explain` | Shows every step of search for one question, with the real numbers |
+| `/remember-questionnaire` | Helps you fill in `remember-questionnaire.txt` and imports your answers |
+
+<details>
+<summary>What each one does and why it is useful</summary>
 
 These are the only commands you type yourself day to day - everything else (capture, search, context injection) runs automatically through the hooks and MCP connection without you asking.
 
@@ -220,11 +681,18 @@ What it does: helps you fill out `remember-questionnaire.txt` (identity, family,
 
 What it does: registers a new project in one non-interactive pass given a folder path - derives a name/prefix/label from it and creates the folder's `CLAUDE.md`, config entry, database row, and MCP registration, no prompts. Why it's useful: without a registered project, everything you work on falls into the generic catch-all bucket instead of getting its own tracked history and project-scoped context - this is the low-friction way to get that, one command instead of running the full interactive installer.
 
+</details>
+
 ## If you want to poke around directly
+
+Anything in `scripts/` that starts with `remember_` is a plain script you can run yourself, for checking something without a whole conversation.
+
+<details>
+<summary>Quick lookups, maintenance, changing the setup, getting data out</summary>
 
 Anything in `scripts/` that starts with `remember_` is just a plain script you can run yourself, like `python3 scripts/remember_search.py`, `remember_health.py`, `remember_history.py`, stuff like that. Useful if you just want to check something without going through a whole conversation.
 
-Day to day you don't need any of this, the hooks and the four slash commands above cover normal use. These are for when you want something faster than a conversation, a maintenance check, or to change the setup itself.
+Day to day you don't need any of this, the hooks and the five slash commands above cover normal use. These are for when you want something faster than a conversation, a maintenance check, or to change the setup itself.
 
 ### Quick lookups, no conversation needed
 
@@ -258,7 +726,14 @@ These are plain scripts instead of slash commands on purpose, since they touch `
 
 What you won't find a reason to run yourself: `write_exchange.py`, `ingest_jsonl.py`, `startup_check.py`, `summarize_session.py`. These are the internals the hooks already trigger automatically at the right moments. Running them by hand wouldn't break anything, they're all deduplicated and safe to re-run, there's just nothing to gain from doing it out of band.
 
+</details>
+
 ## Bringing in history from other AI tools
+
+`/remember-import` walks you through bringing in Claude.ai, ChatGPT and Gemini exports. You choose the project folder and the tags.
+
+<details>
+<summary>The steps for each tool</summary>
 
 If you were talking to Claude, ChatGPT, or Gemini before setting this up, you can pull that history in too. None of it is automatic though, this project only auto captures Claude Code itself. Each platform still needs a manual export and then a one time import you run from the terminal, exactly like before. Nothing about that part changed.
 
@@ -312,6 +787,8 @@ One weird thing about Gemini specifically, its export isn't split into sessions 
 ### After importing
 
 All three of these also embed everything as it gets imported now, the same embedding step that happens automatically for live Claude Code sessions. That used to only happen later, whenever you got around to running `batch_embed.py`. Imported messages don't need that catch up step anymore, they're already embedded and searchable the moment the import finishes.
+
+</details>
 
 ## What this doesn't do
 

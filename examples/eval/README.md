@@ -16,6 +16,43 @@ From a clean state, the command:
 4. Runs `scripts/remember_eval.py` on `golden_set.yaml` and `scripts/remember_baseline.py` on the same data.
 5. Writes the results, stamped with the git commit and date, to `results/<date>-<commit>/`.
 
+## Results
+
+### On this synthetic set (rerun it yourself)
+
+The one command that reproduces them is the one at the top of this page: `python3 examples/eval/run_eval.py`. The numbers below are from `examples/eval/results/2026-11-24-5505026/eval.json` (the plain-language version is `eval.txt` in the same folder), run on 2026-11-24. That folder's `run.json` says the working tree had uncommitted changes and the retrieval code did not match commit `5505026`, so treat it as a result for the code of that day and rerun to confirm on your checkout. There are 20 questions with an answer and 6 without.
+
+| way of searching | right memory in top 5 (of 20) | ranked first (of 20) | junk on no-answer questions (of 6) | questions that got a machine message back (of 26) |
+|---|---|---|---|---|
+| keyword only | 13 | 11 | 1 | 2 |
+| keyword, weak-match gate off | 13 | 11 | 3 | 2 |
+| meaning only | 16 | 13 | 0 | 0 |
+| `on_miss` (the default) | 16 | 13 | 1 | 2 |
+| `always` | 16 | 13 | 1 | 2 |
+| lookup tool (`search_transcripts`) | 13 | 10 | 3 | 0 |
+
+- **The gap is all in the paraphrase questions.** Keyword search finds 0 of the 7 and meaning search finds 3 of 7. All methods find 8 of 8 of the questions that use the answer's own words (`eval.txt`, "By question type").
+- **The 2 machine messages are one planted edge case.** The data holds one machine message that starts with a newline, on purpose (id 12 in the build I checked). The hook's check misses it, and it came back for q05 and q20. The lookup tool strips the newline first, so it never returned one. See the table in `GO_DEEPER.md`.
+- **Project favoring changed nothing in how many were found.** In `compare_project-bias.txt` the number found is the same with and without it, for every mode. It changed which memories came back for 1 of the 26 questions (q01), and only their order.
+- **One question moves a score by about 5 points**, so read the differences between rows, not the exact percentages.
+
+### On the author's own history (words only)
+
+The questions and the database are private, so no question text, memory text or folder is shown and nothing here can be rerun by you. Each result sits in a gitignored folder under `eval/results/` on the author's machine, and each one used the same frozen copy of the database, taken on 2026-11-23, with 38 questions that have an answer and 8 that do not.
+
+| result folder | run date | commit | which path it measures | what it found |
+|---|---|---|---|---|
+| `2026-11-23-7e8fefa` | 2026-11-23 | `7e8fefa`, retrieval code matched the commit | **The no-project path.** Every question is asked with no project favored (this is how the self-test always asks). The older figure comes from here. | Default mode (`on_miss`): 32 of 38. `always`: 33. Keyword only: 28. |
+| `2026-11-24-f5082bd` | 2026-11-24 | `f5082bd`, retrieval code matched the commit | **The path the hook used then for a folder with no mapping:** favoring the catch-all label `oth`. This is the cap study. | Today's cap of 5: 29 of 38. |
+| `2026-11-24-2d1805e` | 2026-11-24 | `run.json` records `5505026` with uncommitted changes, so the code did not match that commit | **Both paths, asked side by side** (`--compare project-bias`). | Default mode: 29 of 38 with `oth` favored, 32 of 38 without. Three questions (q06, q30, q34) were found only without it, and none only with it. Keyword only: 26 against 28. `always`: 31 against 33. |
+
+How to read those:
+
+- **Older 32 of 38** was the no-project path. **29 of 38** was what the hook got when it favored `oth` for a folder with no mapping.
+- **Unmapped folders now use no project**, so they now match the no-project path (32 of 38 on this database). That change shipped in commit `5505026`.
+- **Mapped project folders are measured only on the synthetic data above.** On the author's own history every question was asked with no project or with `oth`, never with a real mapped project, so how much a mapped folder's head start helps or hurts on real history is not measured.
+- **The 3-question difference is a small sample.** Three questions were found only without the favoring and none only with it. A sign test on 3 against 0 gives p = 0.25, so luck cannot be ruled out. It is a direction, not a proof.
+
 ## The data
 
 There are three made-up projects, matched by `cwd`: `tdp` (a tide-pool survey app), `lgl` (bakery inventory) and `qst` (a static blog generator). They hold 22 sessions and 54 messages, dated September 2025 to May 2026.
