@@ -47,6 +47,7 @@ The golden format is the one documented at the top of `scripts/remember_eval.py`
 | `replay_questions.jsonl` | for each of the 26 questions, searched from its own project as of `as_of`: what the hook's keyword path would inject (result ids in order, plus a sha256 of the exact text) and the `on_miss` gate's decision |
 | `replay_prompts.jsonl` | the same for the user prompts stored in the sessions, each as of its own timestamp |
 | `replay.json` | `remember_baseline.py` summaries for both replays |
+| `compare_*.json` / `compare_*.txt` | paired comparisons from `scripts/remember_compare.py`, each asking the same questions two ways: `project-bias` (project favored or not), `mcp-machine-filter` (the lookup tool before and after it hid machine messages) and `mcp-gate` (a weak-match gate for the lookup tool, simulated and not shipped). Ids and counts only |
 
 The two `replay_*.jsonl` files are the "before" snapshot for any refactor of the search. The same data and code must give the same ids and the same hashes.
 
