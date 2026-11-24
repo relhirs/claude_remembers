@@ -187,22 +187,15 @@ def _clean(question, rows):
     return [r for r in rows if q not in (r["content"] or "").lower()]
 
 
-def run_question(semantic, conn, config, db_path, item, exclude, cold_start_ms=0.0,
-                 as_of=None, server=None, keyword_only=False):
-    """Ask one question every way with ONE retrieve() call (the function the live
-    hook runs), then read each method's rows from what it did. `cold_start_ms`
-    is charged to on_miss whenever its gate loads the model. `as_of` fixes
-    "now" for the keyword search's recency weighting (None = the clock, as
-    live). `server` (from load_mcp_server) adds the mcp method; `keyword_only`
-    skips every method that needs the embedding model."""
-    question = item["question"]
+def make_leak_filter(conn, exclude, question, session_of):
+    """The eval's row filter for retrieve(): drops rows from excluded sessions
+    and rows that quote the question (the questions themselves get written into
+    transcripts when discussed). Every row that passes has its session recorded
+    in `session_of` (id -> session id). Module-level so remember_cap_study.py
+    applies exactly the filter the eval uses."""
     quoted = question.lower().strip()
-    exclude_one = exclude[0] if exclude else None
-    session_of = {}
 
     def leak_filter(kind, row):
-        """Drop rows from excluded sessions and rows that quote the question
-        (the questions themselves get written into transcripts when discussed)."""
         if kind == "keyword":                # (project, timestamp, content, rank, id)
             found_session = conn.execute("SELECT session_id FROM transcripts WHERE id = ?",
                                          (row[4],)).fetchone()
@@ -214,6 +207,41 @@ def run_question(semantic, conn, config, db_path, item, exclude, cold_start_ms=0
         session_of[row["id"]] = row["session_id"]           # meaning search result (dict)
         return row["session_id"] not in exclude and quoted not in (row["content"] or "").lower()
 
+    return leak_filter
+
+
+class EvalError(Exception):
+    """A question hit an error that would otherwise be swallowed (meaning search,
+    the on_miss gate). The text names only the question id and the step, never
+    the underlying message (which `.message` keeps), so it is safe to print for
+    a private golden set."""
+
+    def __init__(self, question_id, field, message=""):
+        super().__init__(f"question {question_id}: error in {field}")
+        self.question_id, self.field, self.message = question_id, field, message
+
+
+def run_question(semantic, conn, config, db_path, item, exclude, cold_start_ms=0.0,
+                 as_of=None, server=None, keyword_only=False, strict=False, trace=None):
+    """Ask one question every way with ONE retrieve() call (the function the live
+    hook runs), then read each method's rows from what it did. `cold_start_ms`
+    is charged to on_miss whenever its gate loads the model. `as_of` fixes
+    "now" for the keyword search's recency weighting (None = the clock, as
+    live). `server` (from load_mcp_server) adds the mcp method; `keyword_only`
+    skips every method that needs the embedding model.
+
+    retrieve() records meaning-search and gate errors in its trace instead of
+    raising, so they used to vanish into an empty result. Now a question whose
+    meaning search or gate errored (or whose gate never decided) either raises
+    EvalError (`strict`) or comes back marked "errored" in every method and is
+    left out of scoring (not strict). `trace`, when given, is filled with
+    retrieve()'s trace (the cap study reads the meaning rows from it)."""
+    question = item["question"]
+    quoted = question.lower().strip()
+    exclude_one = exclude[0] if exclude else None
+    session_of = {}
+    leak_filter = make_leak_filter(conn, exclude, question, session_of)
+
     def pack(rows, ms, **extra):
         return {"sessions": _rank_sessions([(r[4], session_of.get(r[4])) for r in rows]),
                 "ids": [r[4] for r in rows],
@@ -222,7 +250,7 @@ def run_question(semantic, conn, config, db_path, item, exclude, cold_start_ms=0
 
     # mode "always" with no helper function embeds in-process, so meaning,
     # always and on_miss can all be read from one pass.
-    trace = {}
+    trace = {} if trace is None else trace
     result = retrieval.retrieve(conn, config, question, project=None, exclude_session=exclude_one,
                                 as_of=as_of, mode="off" if keyword_only else "always",
                                 semantic_fn=semantic.semantic_search, row_filter=leak_filter, trace=trace)
@@ -269,6 +297,18 @@ def run_question(semantic, conn, config, db_path, item, exclude, cold_start_ms=0
         return out
 
     sem = trace["semantic"]
+    # Checked after the skip return above: a skipped question has no meaning-search step.
+    errored = (("gate", trace["gate"]["error"]) if trace["gate"]["error"] else
+               ("semantic", sem["error"]) if sem["error"] else
+               ("gate", "the on_miss gate never decided") if trace["gate"]["fires"] is None else None)
+    if errored:
+        if strict:
+            raise EvalError(item["id"], errored[0], errored[1])
+        for method in METHODS:
+            out[method] = pack([], 0.0, **({"keywords": keywords} if method in KEYWORD_METHODS else {}))
+        for method in out:
+            out[method]["errored"] = errored[0]
+        return out
     sem_ms = sem["ms"] or 0.0
     sem_rows = trace.get("semantic_rows", [])
     first = sem["usable_first_similarity"]
@@ -297,6 +337,9 @@ def score(per_question, questions):
     Optional extras when the golden set has them: per-tag recall and, for
     questions with a `superseded` session, whether the newer answer ranked first."""
     out = {}
+    # A question that errored (run_question, not strict) has no result to score:
+    # it is neither found nor missed, so it is left out of every denominator.
+    questions = [q for q in questions if "errored" not in per_question.get(q["id"], {}).get("keyword", {})]
     answerable = [q for q in questions if q["kind"] == "answerable"]
     no_answer = [q for q in questions if q["kind"] == "no_answer"]
     first_q = next(iter(per_question.values()), {})
@@ -363,17 +406,24 @@ def score(per_question, questions):
     return out
 
 
-def run_eval(config, golden_path, include_mcp=False, keyword_only=False):
+def run_eval(config, golden_path, include_mcp=False, keyword_only=False, strict=True):
     exclude, questions = load_golden(golden_path)
     return run_questions(config, exclude, questions, str(golden_path), as_of=golden_as_of(golden_path),
-                         include_mcp=include_mcp, keyword_only=keyword_only)
+                         include_mcp=include_mcp, keyword_only=keyword_only, strict=strict)
 
 
-def run_questions(config, exclude, questions, source, as_of=None, include_mcp=False, keyword_only=False):
+def run_questions(config, exclude, questions, source, as_of=None, include_mcp=False, keyword_only=False,
+                  strict=False):
     """Score a list of questions every way. Used with a hand-checked golden
     set by this script and with auto-generated questions by remember_check.py.
     The defaults (no mcp, clock time, all model methods) are what
-    remember_check.py relies on."""
+    remember_check.py relies on.
+
+    `strict` decides what a question that hit a meaning-search or gate error
+    does (see run_question): True stops the run with EvalError (the command line
+    and the cap study); False (the default, what the background Memory Check
+    uses) records it, leaves it out of the scores and reports it in
+    counts.errored / errored_ids, so a check never crashes on one bad question."""
     db_path = resolve_db_path(config)
     spec = importlib.util.spec_from_file_location("semantic_search", ROOT / "scripts" / "semantic_search.py")
     semantic = importlib.util.module_from_spec(spec)
@@ -391,12 +441,14 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
         server = load_mcp_server(db_path) if include_mcp else None
         per_question = {q["id"]: run_question(semantic, conn, config, db_path, q, exclude,
                                               cold_start_ms=(model_load_s or 0.0) * 1000, as_of=as_of,
-                                              server=server, keyword_only=keyword_only)
+                                              server=server, keyword_only=keyword_only, strict=strict)
                         for q in questions}
     finally:
         conn.close()
     methods = score(per_question, questions)
     skipped_ids = [qid for qid, res in per_question.items() if "skipped" in res["keyword"]]
+    errored_ids = [qid for qid, res in per_question.items() if "errored" in res["keyword"]]
+    scored = [q for q in questions if q["id"] not in errored_ids]      # counts match what score() used
     return {
         "created_at": utc_now(), "git_commit": git_stamp(),
         "params": {"golden": source, "as_of": as_of, "keyword_only": keyword_only,
@@ -404,10 +456,12 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
                    "semantic_cutoff": retrieval.SEMANTIC_CUTOFF,
                    "rrf_k": retrieval.RRF_K, "recency_scale_days": retrieval.RECENCY_SCALE_DAYS,
                    "fts_rank_floor": retrieval.FTS_RANK_FLOOR, "max_results": retrieval.MAX_RESULTS},
-        "counts": {"answerable": sum(q["kind"] == "answerable" for q in questions),
-                   "no_answer": sum(q["kind"] == "no_answer" for q in questions),
-                   **({"skipped": len(skipped_ids)} if skipped_ids else {})},
+        "counts": {"answerable": sum(q["kind"] == "answerable" for q in scored),
+                   "no_answer": sum(q["kind"] == "no_answer" for q in scored),
+                   **({"skipped": len(skipped_ids)} if skipped_ids else {}),
+                   **({"errored": len(errored_ids)} if errored_ids else {})},
         **({"skipped_ids": skipped_ids} if skipped_ids else {}),
+        **({"errored_ids": errored_ids} if errored_ids else {}),
         "model_load_s": round(model_load_s, 2) if model_load_s is not None else None,
         "methods": methods,
         "per_question": {qid: {m: {k: v for k, v in r.items() if k != "keywords"}
@@ -432,6 +486,8 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
             "characters, or only stop words): the hook methods returned nothing for them, so they count as "
             "misses when answerable and as correctly quiet when not. The mcp tool is not subject to that rule."]
             if skipped_ids else []) + ([
+            f"{len(errored_ids)} question(s) errored (meaning search or the on_miss gate failed) and were left "
+            "out of every score above: they are neither found nor missed."] if errored_ids else []) + ([
             "mcp is the search_transcripts tool as Claude calls it: up to 20 rows, no weak-match gate, "
             "no recency weighting and no machine-message filter; its 'injected' count is rows returned."]
             if include_mcp else []) + ([
@@ -561,7 +617,12 @@ def main():
         print(f"No golden set at {args.golden}. See the usage notes at the top of this script.")
         sys.exit(2)
 
-    result = run_eval(config, args.golden, include_mcp=not args.no_mcp, keyword_only=args.keyword_only)
+    try:
+        result = run_eval(config, args.golden, include_mcp=not args.no_mcp, keyword_only=args.keyword_only,
+                          strict=True)
+    except EvalError as e:                   # id and step only: the message may carry private text
+        print(f"FATAL: {e}. Nothing was scored or saved.")
+        sys.exit(3)
     if not args.no_save:
         save_result(config, result, args.label)
     print(json.dumps(result, indent=2) if args.json else render_report(result))

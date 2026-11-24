@@ -2347,6 +2347,319 @@ def test_eval_skips_short_questions():
           result["methods"]["keyword"]["recall_at_5"] == 0.5 and result["methods"]["keyword"]["missed_ids"] == ["short1"])
 
 
+def test_eval_hidden_errors():
+    """Item 9: retrieve() records a meaning-search or gate error in its trace instead of
+    raising, so the eval used to score it as a quiet empty result. Now strict=True stops
+    with EvalError naming the question id and the step; strict=False (what the background
+    Memory Check uses) finishes, counts the question as errored and leaves it out of the
+    scores (neither found nor missed)."""
+    print("\n--- Eval: Hidden Errors ---")
+    import types
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_eval as ev
+    import retrieval
+    secret = "PRIVATE-TEXT-ZQX"
+    ok_q = {"id": "ok1", "kind": "answerable", "question": "tell me about the quokka zebracode rollback plan",
+            "expect": ["target"]}
+    gate_q = {"id": "gate1", "kind": "answerable", "question": "tell me about the quokka rollback gatefail plan",
+              "expect": ["target"]}
+    sem_q = {"id": "sem1", "kind": "answerable", "question": "tell me about the quokka rollback semfail plan",
+             "expect": ["target"]}
+    nogate_q = {"id": "none1", "kind": "no_answer", "question": "tell me about the marmot rollout nogatedecision",
+                "expect": []}
+    short_q = {"id": "short1", "kind": "answerable", "question": "Species CSV?", "expect": ["target"]}
+    questions = [ok_q, gate_q, sem_q, nogate_q, short_q]
+
+    def failing_semantic(*a, **k):
+        raise RuntimeError(secret)
+
+    real_gate = retrieval.should_use_semantic
+
+    def faulty_gate(prompt, keywords, rows, kw_info, conn):
+        if "gatefail" in prompt:
+            raise ValueError(secret)
+        if "nogatedecision" in prompt:
+            return None, "undecided"               # the gate returned, but never said yes or no
+        return real_gate(prompt, keywords, rows, kw_info, conn)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_file = Path(tmp) / "m.db"
+        disk = sqlite3.connect(str(db_file))
+        _crafted_conn().backup(disk)
+        disk.close()
+        config = {"storage": {"mode": "synced", "local_db_path": str(db_file), "root_path": tmp}}
+        fake = types.ModuleType("sentence_transformers")
+        fake.SentenceTransformer = lambda *a, **k: types.SimpleNamespace(encode=lambda text: [0.0, 0.0, 0.0])
+        saved_st = sys.modules.get("sentence_transformers")
+        sys.modules["sentence_transformers"] = fake
+        real_run_question = ev.run_question
+
+        def wrapped(semantic, conn, cfg, db_path, item, *a, **k):
+            if item["id"] == "sem1":              # meaning search itself fails for this one question
+                semantic = types.SimpleNamespace(semantic_search=failing_semantic)
+            return real_run_question(semantic, conn, cfg, db_path, item, *a, **k)
+
+        retrieval.should_use_semantic = faulty_gate
+        ev.run_question = wrapped
+        try:
+            def strict_error(q):
+                try:
+                    ev.run_questions(config, [], [ok_q, q], "ci", strict=True)
+                except ev.EvalError as e:
+                    return e
+                return None
+            cases = [("a gate exception", gate_q, "gate"), ("a meaning-search exception", sem_q, "semantic"),
+                     ("a gate that returns no decision", nogate_q, "gate")]
+            for label, q, field in cases:
+                e = strict_error(q)
+                check(f"strict: {label} stops the run with EvalError naming the question and the step",
+                      e is not None and e.question_id == q["id"] and e.field == field,
+                      f"{type(e).__name__ if e else None}")
+                check(f"strict: {label}: the printed error carries no underlying message text",
+                      e is not None and secret not in str(e) and q["id"] in str(e) and field in str(e))
+            check("strict: a clean set of questions does not raise", strict_error(short_q) is None)
+
+            result = ev.run_questions(config, [], questions, "ci", strict=False)
+            check("not strict: the run finishes and counts the three errored questions",
+                  result["counts"].get("errored") == 3
+                  and result["errored_ids"] == ["gate1", "sem1", "none1"], str(result["counts"]))
+            per = result["per_question"]
+            check("an errored question is marked in every method and returns nothing",
+                  all(per[q][m].get("errored") and per[q][m]["injected"] == 0
+                      for q in ("gate1", "sem1", "none1") for m in ev.METHODS))
+            check("errored questions are left out of the scores: neither found nor missed",
+                  result["counts"]["answerable"] == 2 and result["counts"]["no_answer"] == 0
+                  and "gate1" not in result["methods"]["always"]["missed_ids"]
+                  and "sem1" not in result["methods"]["always"]["missed_ids"])
+            check("a skipped question is still skipped, not mistaken for an errored one",
+                  "short1" not in result["errored_ids"] and result["counts"]["skipped"] == 1)
+            check("the report-level result never mentions the underlying error text",
+                  secret not in json.dumps(result))
+            check("run_questions defaults to not strict (other callers keep running)",
+                  ev.run_questions.__defaults__ is not None and ev.run_questions.__kwdefaults__ is None
+                  and ev.run_questions.__defaults__[-1] is False)
+            check("run_eval and the command line are strict by default",
+                  ev.run_eval.__defaults__[-1] is True)
+        finally:
+            retrieval.should_use_semantic = real_gate
+            ev.run_question = real_run_question
+            if saved_st is None:
+                sys.modules.pop("sentence_transformers", None)
+            else:
+                sys.modules["sentence_transformers"] = saved_st
+
+
+def test_memory_check_reports_errored():
+    """Memory Check's report says how many questions errored and were left out."""
+    print("\n--- Memory Check: Errored Questions ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_check as rc
+
+    def m(r):
+        return {"recall_at_5": r, "false_injection_rate": 0.0, "model_load_rate": 0.4}
+    result = {"methods": {"keyword": m(0.7), "on_miss": m(0.7), "always": m(0.7)},
+              "counts": {"answerable": 20, "no_answer": 4, "errored": 1}, "created_at": "2026-11-23T00:00:00Z",
+              "question_style": "reworded"}
+    check("the report says 1 question errored and was left out",
+          "1 question(s) errored and were left out" in rc.render_report(result))
+    del result["counts"]["errored"]
+    check("with no errored questions the report has no such line", "errored" not in rc.render_report(result))
+
+
+def test_cap_study_selector():
+    """scripts/remember_cap_study.py picks which rows each policy injects. These cases use
+    hand-built rows (no database, no model) to pin the sign, boundary and ordering rules
+    the policy numbers depend on. They do not prove the real retrieve() matches: the
+    G1-G3 match checks inside the study do that."""
+    print("\n--- Cap Study: Selector ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_cap_study as cs
+    import retrieval
+
+    def row(i, rank=-5.0, project="p", content=None):
+        return (project, "2026-01-01T00:00:00Z", content or f"memory number {i:03d} " + "word " * 12, rank, i)
+    ids = lambda rows: [r[4] for r in rows]
+    adjs = lambda table: (lambda r: table[r[4]])
+
+    # --- cap order: a row that quotes the question must not use up a slot ---
+    S = [row(1), row(2), row(3)]
+    keep = lambda r: r[4] != 1
+    ctf, weak = cs.cap_then_filter(S, 2, keep, lambda rows: False)
+    check("cap order: cap-then-filter lets the quoting row at position 1 use up a slot", ids(ctf) == [2] and not weak)
+    check("cap order: filter-then-cap fills the slots with real rows", ids(cs.filter_then_cap(S, 2, keep)) == [2, 3])
+    check("cap order: a weak capped list empties the keyword rows",
+          cs.cap_then_filter(S, 2, keep, lambda rows: True)[0] == [])
+    check("cap order: the weak-match gate sees only the first k rows",
+          cs.cap_then_filter(S, 2, keep, lambda rows: len(rows) == 3)[0] == [row(2)])
+
+    # --- duplicates and the floor ---
+    same = "the very same sentence text, long enough to share its first fifty characters"
+    survivors, dropped = cs.keyword_survivors([row(1, content=same)], [row(2, content=same), row(3)])
+    check("duplicates: the same project and first 50 characters keep only the first row",
+          ids(survivors) == [1, 3] and dropped["duplicate"] == 1)
+    other_project = cs.keyword_survivors([row(1, content=same, project="a")], [row(2, content=same, project="b")])[0]
+    check("duplicates: the same text in another project is not a duplicate", ids(other_project) == [1, 2])
+    edge, dropped = cs.keyword_survivors([row(1, rank=-2.0), row(2, rank=-1.99), row(3, rank=-2.01)], [])
+    check("floor: a rank of exactly -2.0 stays, one just weaker goes",
+          ids(edge) == [1, 3] and dropped["below_floor"] == 1)
+    seen_first, dropped = cs.keyword_survivors([row(1, rank=-1.0, content=same), row(2, rank=-9.0, content=same)], [])
+    check("floor: a weak row still marks its text as seen (a later strong copy is a duplicate)",
+          seen_first == [] and dropped == {"duplicate": 1, "below_floor": 1})
+
+    # --- RRF ties: keyword rows first ---
+    sem = [("p", "t", "meaning content " + "z" * 40, None, 90)]
+    check("RRF tie: equal scores keep the keyword row first", ids(cs.merge([row(1)], sem, 5)) == [1, 90])
+    check("RRF tie: the cap keeps the keyword row", ids(cs.merge([row(1)], sem, 1)) == [1])
+    check("merging restores the real cap afterwards", retrieval.MAX_RESULTS == 5)
+
+    # --- rho: ratio exactly rho is kept (adj values are negative) ---
+    rows = [row(1), row(2), row(3), row(4)]
+    adj = adjs({1: -2.0, 2: -1.0, 3: -0.99, 4: -2.0})
+    check("rho boundary: a ratio of exactly 0.5 is kept, just under is dropped",
+          ids(cs.margin_keyword(rows, 0.5, adj)) == [1, 2, 4])
+    check("rho: the original order is kept", ids(cs.margin_keyword(rows, 0.5, adj)) == sorted(ids(cs.margin_keyword(rows, 0.5, adj))))
+    check("rho: 0.75 of 0.3 is kept despite float noise",
+          ids(cs.margin_keyword([row(1), row(2)], 0.75, adjs({1: -0.3, 2: -0.225}))) == [1, 2])
+
+    # --- delta: cosine exactly best - delta is kept ---
+    mrows = [row(1), row(2), row(3)]
+    cos = {1: 0.80, 2: 0.70, 3: 0.69}
+    check("delta boundary: exactly best - 0.10 is kept (0.8 - 0.1 is 0.7000000000000001 in floats), 0.01 less is not",
+          ids(cs.margin_meaning(mrows, 0.10, cos)) == [1, 2])
+
+    # --- largest gap ---
+    check("gap: a list of one stays", ids(cs.gap_keyword([row(1)], adjs({1: -3.0}))) == [1]
+          and ids(cs.gap_meaning([row(1)], {1: 0.5})) == [1])
+    check("gap: two rows always become one",
+          ids(cs.gap_keyword([row(1), row(2)], adjs({1: -3.0, 2: -2.9}))) == [1]
+          and ids(cs.gap_meaning([row(1), row(2)], {1: 0.5, 2: 0.49})) == [1])
+    check("gap: equal gaps cut at the first one",
+          ids(cs.gap_keyword([row(1), row(2), row(3), row(4)], adjs({1: -8.0, 2: -4.0, 3: -2.0, 4: -1.0}))) == [1]
+          and ids(cs.gap_meaning([row(1), row(2), row(3)], {1: 0.75, 2: 0.5, 3: 0.25})) == [1])
+    check("gap: keyword cut is before the largest relative drop",
+          ids(cs.gap_keyword([row(1), row(2), row(3)], adjs({1: -10.0, 2: -9.0, 3: -3.0}))) == [1, 2])
+    check("gap: meaning cut is before the largest absolute drop",
+          ids(cs.gap_meaning([row(1), row(2), row(3)], {1: 0.9, 2: 0.85, 3: 0.5})) == [1, 2])
+    check("gap: an unsorted list is cut by score, and the survivors keep their original order",
+          ids(cs.gap_keyword([row(3), row(1), row(2)], adjs({1: -10.0, 2: -9.0, 3: -3.0}))) == [1, 2]
+          and ids(cs.gap_meaning([row(3), row(1), row(2)], {1: 0.9, 2: 0.85, 3: 0.5})) == [1, 2])
+
+    # --- token budget ---
+    big = [row(i, content=f"memory {i} " + "x" * 300) for i in range(1, 5)]
+    t2 = cs.tokens_of(big[:2])
+    check("budget: a row landing exactly on N is included", ids(cs.budget_trim(big, t2)) == [1, 2])
+    check("budget: one token less leaves it out", ids(cs.budget_trim(big, t2 - 1)) == [1])
+    check("budget: the first row is injected even when it alone is over N", ids(cs.budget_trim(big, 1)) == [1])
+    check("budget: nothing in, nothing out", cs.budget_trim([], 500) == [])
+
+    # --- the whole policy, on empty and one-sided pools; gates are taken as given ---
+    P = {p["id"]: p for p in cs.POLICIES}
+    cosm = {90: 0.6, 91: 0.5}
+    msem = [("p", "t", "meaning a " + "z" * 40, None, 90), ("p", "t", "meaning b " + "y" * 40, None, 91)]
+    L5 = [row(i) for i in range(1, 8)]
+    adj_flat = adjs({i: -5.0 for i in range(1, 8)})
+    run = lambda pid, mode, L, M, weak=False, fires=True: ids(
+        cs.policy_rows(P[pid], mode, L, M, cosm, adj_flat, weak, fires))
+    check("empty lists: every policy returns nothing when both lists are empty",
+          all(run(pid, "on_miss", [], []) == [] and run(pid, "always", [], []) == [] for pid in P))
+    check("keyword only (nothing from meaning): fixed cap 3 keeps the first 3, no cap keeps all 7",
+          run("F3", "on_miss", L5, [], fires=False) == [1, 2, 3] and run("T1", "on_miss", L5, [], fires=False) == list(range(1, 8)))
+    check("meaning only: rows come from meaning when the keyword list is empty",
+          run("F4", "on_miss", [], msem) == [90, 91])
+    check("a weak keyword gate empties the keyword rows for every policy, whatever its list says",
+          all(run(pid, "on_miss", L5, [], weak=True, fires=True) == [] for pid in P))
+    check("on_miss that does not fire returns only keyword rows; always merges meaning in",
+          run("F6", "on_miss", L5[:2], msem, fires=False) == [1, 2]
+          and sorted(run("F6", "always", L5[:2], msem)) == [1, 2, 90, 91])
+    check("fixed cap 1 injects exactly one row and no cap is bounded by the pool, not by 5",
+          len(run("F1", "always", L5, msem)) == 1 and len(run("T1", "always", L5, msem)) == 9)
+    check("the baseline policy is F4 = inject at most 5, filter-then-cap", cs.BASELINE_ID == "F4" and P["F4"]["k"] == 5)
+
+    # --- judging and choosing ---
+    session_of = {1: "ans", 2: "ans", 3: "other"}
+    j = cs.judge([row(3), row(1), row(2)], {"ans"}, session_of)
+    check("judge: found, first position, junk and neutral extra rows from the expected session",
+          j["found"] and j["first_pos"] == 2 and j["junk"] == 1 and j["neutral"] == 1)
+    check("judge: nothing injected is not found and has no tokens", cs.judge([], {"ans"}, session_of)["tokens"] == 0)
+    res = lambda found, junk, tok=100, na=0: {"tuning": {"found": found, "junk_per_question": junk, "tokens_mean": tok},
+                                              "no_answer": {"rows_total": na, "tokens_total": na * 50}}
+    pols = [P["F4"], P["F1"], P["S1"], P["T1"]]
+    results = {"F4": res(10, 1.0), "F1": res(9, 0.0), "S1": res(10, 0.2), "T1": res(10, 0.2)}
+    pick = cs.select_policy(pols, results, {"F4": 0, "F1": 0, "S1": 0, "T1": 0})
+    check("choosing: found within 1 of the best is a tie, so the least junk wins (F1 beats the baseline)", pick["id"] == "F1")
+    pick = cs.select_policy(pols, results, {"F4": 0, "F1": 2, "S1": 0, "T1": 0})
+    check("choosing: a policy that loses 2 questions is out whatever it saves; a tie then goes to the simpler kind (T1 over S1)",
+          pick["id"] == "T1")
+    check("choosing: nobody eligible gives no policy",
+          cs.select_policy([P["F1"]], results, {"F1": 2}) is None)
+    far = {"F4": res(10, 1.0), "F1": res(8, 0.0), "S1": res(10, 1.0), "T1": res(10, 1.0)}
+    check("choosing: 2 fewer found than the best is outside the noise band, whatever the junk",
+          cs.select_policy([P["F4"], P["F1"]], far, {"F4": 0, "F1": 0})["id"] == "F4")
+
+    # --- the output allow-list ---
+    good = {"dataset": {"role": "select", "questions": 3}, "policies": {"F4": {"label": "Inject at most 5, gates still see 5",
+            "overall": {"found": 1}, "per_question": {"q01": {"ids": [4, 5]}}}}}
+    allowed = dict(extra_keys=["q01", "F4"], extra_strings=["Inject at most 5, gates still see 5"])
+    check("allow-list: ids, labels and numbers pass", cs.check_allowlist(good, **allowed) is None)
+
+    def rejected(obj):
+        try:
+            cs.check_allowlist(obj, **allowed)
+        except ValueError:
+            return True
+        return False
+    check("allow-list: a snippet or content key is rejected",
+          rejected({"policies": {"F4": {"snippet": "x"}}}) and rejected({"content": 1}))
+    check("allow-list: a string of text (a question or memory) is rejected",
+          rejected({"dataset": {"role": "where is the api key stored now"}}))
+
+
+def test_cap_study_output_allowlist():
+    """The study's committed output may contain only ids and numbers. CI has no embedding
+    model, so it cannot rerun the study; it checks the real cap_study.json the study wrote on
+    the public synthetic set, and proves the check can fail (planted key and planted text)."""
+    print("\n--- Cap Study: Output Allow-list ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_cap_study as cs
+    runs = []
+    results = ROOT / "examples" / "eval" / "results"
+    for d in (results.iterdir() if results.exists() else []):
+        if (d / "cap_study.json").exists() and (d / "run.json").exists():
+            runs.append((json.loads((d / "run.json").read_text())["date"], d))
+    check("a cap_study.json from the synthetic run is committed alongside the other results", bool(runs))
+    if not runs:
+        return
+    folder = max(runs)[1]
+    out = json.loads((folder / "cap_study.json").read_text())
+    golden = yaml_load(ROOT / "examples" / "eval" / "golden_set.yaml")
+    qids = [q["id"] for q in golden["questions"]]
+    labels = [p["label"] for p in cs.POLICIES] + ["Inject at most 5 as it runs today (cap, then filter)"]
+    extra = dict(extra_keys=qids + [p["id"] for p in cs.POLICIES] + ["F4-ctf"] + list(cs.BUCKETS),
+                 extra_strings=qids + labels + [out["dataset"]["as_of"]])
+
+    def passes(obj):
+        try:
+            cs.check_allowlist(obj, **extra)
+            return True
+        except ValueError:
+            return False
+    check("every key and string in the real synthetic cap_study.json is allow-listed", passes(out))
+    planted = json.loads(json.dumps(out))
+    planted["policies"]["F4"]["per_question"][qids[0]]["snippet"] = "x"
+    check("control: a planted snippet key makes the check fail", not passes(planted))
+    planted = json.loads(json.dumps(out))
+    planted["dataset"]["role"] = golden["questions"][0]["question"]
+    check("control: planted question text makes the check fail", not passes(planted))
+    raw = (folder / "cap_study.json").read_text() + (folder / "cap_study.txt").read_text()
+    check("no question text from the golden set appears in the written files",
+          not any(q["question"].lower() in raw.lower() for q in golden["questions"]))
+
+
+def yaml_load(path):
+    import yaml
+    return yaml.safe_load(Path(path).read_text())
+
+
 def test_eval_mcp_is_read_only():
     """The eval's mcp method reaches the typo-correction fallback when nothing matches;
     that must not write to the database it is measuring (it used to CREATE a vocabulary
@@ -2466,6 +2779,10 @@ if __name__ == "__main__":
     test_setup_commands_only()
     test_explain_command_template()
     test_eval_skips_short_questions()
+    test_eval_hidden_errors()
+    test_memory_check_reports_errored()
+    test_cap_study_selector()
+    test_cap_study_output_allowlist()
     test_eval_mcp_is_read_only()
     test_run_eval_refuses_db_without_out()
     test_hook_equivalence_compare()

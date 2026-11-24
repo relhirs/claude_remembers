@@ -1,0 +1,85 @@
+==================================================================
+  MEMORY CHECK: does search find the right memory?
+==================================================================
+I asked 20 questions whose answer is in memory and 6 whose answer is not,
+six different ways. Higher is better, except for the junk rate.
+
+KEYWORD SEARCH ONLY
+  Right memory among the top 5:   13 of 20  (65%)
+  Right memory ranked first:      11 of 20  (55%)
+  Injected junk when memory had no answer:  1 of 6  (17%)
+  Returned a machine-generated message (subagent hand-back, command output) on:  2 of 26 questions
+  Old vs updated answer: newer ranked first on 1 of 3, older first on 2, neither found on 0
+  By question type (top 5 / first):  exact_words 8/8 / 8/8;  machine_generated 2/2 / 2/2;  paraphrase 0/7 / 0/7;  recency 3/3 / 1/3
+  Speed: 0.2 ms typical, 1.0 ms slowest
+  (recall@1 0.55, @3 0.65, @5 0.65; MRR 0.6)
+
+KEYWORD, WITHOUT THE WEAK-MATCH GATE
+  Right memory among the top 5:   13 of 20  (65%)
+  Right memory ranked first:      11 of 20  (55%)
+  Injected junk when memory had no answer:  3 of 6  (50%)
+  Returned a machine-generated message (subagent hand-back, command output) on:  2 of 26 questions
+  Old vs updated answer: newer ranked first on 1 of 3, older first on 2, neither found on 0
+  By question type (top 5 / first):  exact_words 8/8 / 8/8;  machine_generated 2/2 / 2/2;  paraphrase 0/7 / 0/7;  recency 3/3 / 1/3
+  Speed: 0.2 ms typical, 1.0 ms slowest
+  (recall@1 0.55, @3 0.65, @5 0.65; MRR 0.6)
+
+MEANING-BASED SEARCH ONLY
+  Right memory among the top 5:   16 of 20  (80%)
+  Right memory ranked first:      13 of 20  (65%)
+  Injected junk when memory had no answer:  0 of 6  (0%)
+  Returned a machine-generated message (subagent hand-back, command output) on:  0 of 26 questions
+  Old vs updated answer: newer ranked first on 0 of 3, older first on 3, neither found on 0
+  By question type (top 5 / first):  exact_words 8/8 / 8/8;  machine_generated 2/2 / 2/2;  paraphrase 3/7 / 3/7;  recency 3/3 / 0/3
+  Speed: 5.5 ms typical, 87.1 ms slowest
+  (recall@1 0.65, @3 0.8, @5 0.8; MRR 0.725)
+
+MEANING SEARCH ONLY WHEN KEYWORD LOOKS UNRELIABLE (MODE: ON_MISS)
+  Right memory among the top 5:   16 of 20  (80%)
+  Right memory ranked first:      13 of 20  (65%)
+  Injected junk when memory had no answer:  1 of 6  (17%)
+  Returned a machine-generated message (subagent hand-back, command output) on:  2 of 26 questions
+  Old vs updated answer: newer ranked first on 1 of 3, older first on 2, neither found on 0
+  By question type (top 5 / first):  exact_words 8/8 / 8/8;  machine_generated 2/2 / 2/2;  paraphrase 3/7 / 2/7;  recency 3/3 / 1/3
+  Speed: 2384.8 ms typical, 2386.0 ms slowest; loads the model on 54% of questions
+  (recall@1 0.65, @3 0.8, @5 0.8; MRR 0.725)
+
+KEYWORD + MEANING ON EVERY PROMPT (MODE: ALWAYS)
+  Right memory among the top 5:   16 of 20  (80%)
+  Right memory ranked first:      13 of 20  (65%)
+  Injected junk when memory had no answer:  1 of 6  (17%)
+  Returned a machine-generated message (subagent hand-back, command output) on:  2 of 26 questions
+  Old vs updated answer: newer ranked first on 1 of 3, older first on 2, neither found on 0
+  By question type (top 5 / first):  exact_words 8/8 / 8/8;  machine_generated 2/2 / 2/2;  paraphrase 3/7 / 2/7;  recency 3/3 / 1/3
+  Speed: 5.8 ms typical, 88.1 ms slowest
+  (recall@1 0.65, @3 0.8, @5 0.8; MRR 0.725)
+
+MCP SEARCH_TRANSCRIPTS (CLAUDE LOOKING MEMORY UP BY HAND)
+  Right memory among the top 5:   13 of 20  (65%)
+  Right memory ranked first:      9 of 20  (45%)
+  Injected junk when memory had no answer:  3 of 6  (50%)
+  Returned a machine-generated message (subagent hand-back, command output) on:  6 of 26 questions
+  Old vs updated answer: newer ranked first on 0 of 3, older first on 3, neither found on 0
+  By question type (top 5 / first):  exact_words 8/8 / 8/8;  machine_generated 2/2 / 1/2;  paraphrase 0/7 / 0/7;  recency 3/3 / 0/3
+  Speed: 0.6 ms typical, 3.0 ms slowest
+  (recall@1 0.45, @3 0.65, @5 0.65; MRR 0.55)
+
+VERDICT
+  Keyword search alone finds the right memory 65% of the time and injects junk on 17% of unanswerable questions.
+  The MCP lookup tool finds it 65% of the time in its top 5 and returns something on 50% of unanswerable questions.
+  'always' raises that to 80% (+15 points) and answers in about 5.8 ms, but keeps a helper process running (about 610 MB of memory).
+  'on_miss' reaches 80% (+15 points, 100% of that gain) and loads the model on only 54% of questions, with no helper process, but each of those takes about 2.4 s.
+  Pick 'always' if you can spare the memory and want the best results; 'on_miss' if you cannot, or want nothing running in the background.
+  Meaning search is better at staying quiet when there is no answer (0% junk vs 17%).
+  The weak-match gate cuts junk from 50% to 17% of unanswerable questions without losing a found memory.
+
+Small sample (26 questions): a one-question change moves a score by about 5 points.
+
+LIMITS
+  - A question counts as found if ANY message from an expected session comes back.
+  - No current-project boost is applied, so every project is treated the same.
+  - A rival session that also answers a question counts against the method unless it is listed in 'expect'.
+  - Every question here is phrased about the past, which trips the on_miss gate more often than everyday prompts do; remember_baseline.py shows the rate on your real prompts.
+  - Meaning search runs here with the model already loaded; a cold start adds about 2.4 s per process.
+  - mcp is the search_transcripts tool as Claude calls it: up to 20 rows, no weak-match gate, no recency weighting and no machine-message filter; its 'injected' count is rows returned.
+  - Keyword recency is measured from a fixed time (2026-06-01T00:00:00Z), not the clock.

@@ -32,6 +32,17 @@ Options:
                    folder is tracked by git and a real database's results
                    contain real project names and session ids).
   --keep           keep the temp sandbox and print where it is.
+  --cap-study      also run scripts/remember_cap_study.py (Phase 4, Part A:
+                   how many memories should the hook inject?) inside the
+                   sandbox and write cap_study.json and cap_study.txt next to
+                   the other results. Measurement only; needs the embedding model.
+  --cap-study-project NAME
+                   search as this project for every question (the study's
+                   --default-project). Without it, each golden question's own
+                   `project:` is used. Needed for a golden set with none.
+  --cap-study-as-of ISO
+                   fixed "now" for the study (its --as-of), for a golden set
+                   with no as_of. A golden set's own as_of wins.
 """
 
 import argparse
@@ -184,6 +195,19 @@ def run_script(root, name, *args):
     return json.loads(res.stdout)
 
 
+def _newest_saved_eval(out):
+    """eval.json of the newest earlier full run in the same results folder (the
+    saved Phase 2 numbers the study's G1 check compares against), or None."""
+    runs = []
+    for d in (out.parent.iterdir() if out.parent.exists() else []):
+        if d.resolve() == out.resolve() or not (d / "eval.json").exists() or not (d / "run.json").exists():
+            continue
+        meta = json.loads((d / "run.json").read_text())
+        if not meta.get("keyword_only"):
+            runs.append((meta.get("date", ""), d / "eval.json"))
+    return max(runs)[1] if runs else None
+
+
 def render(root, eval_result):
     sys.path.insert(0, str(root / "scripts"))
     try:
@@ -203,7 +227,14 @@ def main():
     p.add_argument("--config-from")
     p.add_argument("--out")
     p.add_argument("--keep", action="store_true")
+    p.add_argument("--cap-study", action="store_true")
+    p.add_argument("--cap-study-project")
+    p.add_argument("--cap-study-as-of")
     args = p.parse_args()
+    if args.cap_study and args.keyword_only:
+        p.error("--cap-study needs the embedding model: drop --keyword-only")
+    if (args.cap_study_project or args.cap_study_as_of) and not args.cap_study:
+        p.error("--cap-study-project and --cap-study-as-of only apply with --cap-study")
     if args.db and not args.out:
         # The default output folder (examples/eval/results/) is tracked by git, and a
         # run on a real database writes project prefixes, question keywords and
@@ -276,6 +307,24 @@ def main():
             run_info["database_unchanged"] = run_info["sha256_after"] == db_hash_before
             if not run_info["database_unchanged"]:
                 print("WARNING: the database file changed during the run.", file=sys.stderr)
+
+        if args.cap_study:
+            print("Running the cap study...", file=sys.stderr)
+            same_run = root / "eval_same_run.json"
+            same_run.write_text(json.dumps(ev))
+            study_args = ["--golden", str(root / "golden_set.yaml"), "--out", str(out),
+                          "--role", "select" if args.db else "illustration",
+                          "--same-run-eval", str(same_run)]
+            if (out / "replay_questions.jsonl").exists():
+                study_args += ["--replay-questions", str(out / "replay_questions.jsonl")]
+            saved = _newest_saved_eval(out)
+            if saved:
+                study_args += ["--ref-eval", str(saved)]
+            if args.cap_study_project:
+                study_args += ["--default-project", args.cap_study_project]
+            if args.cap_study_as_of:
+                study_args += ["--as-of", args.cap_study_as_of]
+            run_script(root, "remember_cap_study.py", *study_args)
 
         (out / "run.json").write_text(json.dumps(run_info, indent=2) + "\n")
         (out / "eval.json").write_text(json.dumps(ev, indent=2) + "\n")
