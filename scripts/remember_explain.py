@@ -544,11 +544,40 @@ def _render(trace, ctx):
 # Running it
 # ---------------------------------------------------------------------------
 
+_HOOK = None
+
+
+def _share_package_modules():
+    """The hook imports its helpers by bare name (retrieval, config_utils, ...) after
+    putting scripts/ on sys.path. When this file runs inside the MCP server it was
+    imported as scripts.remember_explain, so those names would load a SECOND copy of
+    each module (and a second embedding-model cache). Point the bare names at the
+    copies already loaded, so there is one of each. A no-op when run as a script."""
+    pkg = __package__
+    if not pkg:
+        return
+    for name in ("config_utils", "retrieval", "semantic_search", "metrics_utils"):
+        mod = sys.modules.get(f"{pkg}.{name}")
+        if mod is None:
+            try:
+                mod = importlib.import_module(f"{pkg}.{name}")
+            except Exception:           # optional modules (metrics_utils) may be absent; the hook copes
+                continue
+        sys.modules.setdefault(name, mod)
+
+
 def _load_hook():
-    spec = importlib.util.spec_from_file_location("ups_hook_for_explain", HOOK_PATH)
-    hook = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(hook)
-    return hook
+    """The hook module, loaded once per process. Loading runs its top-level code,
+    which adds scripts/ to sys.path; doing that on every call made a long-running
+    MCP server's sys.path grow by one entry per explain_retrieval call."""
+    global _HOOK
+    if _HOOK is None:
+        _share_package_modules()
+        spec = importlib.util.spec_from_file_location("ups_hook_for_explain", HOOK_PATH)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        _HOOK = hook
+    return _HOOK
 
 
 def detect_session_id(cwd):

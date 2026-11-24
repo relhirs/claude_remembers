@@ -12,7 +12,29 @@ Comparison available now:
                    Side "on" passes project=P to retrieve(); side "off" passes
                    project=None. Nothing else differs.
 
-Call shape (the same as the cap study's primary call and the eval's run_question):
+    mcp-machine-filter   (Phase 4, B2a) the MCP search_transcripts tool hides
+                   harness-written messages (task notices, system reminders ...) in
+                   its SQL, before the 20-row LIMIT, so up to 20 real rows still come
+                   back. With --ref REF, side "today" is mcp/server.py as it was at
+                   git ref REF and side "filtered" is the working tree's, both run on
+                   the same database. --expect FILE (a saved earlier result of this
+                   comparison, e.g. the simulation that was approved) must match the
+                   new numbers exactly, or the run stops and prints only the keys
+                   that differ. Also replays the real recorded calls (--recorded):
+                   counts only, per call number, never the query.
+
+    mcp-gate       (Phase 4, B2b, REJECTED: measurement only, nothing ships) would the
+                   hook's weak-match bar help the MCP tool? With --simulate the loaded
+                   server's _run_fts_query also returns fts.rank; when the best raw rank is above retrieval._confidence_floor
+                   (the hook's bar), the simulated tool returns no rows (the real
+                   change would return a one-line "no strong match" note). Applies to
+                   the normal path and the typo fallback, never to explicit FTS
+                   syntax. Two sides: the tool as it ships, and the tool plus the gate.
+                   Caveat: MCP picks words differently from the hook (digits allowed,
+                   up to 10 words, repeats kept), so its scores are not on exactly
+                   the hook's scale.
+
+Call shape for project-bias (the same as the cap study's primary call and the eval's run_question):
 one retrieve() per side, mode "always", the eval's leak filter, a fixed as_of.
 "on_miss" (your config's mode) is read from the gate decision: the merged rows if
 the gate fired, otherwise the keyword rows. Keyword-only and "always" are saved too.
@@ -33,6 +55,9 @@ for every question; a mismatch stops the run and prints only question ids.
 """
 
 import argparse
+import shutil
+import subprocess
+import tempfile
 import importlib.util
 import json
 import math
@@ -42,13 +67,14 @@ import time
 
 import yaml
 
-from config_utils import resolve_db_path
+from config_utils import MACHINE_GENERATED_PREFIXES, is_machine_generated, machine_filter_sql, resolve_db_path
 import remember_eval as ev
 import remember_cap_study as cap
 import retrieval
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-COMPARISONS = ("project-bias",)
+COMPARISONS = ("project-bias", "mcp-machine-filter", "mcp-gate")
+RECORDED_TOOL = "mcp__remember-server__search_transcripts"
 MODES = ("on_miss", "keyword", "always")
 SIDES = ("on", "off")
 EXTRA_KEYS = """
@@ -206,6 +232,307 @@ def render_text(out):
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------------------
+# mcp-machine-filter
+# ---------------------------------------------------------------------------
+
+def hook_sql_machine(text):
+    """What the hook's SQL filter does: first 80 characters, spaces stripped (only
+    spaces), lowercased, starts with a marker."""
+    return (text or "")[:80].lstrip(" ").lower().startswith(MACHINE_GENERATED_PREFIXES)
+
+
+def simulate_rank(server):
+    """Make _run_fts_query also select fts.rank, with the same machine filter the
+    tool ships. Returns an undo function. Rows keep their usual columns plus `rank`."""
+    original = server._run_fts_query
+    flt = machine_filter_sql("t.content")
+
+    def ranked(conn, fts_query, project, limit, recency_bias):
+        order = ("fts.rank * (1.0 / (1.0 + julianday('now') - julianday(t.timestamp)))" if recency_bias
+                 else "fts.rank")
+        where = "transcripts_fts MATCH ?" + (" AND t.project = ?" if project else "")
+        args = (fts_query, project, limit) if project else (fts_query, limit)
+        return conn.execute(
+            f"""SELECT t.session_id, t.project, t.timestamp, t.type,
+                      substr(t.content, 1, 600) as preview, fts.rank AS rank
+               FROM transcripts_fts fts
+               JOIN transcripts t ON t.rowid = fts.rowid
+               WHERE {where} {flt}
+               ORDER BY {order}
+               LIMIT ?""", args).fetchall()
+
+    server._run_fts_query = ranked
+    return lambda: setattr(server, "_run_fts_query", original)
+
+
+GATE_SIDES = {"today": False, "gate": True}        # side -> does the simulated gate apply
+
+
+def mcp_gate_call(server, floor, query, project, side):
+    """One simulated call. Returns (rows the tool would show, gated?, best rank, explicit FTS syntax?)."""
+    gate = GATE_SIDES[side]
+    syntax = server._is_fts5_syntax(query)
+    undo = simulate_rank(server)
+    try:
+        rows = mcp_rows(server, query, project)
+    finally:
+        undo()
+    best = min((r["rank"] for r in rows), default=None)
+    gated = bool(gate and not syntax and floor is not None and best is not None and best > floor)
+    return ([] if gated else rows), gated, best, syntax
+
+
+def compare_mcp_gate(conn, db_path, golden_path, with_recorded):
+    server = ev.load_mcp_server(db_path)
+    floor = retrieval._confidence_floor(conn)
+    exclude, questions = ev.load_golden(golden_path)
+    per_q = {}
+    for q in questions:
+        quoted = q["question"].lower().strip()
+        expect = set(q.get("expect") or [])
+        entry = {"kind": q["kind"]}
+        for side in GATE_SIDES:
+            rows, gated, best, _ = mcp_gate_call(server, floor, q["question"], None, side)
+            kept = [r for r in rows if r["session_id"] not in exclude and quoted not in (r["preview"] or "").lower()]
+            sessions = [r["session_id"] for r in kept]
+            entry[side] = {"n": len(kept), "gated": gated,
+                           "first_pos": next((i for i, sid in enumerate(sessions, 1) if sid in expect), None),
+                           **machine_counts(kept)}
+            if side == "today":
+                entry["best_rank"] = None if best is None else round(best, 2)
+        per_q[q["id"]] = entry
+    recorded = []
+    if with_recorded:
+        for query, project in recorded_calls(conn):
+            entry = {}
+            for side in GATE_SIDES:
+                rows, gated, best, syntax = mcp_gate_call(server, floor, query, project, side)
+                entry[side] = {"n": len(rows), "gated": gated}
+                if side == "today":
+                    entry["fts_syntax"] = syntax
+                    entry["best_rank"] = None if best is None else round(best, 2)
+            recorded.append(entry)
+    return per_q, recorded, None if floor is None else round(floor, 3)
+
+
+def build_gate_output(per_q, recorded, floor, git_commit):
+    answerable = {k: v for k, v in per_q.items() if v["kind"] == "answerable"}
+    no_ans = {k: v for k, v in per_q.items() if v["kind"] != "answerable"}
+    in_top = lambda e, n: e["first_pos"] is not None and e["first_pos"] <= n
+    summary = {"questions": len(per_q), "answerable": len(answerable), "no_answer": len(no_ans), "floor": floor}
+    flips = {}
+    for side in GATE_SIDES:
+        summary[f"found_top5_{side}"] = sum(in_top(v[side], 5) for v in answerable.values())
+        summary[f"found_in_all_rows_{side}"] = sum(in_top(v[side], 10 ** 6) for v in answerable.values())
+        summary[f"no_answer_returning_rows_{side}"] = sum(1 for v in no_ans.values() if v[side]["n"] > 0)
+        summary[f"gated_{side}"] = sum(1 for v in per_q.values() if v[side]["gated"])
+        if side != "today":
+            flips[f"lost_top5_{side}"] = [k for k, v in answerable.items() if in_top(v["today"], 5) and not in_top(v[side], 5)]
+            flips[f"lost_all_rows_{side}"] = [k for k, v in answerable.items()
+                                              if in_top(v["today"], 10 ** 6) and not in_top(v[side], 10 ** 6)]
+            flips[f"gained_top5_{side}"] = [k for k, v in answerable.items() if not in_top(v["today"], 5) and in_top(v[side], 5)]
+            flips[f"gated_answerable_{side}"] = [k for k, v in answerable.items() if v[side]["gated"]]
+            flips[f"gated_no_answer_{side}"] = [k for k, v in no_ans.items() if v[side]["gated"]]
+    ranks = lambda d: sorted(v["best_rank"] for v in d.values() if v["best_rank"] is not None)
+    summary["best_rank_answerable"] = ranks(answerable)
+    summary["best_rank_no_answer"] = ranks(no_ans)
+    out = {"comparison": "mcp-gate", "dataset": {"git_commit": git_commit, "mode": "simulation"},
+           "summary": summary, "flips": flips, "per_question": per_q}
+    if recorded:
+        out["recorded"] = {"calls": len(recorded),
+                           "fts_syntax_calls": sum(1 for r in recorded if r["fts_syntax"]),
+                           "returning_rows_today": sum(1 for r in recorded if r["today"]["n"] > 0),
+                           "gated": [f"r{i:02d}" for i, r in enumerate(recorded, 1) if r["gate"]["gated"]],
+                           "per_call": {f"r{i:02d}": r for i, r in enumerate(recorded, 1)}}
+    return out
+
+
+def render_gate_text(out):
+    s, f = out["summary"], out["flips"]
+    lines = [f"MCP weak-match gate (simulation) - {s['questions']} questions ({s['answerable']} answerable, "
+             f"{s['no_answer']} no-answer); hook bar (floor) = {s['floor']}", ""]
+    for side, name in (("today", "tool as shipped"), ("gate", "tool + gate")):
+        lines.append(f"{name:22}: answers in top 5 {s[f'found_top5_{side}']}, in all rows {s[f'found_in_all_rows_{side}']}; "
+                     f"no-answer questions returning rows {s[f'no_answer_returning_rows_{side}']} of {s['no_answer']}; "
+                     f"questions gated {s[f'gated_{side}']}")
+    for side in ("gate",):
+        lines += [f"[{side}] answerable gated: {f[f'gated_answerable_{side}']}  lost top 5: {f[f'lost_top5_{side}']}  "
+                  f"lost in all rows: {f[f'lost_all_rows_{side}']}  gained top 5: {f[f'gained_top5_{side}']}",
+                  f"[{side}] no-answer gated: {f[f'gated_no_answer_{side}']}"]
+    lines += [f"Best rank per answerable question (more negative = stronger): {s['best_rank_answerable']}",
+              f"Best rank per no-answer question: {s['best_rank_no_answer']}", ""]
+    if "recorded" in out:
+        r = out["recorded"]
+        lines += [f"Recorded real calls: {r['calls']} ({r['fts_syntax_calls']} explicit FTS syntax, never gated); "
+                  f"returning rows today {r['returning_rows_today']}",
+                  f"  would get 'no strong match': {len(r['gated'])} {r['gated']}"]
+        for cid, c in r["per_call"].items():
+            lines.append(f"  {cid}: rows today {c['today']['n']}, best rank {c['best_rank']}"
+                         f"{', FTS syntax' if c['fts_syntax'] else ''}, gated: {'yes' if c['gate']['gated'] else 'no'}")
+    return "\n".join(lines) + "\n"
+
+
+def mcp_rows(server, query, project=None):
+    """The rows search_transcripts formats for this call (read-only, like the eval)."""
+    captured = []
+    original = server._format_results
+
+    def capture(rows, header=""):
+        captured.extend(rows)
+        return original(rows, header)
+
+    server._format_results = capture
+    try:
+        with ev._read_only_fuzzy(server):
+            server.search_transcripts(query, project)
+    finally:
+        server._format_results = original
+    return captured
+
+
+def machine_counts(rows):
+    previews = [r["preview"] for r in rows]
+    return {"machine_python": sum(is_machine_generated(t) for t in previews),
+            "machine_hook_sql": sum(hook_sql_machine(t) for t in previews)}
+
+
+def recorded_calls(conn):
+    """(query, project) for every real tool_use of search_transcripts, oldest first.
+    Text stays in memory; only counts leave."""
+    calls = []
+    for raw, in conn.execute("SELECT raw_json FROM transcripts WHERE raw_json LIKE ? AND raw_json LIKE '%\"tool_use\"%' "
+                             "ORDER BY timestamp, id", (f"%{RECORDED_TOOL}%",)):
+        try:
+            content = (json.loads(raw).get("message") or {}).get("content")
+        except (ValueError, AttributeError):
+            continue
+        for b in content if isinstance(content, list) else []:
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == RECORDED_TOOL:
+                inp = b.get("input") or {}
+                if inp.get("query"):
+                    calls.append((inp["query"], inp.get("project")))
+    return calls
+
+
+def load_ref_server(db_path, ref, repo):
+    """mcp/server.py as it was at git ref `ref`, run in a temporary folder that holds
+    that ref's mcp/ and scripts/ plus this folder's config.yaml, pointed at db_path.
+    Load the working-tree server FIRST: both import the package `scripts`, and the
+    first one loaded wins, so the newer scripts/ (which has machine_filter_sql) must
+    be the one that is cached."""
+    tmp = tempfile.mkdtemp(prefix="remember_ref_server_")
+    arch = subprocess.run(["git", "archive", ref, "mcp", "scripts"], cwd=repo, capture_output=True, check=True)
+    subprocess.run(["tar", "-x", "-C", tmp], input=arch.stdout, check=True)
+    shutil.copy(ROOT / "config.yaml", pathlib.Path(tmp) / "config.yaml")
+    return ev.load_mcp_server(db_path, server_path=pathlib.Path(tmp) / "mcp" / "server.py")
+
+
+def compare_mcp_machine_filter(conn, db_path, golden_path, with_recorded, ref, repo):
+    now_server = ev.load_mcp_server(db_path)
+    servers = {"filtered": now_server, "today": load_ref_server(db_path, ref, repo)}
+    exclude, questions = ev.load_golden(golden_path)
+    per_q = {}
+    for q in questions:
+        quoted = q["question"].lower().strip()
+        expect = set(q.get("expect") or [])
+        entry = {"kind": q["kind"]}
+        for side in ("today", "filtered"):
+            rows = mcp_rows(servers[side], q["question"])
+            rows = [r for r in rows if r["session_id"] not in exclude and quoted not in (r["preview"] or "").lower()]
+            sessions = [r["session_id"] for r in rows]
+            entry[side] = {"n": len(rows), **machine_counts(rows),
+                           "first_pos": next((i for i, sid in enumerate(sessions, 1) if sid in expect), None)}
+        per_q[q["id"]] = entry
+    recorded = []
+    if with_recorded:
+        for query, project in recorded_calls(conn):
+            entry = {}
+            for side in ("today", "filtered"):
+                rows = mcp_rows(servers[side], query, project)
+                entry[side] = {"n": len(rows), **machine_counts(rows)}
+            recorded.append(entry)
+    return per_q, recorded
+
+
+def differing_keys(a, b, path=""):
+    """Dotted keys where two result trees differ (never values: they may be private)."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = []
+        for k in sorted(set(a) | set(b), key=str):
+            out += differing_keys(a.get(k), b.get(k), f"{path}.{k}" if path else str(k)) if k in a and k in b else [f"{path}.{k}" if path else str(k)]
+        return out
+    return [] if a == b else [path]
+
+
+def build_mcp_output(per_q, recorded, git_commit):
+    answerable = {k: v for k, v in per_q.items() if v["kind"] == "answerable"}
+    in_top = lambda e, n: e["first_pos"] is not None and e["first_pos"] <= n
+    summary = {"questions": len(per_q), "answerable": len(answerable)}
+    for d in ("machine_python", "machine_hook_sql"):
+        summary[f"with_machine_rows_today_{d}"] = sum(1 for v in per_q.values() if v["today"][d] > 0)
+        summary[f"with_machine_rows_filtered_{d}"] = sum(1 for v in per_q.values() if v["filtered"][d] > 0)
+    for side in ("today", "filtered"):
+        summary[f"found_top5_{side}"] = sum(in_top(v[side], 5) for v in answerable.values())
+        summary[f"found_in_all_rows_{side}"] = sum(in_top(v[side], 10 ** 6) for v in answerable.values())
+        summary[f"rows_total_{side}"] = sum(v[side]["n"] for v in per_q.values())
+    flips = {}
+    for label, n in (("top5", 5), ("all_rows", 10 ** 6)):
+        flips[f"lost_{label}"] = [k for k, v in answerable.items() if in_top(v["today"], n) and not in_top(v["filtered"], n)]
+        flips[f"gained_{label}"] = [k for k, v in answerable.items() if not in_top(v["today"], n) and in_top(v["filtered"], n)]
+    flips["first_position_changed"] = [k for k, v in answerable.items()
+                                       if v["today"]["first_pos"] != v["filtered"]["first_pos"]]
+    out = {"comparison": "mcp-machine-filter", "dataset": {"git_commit": git_commit, "mode": "ref-vs-working-tree"},
+           "summary": summary, "flips": flips, "per_question": per_q}
+    if recorded:
+        out["recorded"] = {
+            "calls": len(recorded),
+            "with_machine_rows_today": sum(1 for r in recorded if r["today"]["machine_python"] > 0),
+            "with_machine_rows_filtered": sum(1 for r in recorded if r["filtered"]["machine_python"] > 0),
+            "rows_today": sum(r["today"]["n"] for r in recorded),
+            "rows_filtered": sum(r["filtered"]["n"] for r in recorded),
+            "machine_rows_today": sum(r["today"]["machine_python"] for r in recorded),
+            "machine_rows_filtered": sum(r["filtered"]["machine_python"] for r in recorded),
+            "per_call": {f"r{i:02d}": r for i, r in enumerate(recorded, 1)}}
+    return out
+
+
+def render_mcp_text(out):
+    s, f = out["summary"], out["flips"]
+    lines = [f"MCP machine filter (ref vs working tree) - {s['questions']} questions ({s['answerable']} answerable)", ""]
+    for d, name in (("machine_python", "Python rule (all whitespace, 60 chars)"),
+                    ("machine_hook_sql", "hook SQL rule (spaces only, 80 chars)")):
+        lines.append(f"Questions with at least one machine row, {name}: today {s[f'with_machine_rows_today_{d}']}, "
+                     f"filtered {s[f'with_machine_rows_filtered_{d}']}")
+    for side in ("today", "filtered"):
+        lines.append(f"{side:9}: found in top 5 {s[f'found_top5_{side}']}, found in all returned rows "
+                     f"{s[f'found_in_all_rows_{side}']}, rows returned {s[f'rows_total_{side}']}")
+    lines += [f"Lost in top 5: {f['lost_top5']}  gained in top 5: {f['gained_top5']}",
+              f"Lost in all rows: {f['lost_all_rows']}  gained in all rows: {f['gained_all_rows']}",
+              f"First position changed: {len(f['first_position_changed'])} {f['first_position_changed']}", ""]
+    if "recorded" in out:
+        r = out["recorded"]
+        lines += [f"Recorded real calls: {r['calls']}; calls with machine rows today {r['with_machine_rows_today']}, "
+                  f"filtered {r['with_machine_rows_filtered']}",
+                  f"  rows: today {r['rows_today']} ({r['machine_rows_today']} machine), filtered {r['rows_filtered']} "
+                  f"({r['machine_rows_filtered']} machine)"]
+        for cid, c in r["per_call"].items():
+            lines.append(f"  {cid}: today {c['today']['n']} rows / {c['today']['machine_python']} machine; "
+                         f"filtered {c['filtered']['n']} rows / {c['filtered']['machine_python']} machine")
+    return "\n".join(lines) + "\n"
+
+
+def _all_keys(o, acc):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            acc.add(str(k))
+            _all_keys(v, acc)
+    elif isinstance(o, (list, tuple)):
+        for v in o:
+            _all_keys(v, acc)
+    return acc
+
+
 def main():
     ap = argparse.ArgumentParser(description="Paired comparisons (measurement only)")
     ap.add_argument("comparison", choices=COMPARISONS)
@@ -215,10 +542,59 @@ def main():
     ap.add_argument("--as-of")
     ap.add_argument("--check-against")
     ap.add_argument("--git-commit", default="")
+    ap.add_argument("--simulate", action="store_true", help="mcp-gate: wrap the loaded server (measurement only)")
+    ap.add_argument("--repo", help="mcp-machine-filter: the git repository holding --ref (default: this folder)")
+    ap.add_argument("--ref", help="mcp-machine-filter: git ref of the tool before the change")
+    ap.add_argument("--expect", help="mcp-machine-filter: a saved result the new numbers must equal exactly")
+    ap.add_argument("--recorded", action="store_true", help="mcp-machine-filter: replay the recorded real calls")
     args = ap.parse_args()
     with open(ROOT / "config.yaml") as f:
         config = yaml.safe_load(f)
     db_path = resolve_db_path(config)
+    if args.comparison == "mcp-gate":
+        if not args.simulate:
+            raise SystemExit("mcp-gate needs --simulate (the --ref proof comes with the real change)")
+        conn = ev._ro_connect(db_path)
+        try:
+            started = time.perf_counter()
+            per_q, recorded, floor = compare_mcp_gate(conn, db_path, args.golden, args.recorded)
+            out = build_gate_output(per_q, recorded, floor, args.git_commit)
+            cap.check_allowlist(out, extra_keys=_all_keys(out, set()),
+                                extra_strings=list(per_q) + ["mcp-gate", "simulation", args.git_commit])
+            outdir = pathlib.Path(args.out)
+            outdir.mkdir(parents=True, exist_ok=True)
+            (outdir / "compare_mcp-gate.json").write_text(json.dumps(out, indent=2) + "\n")
+            (outdir / "compare_mcp-gate.txt").write_text(render_gate_text(out))
+            print(json.dumps({"ok": True, "seconds": round(time.perf_counter() - started, 1)}))
+        finally:
+            conn.close()
+        return
+    if args.comparison == "mcp-machine-filter":
+        if not args.ref:
+            raise SystemExit("mcp-machine-filter needs --ref GIT_REF (the tool as it was before the change)")
+        conn = ev._ro_connect(db_path)
+        try:
+            started = time.perf_counter()
+            per_q, recorded = compare_mcp_machine_filter(conn, db_path, args.golden, args.recorded, args.ref, args.repo or ROOT)
+            out = build_mcp_output(per_q, recorded, args.git_commit)
+            if args.expect:
+                want = json.loads(pathlib.Path(args.expect).read_text())
+                bad = [k for k in differing_keys({x: out[x] for x in out if x != "dataset"},
+                                                 {x: want[x] for x in want if x != "dataset"})]
+                if bad:
+                    print(f"STOPPED: the new numbers differ from {pathlib.Path(args.expect).name} at: {bad[:40]}",
+                          file=sys.stderr)
+                    sys.exit(4)
+            cap.check_allowlist(out, extra_keys=_all_keys(out, set()),
+                                extra_strings=list(per_q) + ["mcp-machine-filter", "ref-vs-working-tree", args.git_commit])
+            outdir = pathlib.Path(args.out)
+            outdir.mkdir(parents=True, exist_ok=True)
+            (outdir / "compare_mcp-machine-filter.json").write_text(json.dumps(out, indent=2) + "\n")
+            (outdir / "compare_mcp-machine-filter.txt").write_text(render_mcp_text(out))
+            print(json.dumps({"ok": True, "seconds": round(time.perf_counter() - started, 1)}))
+        finally:
+            conn.close()
+        return
     spec = importlib.util.spec_from_file_location("semantic_search", ROOT / "scripts" / "semantic_search.py")
     semantic = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(semantic)

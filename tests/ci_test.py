@@ -2768,6 +2768,81 @@ def test_eval_mcp_is_read_only():
         check("no vocabulary table was added to the database", names == [], str(names))
 
 
+def test_mcp_hides_machine_messages():
+    """The MCP search tool leaves out harness-written messages inside its SQL, before
+    LIMIT 20, so real matches still fill the answer even when machine messages outrank
+    them; leading newlines and tabs don't hide a marker (the hook's check misses newlines)."""
+    print("\n--- MCP: Machine Messages Hidden ---")
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, _mod = _build_synthetic_keyword_db(tmp)
+        conn = sqlite3.connect(db)
+        ins = ("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp, source) "
+               "VALUES (?, 'tdp', ?, 'user', ?, '2026-05-01T00:00:00Z', 'test')")
+        for i in range(25):      # more machine messages than the 20-row limit, each stronger than a real match
+            lead = ["", "\n", "\t", "  \r\n"][i % 4]
+            conn.execute(ins, (f"mach-{i}", f"mach-{i}", f"{lead}<system-reminder> zorbline zorbline zorbline {i}"))
+        for i in range(3):
+            conn.execute(ins, (f"real-{i}", f"real-{i}", f"We settled the zorbline question during planning, note {i}."))
+        conn.commit()
+        conn.close()
+        code = ("import json, sys\n"
+                "sys.path.insert(0, sys.argv[1] + '/scripts')\n"
+                "import remember_eval as ev\n"
+                "server = ev.load_mcp_server(sys.argv[2])\n"
+                "out = {}\n"
+                "for name, q, proj in (('plain', 'zorbline', None), ('project', 'zorbline', 'tdp'), ('fts', '\"zorbline\"', None)):\n"
+                "    rows, ms = ev.mcp_search(server, q) if proj is None else (None, 0)\n"
+                "    if rows is None:\n"
+                "        server._format_results, orig = (lambda r, header='': out.__setitem__('captured', [dict(x) for x in r]) or 'x'), server._format_results\n"
+                "        server.search_transcripts(q, proj); server._format_results = orig\n"
+                "        rows = out.pop('captured')\n"
+                "    out[name] = [r['preview'] for r in rows]\n"
+                "print('RESULT' + json.dumps(out))\n")
+        res = subprocess.run([sys.executable, "-c", code, str(root), db], capture_output=True, text=True,
+                             timeout=300, cwd=str(root))
+        line = next((l for l in res.stdout.splitlines() if l.startswith("RESULT")), None)
+        out = json.loads(line[6:]) if line else {}
+        for name in ("plain", "project", "fts"):
+            previews = out.get(name, ["?"])
+            check(f"{name} search: only the 3 real matches come back (machine messages hidden, backfilled past the limit)",
+                  len(previews) == 3 and all("system-reminder" not in p for p in previews), f"{len(previews)} rows; {res.stderr[-300:]}")
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import config_utils as cu
+        frag = cu.machine_filter_sql("t.content")
+        check("machine_filter_sql() names every marker once and starts with AND NOT",
+              frag.startswith("AND NOT (") and all(frag.count(f"LIKE '{p}%'") == 1 for p in cu.MACHINE_GENERATED_PREFIXES))
+
+
+def test_explain_load_is_stable():
+    """finding 8: inside a long-running MCP server, explaining twice must not add to
+    sys.path again or load a second copy of retrieval / config_utils / semantic_search."""
+    print("\n--- Explain: Hook Loaded Once ---")
+    code = ("import sys; sys.path.insert(0, sys.argv[1])\n"
+            "import scripts.remember_explain as rx\n"
+            "h1 = rx._load_hook(); n1 = len(sys.path)\n"
+            "h2 = rx._load_hook(); n2 = len(sys.path)\n"
+            "same = all(sys.modules.get(n) is sys.modules.get('scripts.' + n) for n in ('retrieval', 'config_utils', 'semantic_search'))\n"
+            "print(h1 is h2, n1 == n2, same)\n")
+    res = subprocess.run([sys.executable, "-c", code, str(ROOT)], capture_output=True, text=True, timeout=120,
+                         cwd=tempfile.gettempdir())
+    check("the hook is loaded once and sys.path is unchanged by a second call", res.stdout.split()[:2] == ["True", "True"],
+          res.stdout[-200:] + res.stderr[-300:])
+    check("the hook's bare imports are the same module objects as scripts.X (one copy, one model cache)",
+          res.stdout.split()[2:3] == ["True"], res.stdout[-200:] + res.stderr[-300:])
+
+
+def test_compare_differing_keys():
+    """remember_compare --expect names the keys that differ, never their values."""
+    print("\n--- remember_compare: differing_keys ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_compare as rc
+    a = {"summary": {"n": 1, "m": 2}, "per_question": {"q1": {"x": 1}, "q2": {"x": 2}}}
+    check("equal trees have no differing keys", rc.differing_keys(a, json.loads(json.dumps(a))) == [])
+    b = {"summary": {"n": 1, "m": 3}, "per_question": {"q1": {"x": 1}, "q3": {"x": 2}}}
+    check("differing and one-sided keys are named, values are not",
+          rc.differing_keys(a, b) == ["per_question.q2", "per_question.q3", "summary.m"])
+
+
 def test_run_eval_refuses_db_without_out():
     """examples/eval/run_eval.py --db without --out would write real project names and
     session ids into the tracked examples/eval/results/ folder: it must refuse first."""
@@ -2923,6 +2998,9 @@ if __name__ == "__main__":
     test_cap_study_output_allowlist()
     test_eval_mcp_is_read_only()
     test_run_eval_refuses_db_without_out()
+    test_mcp_hides_machine_messages()
+    test_explain_load_is_stable()
+    test_compare_differing_keys()
     test_run_eval_stamp_untracked()
     test_compare_tool_logic()
     test_hook_equivalence_compare()

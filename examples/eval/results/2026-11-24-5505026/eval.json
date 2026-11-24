@@ -1,0 +1,2825 @@
+{
+  "created_at": "2026-11-24T19:37:18Z",
+  "git_commit": "5505026+uncommitted",
+  "params": {
+    "golden": "examples/eval/golden_set.yaml",
+    "as_of": "2026-06-01T00:00:00Z",
+    "keyword_only": false,
+    "methods_run": [
+      "keyword",
+      "keyword_ungated",
+      "meaning",
+      "on_miss",
+      "always",
+      "mcp"
+    ],
+    "semantic_cutoff": 0.35,
+    "rrf_k": 60,
+    "recency_scale_days": 365,
+    "fts_rank_floor": -2.0,
+    "max_results": 5
+  },
+  "counts": {
+    "answerable": 20,
+    "no_answer": 6
+  },
+  "model_load_s": 2.69,
+  "methods": {
+    "keyword": {
+      "recall_at_1": 0.55,
+      "recall_at_3": 0.65,
+      "recall_at_5": 0.65,
+      "mrr": 0.6,
+      "false_injection_rate": 0.167,
+      "answerable_with_nothing_returned": 6,
+      "latency_ms_median": 0.2,
+      "latency_ms_slowest": 1.4,
+      "missed_ids": [
+        "q09",
+        "q10",
+        "q11",
+        "q12",
+        "q13",
+        "q14",
+        "q15"
+      ],
+      "machine_rows_returned": 2,
+      "by_tag": {
+        "exact_words": {
+          "n": 8,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "machine_generated": {
+          "n": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "paraphrase": {
+          "n": 7,
+          "recall_at_1": 0.0,
+          "recall_at_5": 0.0
+        },
+        "recency": {
+          "n": 3,
+          "recall_at_1": 0.333,
+          "recall_at_5": 1.0
+        }
+      },
+      "recency": {
+        "n": 3,
+        "newer_ranked_first": 1,
+        "older_ranked_first": 2,
+        "neither_found": 0
+      }
+    },
+    "keyword_ungated": {
+      "recall_at_1": 0.55,
+      "recall_at_3": 0.65,
+      "recall_at_5": 0.65,
+      "mrr": 0.6,
+      "false_injection_rate": 0.5,
+      "answerable_with_nothing_returned": 3,
+      "latency_ms_median": 0.2,
+      "latency_ms_slowest": 1.4,
+      "missed_ids": [
+        "q09",
+        "q10",
+        "q11",
+        "q12",
+        "q13",
+        "q14",
+        "q15"
+      ],
+      "machine_rows_returned": 2,
+      "by_tag": {
+        "exact_words": {
+          "n": 8,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "machine_generated": {
+          "n": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "paraphrase": {
+          "n": 7,
+          "recall_at_1": 0.0,
+          "recall_at_5": 0.0
+        },
+        "recency": {
+          "n": 3,
+          "recall_at_1": 0.333,
+          "recall_at_5": 1.0
+        }
+      },
+      "recency": {
+        "n": 3,
+        "newer_ranked_first": 1,
+        "older_ranked_first": 2,
+        "neither_found": 0
+      }
+    },
+    "meaning": {
+      "recall_at_1": 0.65,
+      "recall_at_3": 0.8,
+      "recall_at_5": 0.8,
+      "mrr": 0.725,
+      "false_injection_rate": 0.0,
+      "answerable_with_nothing_returned": 3,
+      "latency_ms_median": 6.8,
+      "latency_ms_slowest": 94.1,
+      "missed_ids": [
+        "q09",
+        "q12",
+        "q13",
+        "q15"
+      ],
+      "machine_rows_returned": 0,
+      "by_tag": {
+        "exact_words": {
+          "n": 8,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "machine_generated": {
+          "n": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "paraphrase": {
+          "n": 7,
+          "recall_at_1": 0.429,
+          "recall_at_5": 0.429
+        },
+        "recency": {
+          "n": 3,
+          "recall_at_1": 0.0,
+          "recall_at_5": 1.0
+        }
+      },
+      "recency": {
+        "n": 3,
+        "newer_ranked_first": 0,
+        "older_ranked_first": 3,
+        "neither_found": 0
+      }
+    },
+    "on_miss": {
+      "recall_at_1": 0.65,
+      "recall_at_3": 0.8,
+      "recall_at_5": 0.8,
+      "mrr": 0.725,
+      "false_injection_rate": 0.167,
+      "answerable_with_nothing_returned": 3,
+      "latency_ms_median": 2691.8,
+      "latency_ms_slowest": 2694.9,
+      "missed_ids": [
+        "q09",
+        "q12",
+        "q13",
+        "q15"
+      ],
+      "model_load_rate": 0.538,
+      "machine_rows_returned": 2,
+      "by_tag": {
+        "exact_words": {
+          "n": 8,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "machine_generated": {
+          "n": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "paraphrase": {
+          "n": 7,
+          "recall_at_1": 0.286,
+          "recall_at_5": 0.429
+        },
+        "recency": {
+          "n": 3,
+          "recall_at_1": 0.333,
+          "recall_at_5": 1.0
+        }
+      },
+      "recency": {
+        "n": 3,
+        "newer_ranked_first": 1,
+        "older_ranked_first": 2,
+        "neither_found": 0
+      }
+    },
+    "always": {
+      "recall_at_1": 0.65,
+      "recall_at_3": 0.8,
+      "recall_at_5": 0.8,
+      "mrr": 0.725,
+      "false_injection_rate": 0.167,
+      "answerable_with_nothing_returned": 3,
+      "latency_ms_median": 7.0,
+      "latency_ms_slowest": 95.5,
+      "missed_ids": [
+        "q09",
+        "q12",
+        "q13",
+        "q15"
+      ],
+      "machine_rows_returned": 2,
+      "by_tag": {
+        "exact_words": {
+          "n": 8,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "machine_generated": {
+          "n": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "paraphrase": {
+          "n": 7,
+          "recall_at_1": 0.286,
+          "recall_at_5": 0.429
+        },
+        "recency": {
+          "n": 3,
+          "recall_at_1": 0.333,
+          "recall_at_5": 1.0
+        }
+      },
+      "recency": {
+        "n": 3,
+        "newer_ranked_first": 1,
+        "older_ranked_first": 2,
+        "neither_found": 0
+      }
+    },
+    "mcp": {
+      "recall_at_1": 0.5,
+      "recall_at_3": 0.65,
+      "recall_at_5": 0.65,
+      "mrr": 0.575,
+      "false_injection_rate": 0.5,
+      "answerable_with_nothing_returned": 2,
+      "latency_ms_median": 0.8,
+      "latency_ms_slowest": 3.1,
+      "missed_ids": [
+        "q09",
+        "q10",
+        "q11",
+        "q12",
+        "q13",
+        "q14",
+        "q15"
+      ],
+      "machine_rows_returned": 0,
+      "by_tag": {
+        "exact_words": {
+          "n": 8,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "machine_generated": {
+          "n": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0
+        },
+        "paraphrase": {
+          "n": 7,
+          "recall_at_1": 0.0,
+          "recall_at_5": 0.0
+        },
+        "recency": {
+          "n": 3,
+          "recall_at_1": 0.0,
+          "recall_at_5": 1.0
+        }
+      },
+      "recency": {
+        "n": 3,
+        "newer_ranked_first": 0,
+        "older_ranked_first": 3,
+        "neither_found": 0
+      }
+    }
+  },
+  "per_question": {
+    "q01": {
+      "keyword": {
+        "sessions": [
+          "syn-tdp-04",
+          "syn-lgl-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          41,
+          42,
+          18,
+          36
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 1.4
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-tdp-04",
+          "syn-lgl-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          41,
+          42,
+          18,
+          36
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 1.4
+      },
+      "mcp": {
+        "sessions": [
+          "syn-tdp-04",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          "syn-tdp-04@2025-11-20T14:32:00.000Z",
+          "syn-tdp-04@2025-11-20T14:30:00.000Z",
+          "syn-tdp-01@2025-09-14T15:04:00.000Z",
+          "syn-tdp-01@2025-09-14T15:02:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.8789160056039691
+      },
+      "meaning": {
+        "sessions": [
+          "syn-tdp-04"
+        ],
+        "ids": [
+          41,
+          42
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 94.1,
+        "best_similarity": 0.834
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-tdp-04",
+          "syn-lgl-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          41,
+          42,
+          18,
+          36
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 1.4,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-tdp-04",
+          "syn-lgl-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          41,
+          42,
+          18,
+          36
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 95.5
+      }
+    },
+    "q02": {
+      "keyword": {
+        "sessions": [
+          "syn-tdp-05"
+        ],
+        "ids": [
+          44,
+          43
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.3
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-tdp-05"
+        ],
+        "ids": [
+          44,
+          43
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.3
+      },
+      "mcp": {
+        "sessions": [
+          "syn-tdp-05"
+        ],
+        "ids": [
+          "syn-tdp-05@2026-01-09T10:07:00.000Z",
+          "syn-tdp-05@2026-01-09T10:05:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.8774999878369272
+      },
+      "meaning": {
+        "sessions": [
+          "syn-tdp-05",
+          "syn-tdp-07"
+        ],
+        "ids": [
+          44,
+          43,
+          49
+        ],
+        "machine_rows": 0,
+        "injected": 3,
+        "ms": 9.1,
+        "best_similarity": 0.73
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-tdp-05"
+        ],
+        "ids": [
+          44,
+          43
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.3,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-tdp-05",
+          "syn-tdp-07"
+        ],
+        "ids": [
+          44,
+          43,
+          49
+        ],
+        "machine_rows": 0,
+        "injected": 3,
+        "ms": 9.4
+      }
+    },
+    "q03": {
+      "keyword": {
+        "sessions": [
+          "syn-lgl-03"
+        ],
+        "ids": [
+          6
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.3
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-lgl-03"
+        ],
+        "ids": [
+          6
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.3
+      },
+      "mcp": {
+        "sessions": [
+          "syn-lgl-03"
+        ],
+        "ids": [
+          "syn-lgl-03@2025-12-02T13:12:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.8182500023394823
+      },
+      "meaning": {
+        "sessions": [
+          "syn-lgl-03"
+        ],
+        "ids": [
+          6
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 6.7,
+        "best_similarity": 0.732
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-lgl-03"
+        ],
+        "ids": [
+          6
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.3,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-lgl-03"
+        ],
+        "ids": [
+          6
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 7.0
+      }
+    },
+    "q04": {
+      "keyword": {
+        "sessions": [
+          "syn-lgl-04",
+          "syn-tdp-03"
+        ],
+        "ids": [
+          8,
+          39
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-lgl-04",
+          "syn-tdp-03"
+        ],
+        "ids": [
+          8,
+          39
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-lgl-04",
+          "syn-tdp-03"
+        ],
+        "ids": [
+          "syn-lgl-04@2026-02-20T19:32:00.000Z",
+          "syn-tdp-03@2026-03-22T11:15:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.769166013924405
+      },
+      "meaning": {
+        "sessions": [
+          "syn-lgl-04"
+        ],
+        "ids": [
+          8
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 6.6,
+        "best_similarity": 0.79
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-lgl-04",
+          "syn-tdp-03"
+        ],
+        "ids": [
+          8,
+          39
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-lgl-04",
+          "syn-tdp-03"
+        ],
+        "ids": [
+          8,
+          39
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 6.8
+      }
+    },
+    "q05": {
+      "keyword": {
+        "sessions": [
+          "syn-lgl-05",
+          "syn-lgl-06"
+        ],
+        "ids": [
+          10,
+          14,
+          12,
+          9,
+          13
+        ],
+        "machine_rows": 1,
+        "injected": 5,
+        "ms": 0.3
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-lgl-05",
+          "syn-lgl-06"
+        ],
+        "ids": [
+          10,
+          14,
+          12,
+          9,
+          13
+        ],
+        "machine_rows": 1,
+        "injected": 5,
+        "ms": 0.3
+      },
+      "mcp": {
+        "sessions": [
+          "syn-lgl-05",
+          "syn-lgl-06",
+          "syn-tdp-08",
+          "syn-qst-03",
+          "syn-qst-02",
+          "syn-lgl-02",
+          "syn-tdp-01",
+          "syn-tdp-02",
+          "syn-tdp-05"
+        ],
+        "ids": [
+          "syn-lgl-05@2026-03-05T10:02:00.000Z",
+          "syn-lgl-06@2026-03-06T15:06:00.000Z",
+          "syn-lgl-05@2026-03-05T10:00:00.000Z",
+          "syn-lgl-06@2026-03-06T15:04:00.000Z",
+          "syn-tdp-08@2026-04-02T16:12:00.000Z",
+          "syn-qst-03@2026-05-02T16:40:00.000Z",
+          "syn-qst-02@2025-12-11T12:00:00.000Z",
+          "syn-tdp-08@2026-04-02T16:18:00.000Z",
+          "syn-lgl-02@2026-04-15T08:47:00.000Z",
+          "syn-tdp-08@2026-04-02T16:14:00.000Z",
+          "syn-tdp-01@2025-09-14T15:02:00.000Z",
+          "syn-tdp-02@2025-10-03T09:40:00.000Z",
+          "syn-tdp-05@2026-01-09T10:07:00.000Z",
+          "syn-tdp-02@2025-10-03T09:42:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 14,
+        "ms": 0.8383329841308296
+      },
+      "meaning": {
+        "sessions": [
+          "syn-lgl-05",
+          "syn-lgl-06"
+        ],
+        "ids": [
+          10,
+          9,
+          14
+        ],
+        "machine_rows": 0,
+        "injected": 3,
+        "ms": 5.3,
+        "best_similarity": 0.799
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-lgl-05",
+          "syn-lgl-06"
+        ],
+        "ids": [
+          10,
+          14,
+          12,
+          9,
+          13
+        ],
+        "machine_rows": 1,
+        "injected": 5,
+        "ms": 0.3,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-lgl-05",
+          "syn-lgl-06"
+        ],
+        "ids": [
+          10,
+          14,
+          9,
+          12,
+          13
+        ],
+        "machine_rows": 1,
+        "injected": 5,
+        "ms": 5.6
+      }
+    },
+    "q06": {
+      "keyword": {
+        "sessions": [
+          "syn-qst-01"
+        ],
+        "ids": [
+          20,
+          19
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-qst-01"
+        ],
+        "ids": [
+          20,
+          19
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-qst-01"
+        ],
+        "ids": [
+          "syn-qst-01@2025-10-18T17:22:00.000Z",
+          "syn-qst-01@2025-10-18T17:20:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.7294169918168336
+      },
+      "meaning": {
+        "sessions": [
+          "syn-qst-01"
+        ],
+        "ids": [
+          20,
+          19
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 6.8,
+        "best_similarity": 0.723
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-qst-01"
+        ],
+        "ids": [
+          20,
+          19
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 2693.17554201046,
+        "fired": true,
+        "reason": "memory_phrasing"
+      },
+      "always": {
+        "sessions": [
+          "syn-qst-01"
+        ],
+        "ids": [
+          20,
+          19
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 7.0
+      }
+    },
+    "q07": {
+      "keyword": {
+        "sessions": [
+          "syn-qst-04",
+          "syn-qst-05",
+          "syn-tdp-03",
+          "syn-tdp-02"
+        ],
+        "ids": [
+          26,
+          28,
+          25,
+          40,
+          38
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-qst-04",
+          "syn-qst-05",
+          "syn-tdp-03",
+          "syn-tdp-02"
+        ],
+        "ids": [
+          26,
+          28,
+          25,
+          40,
+          38
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-qst-04",
+          "syn-qst-05",
+          "syn-tdp-02",
+          "syn-tdp-03"
+        ],
+        "ids": [
+          "syn-qst-04@2026-01-27T09:02:00.000Z",
+          "syn-qst-04@2026-01-27T09:00:00.000Z",
+          "syn-qst-05@2026-04-08T11:32:00.000Z",
+          "syn-tdp-02@2025-10-03T09:42:00.000Z",
+          "syn-tdp-03@2026-03-22T11:17:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.6256250198930502
+      },
+      "meaning": {
+        "sessions": [
+          "syn-qst-04"
+        ],
+        "ids": [
+          25,
+          26
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 6.9,
+        "best_similarity": 0.687
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-qst-04",
+          "syn-qst-05",
+          "syn-tdp-03",
+          "syn-tdp-02"
+        ],
+        "ids": [
+          26,
+          28,
+          25,
+          40,
+          38
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.2,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-qst-04",
+          "syn-qst-05",
+          "syn-tdp-03",
+          "syn-tdp-02"
+        ],
+        "ids": [
+          26,
+          25,
+          28,
+          40,
+          38
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 7.1000000000000005
+      }
+    },
+    "q08": {
+      "keyword": {
+        "sessions": [
+          "syn-qst-05",
+          "syn-qst-07",
+          "syn-qst-04"
+        ],
+        "ids": [
+          28,
+          34,
+          27,
+          25,
+          26
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-qst-05",
+          "syn-qst-07",
+          "syn-qst-04"
+        ],
+        "ids": [
+          28,
+          34,
+          27,
+          25,
+          26
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-qst-05",
+          "syn-qst-07",
+          "syn-qst-04"
+        ],
+        "ids": [
+          "syn-qst-05@2026-04-08T11:32:00.000Z",
+          "syn-qst-05@2026-04-08T11:30:00.000Z",
+          "syn-qst-07@2026-05-20T10:21:00.000Z",
+          "syn-qst-04@2026-01-27T09:00:00.000Z",
+          "syn-qst-04@2026-01-27T09:02:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.8243749907705933
+      },
+      "meaning": {
+        "sessions": [
+          "syn-qst-05"
+        ],
+        "ids": [
+          28
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 5.8,
+        "best_similarity": 0.764
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-qst-05",
+          "syn-qst-07",
+          "syn-qst-04"
+        ],
+        "ids": [
+          28,
+          34,
+          27,
+          25,
+          26
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.2,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-qst-05",
+          "syn-qst-07",
+          "syn-qst-04"
+        ],
+        "ids": [
+          28,
+          34,
+          27,
+          25,
+          26
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 6.0
+      }
+    },
+    "q09": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.3
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-lgl-07"
+        ],
+        "ids": [
+          16
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.3
+      },
+      "mcp": {
+        "sessions": [
+          "syn-lgl-07"
+        ],
+        "ids": [
+          "syn-lgl-07@2026-05-10T17:32:00.000Z",
+          "syn-lgl-07@2026-05-10T17:36:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.7672499923501164
+      },
+      "meaning": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 8.4,
+        "best_similarity": 0.288
+      },
+      "on_miss": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2694.8755420104603,
+        "fired": true,
+        "reason": "weak_keyword"
+      },
+      "always": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 8.700000000000001
+      }
+    },
+    "q10": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "keyword_ungated": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "mcp": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2.821208006935194
+      },
+      "meaning": {
+        "sessions": [
+          "syn-tdp-04",
+          "syn-tdp-07"
+        ],
+        "ids": [
+          41,
+          49
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 7.3,
+        "best_similarity": 0.408
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-tdp-04",
+          "syn-tdp-07"
+        ],
+        "ids": [
+          41,
+          49
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 2693.57554201046,
+        "fired": true,
+        "reason": "no_keyword_result"
+      },
+      "always": {
+        "sessions": [
+          "syn-tdp-04",
+          "syn-tdp-07"
+        ],
+        "ids": [
+          41,
+          49
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 7.3999999999999995
+      }
+    },
+    "q11": {
+      "keyword": {
+        "sessions": [
+          "syn-qst-02"
+        ],
+        "ids": [
+          21
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-qst-02"
+        ],
+        "ids": [
+          21
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-qst-02"
+        ],
+        "ids": [
+          "syn-qst-02@2025-12-11T12:00:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.8593339880462736
+      },
+      "meaning": {
+        "sessions": [
+          "syn-tdp-05"
+        ],
+        "ids": [
+          44
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 7.4,
+        "best_similarity": 0.379
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-qst-02",
+          "syn-tdp-05"
+        ],
+        "ids": [
+          21,
+          44
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 2693.77554201046,
+        "fired": true,
+        "reason": "low_coverage"
+      },
+      "always": {
+        "sessions": [
+          "syn-qst-02",
+          "syn-tdp-05"
+        ],
+        "ids": [
+          21,
+          44
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 7.6000000000000005
+      }
+    },
+    "q12": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "keyword_ungated": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "mcp": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 3.1073749996721745
+      },
+      "meaning": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 5.7,
+        "best_similarity": 0.339
+      },
+      "on_miss": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2691.97554201046,
+        "fired": true,
+        "reason": "no_keyword_result"
+      },
+      "always": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 5.8
+      }
+    },
+    "q13": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-lgl-07"
+        ],
+        "ids": [
+          18
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-lgl-07"
+        ],
+        "ids": [
+          "syn-lgl-07@2026-05-10T17:36:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.8645830093882978
+      },
+      "meaning": {
+        "sessions": [
+          "syn-lgl-02"
+        ],
+        "ids": [
+          3
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 8.4,
+        "best_similarity": 0.374
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-lgl-02"
+        ],
+        "ids": [
+          3
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 2694.77554201046,
+        "fired": true,
+        "reason": "weak_keyword"
+      },
+      "always": {
+        "sessions": [
+          "syn-lgl-02"
+        ],
+        "ids": [
+          3
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 8.6
+      }
+    },
+    "q14": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "keyword_ungated": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "mcp": {
+        "sessions": [
+          "syn-qst-05"
+        ],
+        "ids": [
+          "syn-qst-05@2026-04-08T11:32:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.7995000050868839
+      },
+      "meaning": {
+        "sessions": [
+          "syn-qst-01"
+        ],
+        "ids": [
+          20
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 7.2,
+        "best_similarity": 0.406
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-qst-01"
+        ],
+        "ids": [
+          20
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 2693.47554201046,
+        "fired": true,
+        "reason": "no_keyword_result"
+      },
+      "always": {
+        "sessions": [
+          "syn-qst-01"
+        ],
+        "ids": [
+          20
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 7.3
+      }
+    },
+    "q15": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.3
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-qst-07",
+          "syn-qst-03",
+          "syn-qst-02",
+          "syn-tdp-01",
+          "syn-qst-05"
+        ],
+        "ids": [
+          33,
+          24,
+          21,
+          36,
+          28
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.3
+      },
+      "mcp": {
+        "sessions": [
+          "syn-qst-07",
+          "syn-tdp-01",
+          "syn-qst-02",
+          "syn-qst-03",
+          "syn-qst-05"
+        ],
+        "ids": [
+          "syn-qst-07@2026-05-20T10:19:00.000Z",
+          "syn-tdp-01@2025-09-14T15:04:00.000Z",
+          "syn-qst-02@2025-12-11T12:00:00.000Z",
+          "syn-qst-02@2025-12-11T12:02:00.000Z",
+          "syn-qst-03@2026-05-02T16:42:00.000Z",
+          "syn-tdp-01@2025-09-14T15:02:00.000Z",
+          "syn-qst-05@2026-04-08T11:32:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 7,
+        "ms": 0.8539580157957971
+      },
+      "meaning": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 6.8,
+        "best_similarity": 0.342
+      },
+      "on_miss": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2693.2755420104604,
+        "fired": true,
+        "reason": "weak_keyword"
+      },
+      "always": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 7.1
+      }
+    },
+    "q16": {
+      "keyword": {
+        "sessions": [
+          "syn-tdp-02",
+          "syn-tdp-03",
+          "syn-tdp-05",
+          "syn-tdp-07"
+        ],
+        "ids": [
+          38,
+          40,
+          43,
+          49
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.3
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-tdp-02",
+          "syn-tdp-03",
+          "syn-tdp-05",
+          "syn-tdp-07"
+        ],
+        "ids": [
+          38,
+          40,
+          43,
+          49
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.3
+      },
+      "mcp": {
+        "sessions": [
+          "syn-tdp-02",
+          "syn-tdp-03",
+          "syn-tdp-05",
+          "syn-tdp-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          "syn-tdp-02@2025-10-03T09:42:00.000Z",
+          "syn-tdp-03@2026-03-22T11:17:00.000Z",
+          "syn-tdp-05@2026-01-09T10:05:00.000Z",
+          "syn-tdp-07@2026-02-12T09:22:00.000Z",
+          "syn-tdp-01@2025-09-14T15:02:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 5,
+        "ms": 0.7385000062640756
+      },
+      "meaning": {
+        "sessions": [
+          "syn-tdp-02",
+          "syn-tdp-03"
+        ],
+        "ids": [
+          38,
+          40
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 5.8,
+        "best_similarity": 0.785
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-tdp-02",
+          "syn-tdp-03",
+          "syn-tdp-05",
+          "syn-tdp-07"
+        ],
+        "ids": [
+          38,
+          40,
+          43,
+          49
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.3,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-tdp-02",
+          "syn-tdp-03",
+          "syn-tdp-05",
+          "syn-tdp-07"
+        ],
+        "ids": [
+          38,
+          40,
+          43,
+          49
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 6.1
+      }
+    },
+    "q17": {
+      "keyword": {
+        "sessions": [
+          "syn-lgl-01",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          2,
+          4
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-lgl-01",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          2,
+          4
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-lgl-01",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          "syn-lgl-01@2025-09-30T16:02:00.000Z",
+          "syn-lgl-02@2026-04-15T08:47:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.6531249964609742
+      },
+      "meaning": {
+        "sessions": [
+          "syn-lgl-01",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          2,
+          4
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 6.5,
+        "best_similarity": 0.794
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-lgl-01",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          2,
+          4
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 2692.87554201046,
+        "fired": true,
+        "reason": "memory_phrasing"
+      },
+      "always": {
+        "sessions": [
+          "syn-lgl-01",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          2,
+          4
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 6.7
+      }
+    },
+    "q18": {
+      "keyword": {
+        "sessions": [
+          "syn-qst-03",
+          "syn-qst-02"
+        ],
+        "ids": [
+          24,
+          22
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.1
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-qst-03",
+          "syn-qst-02"
+        ],
+        "ids": [
+          24,
+          22
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.1
+      },
+      "mcp": {
+        "sessions": [
+          "syn-qst-02",
+          "syn-qst-03"
+        ],
+        "ids": [
+          "syn-qst-02@2025-12-11T12:02:00.000Z",
+          "syn-qst-03@2026-05-02T16:42:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.62508400878869
+      },
+      "meaning": {
+        "sessions": [
+          "syn-qst-02",
+          "syn-qst-03"
+        ],
+        "ids": [
+          22,
+          24,
+          21
+        ],
+        "machine_rows": 0,
+        "injected": 3,
+        "ms": 8.9,
+        "best_similarity": 0.802
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-qst-03",
+          "syn-qst-02"
+        ],
+        "ids": [
+          24,
+          22
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.1,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-qst-03",
+          "syn-qst-02"
+        ],
+        "ids": [
+          24,
+          22,
+          21
+        ],
+        "machine_rows": 0,
+        "injected": 3,
+        "ms": 9.0
+      }
+    },
+    "q19": {
+      "keyword": {
+        "sessions": [
+          "syn-tdp-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          48,
+          49,
+          35,
+          36
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-tdp-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          48,
+          49,
+          35,
+          36
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-tdp-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          "syn-tdp-07@2026-02-12T09:20:00.000Z",
+          "syn-tdp-07@2026-02-12T09:22:00.000Z",
+          "syn-tdp-01@2025-09-14T15:02:00.000Z",
+          "syn-tdp-01@2025-09-14T15:04:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.8597910054959357
+      },
+      "meaning": {
+        "sessions": [
+          "syn-tdp-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          49,
+          48,
+          35
+        ],
+        "machine_rows": 0,
+        "injected": 3,
+        "ms": 6.3,
+        "best_similarity": 0.798
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-tdp-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          48,
+          49,
+          35,
+          36
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.2,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-tdp-07",
+          "syn-tdp-01"
+        ],
+        "ids": [
+          48,
+          49,
+          35,
+          36
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 6.5
+      }
+    },
+    "q20": {
+      "keyword": {
+        "sessions": [
+          "syn-lgl-06",
+          "syn-qst-02",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          12,
+          14,
+          13,
+          21,
+          3
+        ],
+        "machine_rows": 1,
+        "injected": 5,
+        "ms": 0.3
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-lgl-06",
+          "syn-qst-02",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          12,
+          14,
+          13,
+          21,
+          3
+        ],
+        "machine_rows": 1,
+        "injected": 5,
+        "ms": 0.3
+      },
+      "mcp": {
+        "sessions": [
+          "syn-lgl-06",
+          "syn-qst-02",
+          "syn-lgl-05",
+          "syn-lgl-02",
+          "syn-qst-03",
+          "syn-tdp-07",
+          "syn-tdp-08",
+          "syn-tdp-02",
+          "syn-tdp-05"
+        ],
+        "ids": [
+          "syn-lgl-06@2026-03-06T15:06:00.000Z",
+          "syn-qst-02@2025-12-11T12:00:00.000Z",
+          "syn-lgl-06@2026-03-06T15:04:00.000Z",
+          "syn-lgl-05@2026-03-05T10:02:00.000Z",
+          "syn-lgl-02@2026-04-15T08:45:00.000Z",
+          "syn-qst-03@2026-05-02T16:42:00.000Z",
+          "syn-qst-03@2026-05-02T16:40:00.000Z",
+          "syn-tdp-07@2026-02-12T09:22:00.000Z",
+          "syn-tdp-08@2026-04-02T16:14:00.000Z",
+          "syn-tdp-02@2025-10-03T09:40:00.000Z",
+          "syn-tdp-05@2026-01-09T10:07:00.000Z",
+          "syn-tdp-02@2025-10-03T09:42:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 12,
+        "ms": 0.8922090055420995
+      },
+      "meaning": {
+        "sessions": [
+          "syn-lgl-06",
+          "syn-lgl-05",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          14,
+          10,
+          4,
+          9
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 5.5,
+        "best_similarity": 0.698
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-lgl-06",
+          "syn-qst-02",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          12,
+          14,
+          13,
+          21,
+          3
+        ],
+        "machine_rows": 1,
+        "injected": 5,
+        "ms": 0.3,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-lgl-06",
+          "syn-lgl-05",
+          "syn-lgl-02"
+        ],
+        "ids": [
+          14,
+          12,
+          10,
+          13,
+          4
+        ],
+        "machine_rows": 1,
+        "injected": 5,
+        "ms": 5.8
+      }
+    },
+    "n01": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-tdp-08"
+        ],
+        "ids": [
+          54
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-tdp-08"
+        ],
+        "ids": [
+          "syn-tdp-08@2026-04-02T16:18:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 1,
+        "ms": 0.7634579960722476
+      },
+      "meaning": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 6.0,
+        "best_similarity": 0.198
+      },
+      "on_miss": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2692.37554201046,
+        "fired": true,
+        "reason": "weak_keyword"
+      },
+      "always": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 6.2
+      }
+    },
+    "n02": {
+      "keyword": {
+        "sessions": [
+          "syn-tdp-01",
+          "syn-tdp-05"
+        ],
+        "ids": [
+          35,
+          43
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-tdp-01",
+          "syn-tdp-05"
+        ],
+        "ids": [
+          35,
+          43
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-tdp-01",
+          "syn-tdp-05",
+          "syn-tdp-02",
+          "syn-tdp-03"
+        ],
+        "ids": [
+          "syn-tdp-01@2025-09-14T15:02:00.000Z",
+          "syn-tdp-05@2026-01-09T10:05:00.000Z",
+          "syn-tdp-02@2025-10-03T09:42:00.000Z",
+          "syn-tdp-03@2026-03-22T11:17:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.6569160032086074
+      },
+      "meaning": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 6.3,
+        "best_similarity": 0.249
+      },
+      "on_miss": {
+        "sessions": [
+          "syn-tdp-01",
+          "syn-tdp-05"
+        ],
+        "ids": [
+          35,
+          43
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 0.2,
+        "fired": false,
+        "reason": "keyword_confident"
+      },
+      "always": {
+        "sessions": [
+          "syn-tdp-01",
+          "syn-tdp-05"
+        ],
+        "ids": [
+          35,
+          43
+        ],
+        "machine_rows": 0,
+        "injected": 2,
+        "ms": 6.5
+      }
+    },
+    "n03": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "keyword_ungated": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "mcp": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2.7327919960953295
+      },
+      "meaning": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 8.4,
+        "best_similarity": 0.299
+      },
+      "on_miss": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2694.67554201046,
+        "fired": true,
+        "reason": "no_keyword_result"
+      },
+      "always": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 8.5
+      }
+    },
+    "n04": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.2
+      },
+      "keyword_ungated": {
+        "sessions": [
+          "syn-tdp-07",
+          "syn-qst-04",
+          "syn-qst-05"
+        ],
+        "ids": [
+          48,
+          25,
+          28,
+          26
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.2
+      },
+      "mcp": {
+        "sessions": [
+          "syn-tdp-07",
+          "syn-qst-04",
+          "syn-qst-05"
+        ],
+        "ids": [
+          "syn-tdp-07@2026-02-12T09:20:00.000Z",
+          "syn-qst-04@2026-01-27T09:00:00.000Z",
+          "syn-qst-05@2026-04-08T11:32:00.000Z",
+          "syn-qst-04@2026-01-27T09:02:00.000Z"
+        ],
+        "machine_rows": 0,
+        "injected": 4,
+        "ms": 0.6887500057928264
+      },
+      "meaning": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 5.5,
+        "best_similarity": 0.274
+      },
+      "on_miss": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2691.87554201046,
+        "fired": true,
+        "reason": "weak_keyword"
+      },
+      "always": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 5.7
+      }
+    },
+    "n05": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "keyword_ungated": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "mcp": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2.595875004772097
+      },
+      "meaning": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 7.1,
+        "best_similarity": 0.303
+      },
+      "on_miss": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2693.37554201046,
+        "fired": true,
+        "reason": "no_keyword_result"
+      },
+      "always": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 7.199999999999999
+      }
+    },
+    "n06": {
+      "keyword": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "keyword_ungated": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 0.1
+      },
+      "mcp": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2.273499994771555
+      },
+      "meaning": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 5.5,
+        "best_similarity": 0.17
+      },
+      "on_miss": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 2691.77554201046,
+        "fired": true,
+        "reason": "no_keyword_result"
+      },
+      "always": {
+        "sessions": [],
+        "ids": [],
+        "machine_rows": 0,
+        "injected": 0,
+        "ms": 5.6
+      }
+    }
+  },
+  "keywords_used": {
+    "q01": {
+      "keyword": [
+        "species",
+        "picker",
+        "its",
+        "list"
+      ],
+      "keyword_ungated": [
+        "species",
+        "picker",
+        "its",
+        "list"
+      ]
+    },
+    "q02": {
+      "keyword": [
+        "horizontal",
+        "accuracy",
+        "makes",
+        "gps",
+        "reading",
+        "flagged",
+        "amber"
+      ],
+      "keyword_ungated": [
+        "horizontal",
+        "accuracy",
+        "makes",
+        "gps",
+        "reading",
+        "flagged",
+        "amber"
+      ]
+    },
+    "q03": {
+      "keyword": [
+        "ingredient",
+        "tags",
+        "print",
+        "bold",
+        "warning",
+        "line",
+        "allergen",
+        "labels"
+      ],
+      "keyword_ungated": [
+        "ingredient",
+        "tags",
+        "print",
+        "bold",
+        "warning",
+        "line",
+        "allergen",
+        "labels"
+      ]
+    },
+    "q04": {
+      "keyword": [
+        "many",
+        "daily",
+        "dump",
+        "copies",
+        "postgres",
+        "keep"
+      ],
+      "keyword_ungated": [
+        "many",
+        "daily",
+        "dump",
+        "copies",
+        "postgres",
+        "keep"
+      ]
+    },
+    "q05": {
+      "keyword": [
+        "cafe",
+        "discount",
+        "applied",
+        "before",
+        "after",
+        "wholesale",
+        "price",
+        "rounding"
+      ],
+      "keyword_ungated": [
+        "cafe",
+        "discount",
+        "applied",
+        "before",
+        "after",
+        "wholesale",
+        "price",
+        "rounding"
+      ]
+    },
+    "q06": {
+      "keyword": [
+        "why",
+        "switch",
+        "markdown",
+        "parser",
+        "goldmark"
+      ],
+      "keyword_ungated": [
+        "why",
+        "switch",
+        "markdown",
+        "parser",
+        "goldmark"
+      ]
+    },
+    "q07": {
+      "keyword": [
+        "long",
+        "full",
+        "rebuild",
+        "posts"
+      ],
+      "keyword_ungated": [
+        "long",
+        "full",
+        "rebuild",
+        "posts"
+      ]
+    },
+    "q08": {
+      "keyword": [
+        "many",
+        "posts",
+        "rss",
+        "feed",
+        "drafts",
+        "left"
+      ],
+      "keyword_ungated": [
+        "many",
+        "posts",
+        "rss",
+        "feed",
+        "drafts",
+        "left"
+      ]
+    },
+    "q09": {
+      "keyword": [
+        "happens",
+        "several",
+        "people",
+        "modify",
+        "single",
+        "entry",
+        "without",
+        "internet"
+      ],
+      "keyword_ungated": [
+        "happens",
+        "several",
+        "people",
+        "modify",
+        "single",
+        "entry",
+        "without",
+        "internet"
+      ]
+    },
+    "q10": {
+      "keyword": [
+        "app",
+        "sea",
+        "creatures",
+        "someone",
+        "choose"
+      ],
+      "keyword_ungated": [
+        "app",
+        "sea",
+        "creatures",
+        "someone",
+        "choose"
+      ]
+    },
+    "q11": {
+      "keyword": [
+        "phone",
+        "position",
+        "considered",
+        "too",
+        "imprecise",
+        "human",
+        "double",
+        "check"
+      ],
+      "keyword_ungated": [
+        "phone",
+        "position",
+        "considered",
+        "too",
+        "imprecise",
+        "human",
+        "double",
+        "check"
+      ]
+    },
+    "q12": {
+      "keyword": [
+        "customer",
+        "find",
+        "pastry",
+        "dangerous",
+        "someone",
+        "food",
+        "sensitivities"
+      ],
+      "keyword_ungated": [
+        "customer",
+        "find",
+        "pastry",
+        "dangerous",
+        "someone",
+        "food",
+        "sensitivities"
+      ]
+    },
+    "q13": {
+      "keyword": [
+        "server",
+        "died",
+        "tonight",
+        "far",
+        "back",
+        "restore",
+        "shop",
+        "data"
+      ],
+      "keyword_ungated": [
+        "server",
+        "died",
+        "tonight",
+        "far",
+        "back",
+        "restore",
+        "shop",
+        "data"
+      ]
+    },
+    "q14": {
+      "keyword": [
+        "made",
+        "replace",
+        "text-to-html",
+        "converter",
+        "time"
+      ],
+      "keyword_ungated": [
+        "made",
+        "replace",
+        "text-to-html",
+        "converter",
+        "time"
+      ]
+    },
+    "q15": {
+      "keyword": [
+        "why",
+        "regenerating",
+        "site",
+        "quick",
+        "only",
+        "edit",
+        "one",
+        "article"
+      ],
+      "keyword_ungated": [
+        "why",
+        "regenerating",
+        "site",
+        "quick",
+        "only",
+        "edit",
+        "one",
+        "article"
+      ]
+    },
+    "q16": {
+      "keyword": [
+        "photo",
+        "cap",
+        "per",
+        "survey",
+        "size",
+        "photos",
+        "resized"
+      ],
+      "keyword_ungated": [
+        "photo",
+        "cap",
+        "per",
+        "survey",
+        "size",
+        "photos",
+        "resized"
+      ]
+    },
+    "q17": {
+      "keyword": [
+        "decide",
+        "reorder",
+        "point",
+        "bread",
+        "flour"
+      ],
+      "keyword_ungated": [
+        "decide",
+        "reorder",
+        "point",
+        "bread",
+        "flour"
+      ]
+    },
+    "q18": {
+      "keyword": [
+        "docs",
+        "site",
+        "hosted"
+      ],
+      "keyword_ungated": [
+        "docs",
+        "site",
+        "hosted"
+      ]
+    },
+    "q19": {
+      "keyword": [
+        "tidal-chart",
+        "screen",
+        "its",
+        "tide",
+        "predictions"
+      ],
+      "keyword_ungated": [
+        "tidal-chart",
+        "screen",
+        "its",
+        "tide",
+        "predictions"
+      ]
+    },
+    "q20": {
+      "keyword": [
+        "anyone",
+        "check",
+        "wholesale",
+        "rounding",
+        "change",
+        "against",
+        "every",
+        "sku"
+      ],
+      "keyword_ungated": [
+        "anyone",
+        "check",
+        "wholesale",
+        "rounding",
+        "change",
+        "against",
+        "every",
+        "sku"
+      ]
+    },
+    "n01": {
+      "keyword": [
+        "color",
+        "scheme",
+        "pick",
+        "dark",
+        "mode",
+        "theme"
+      ],
+      "keyword_ungated": [
+        "color",
+        "scheme",
+        "pick",
+        "dark",
+        "mode",
+        "theme"
+      ]
+    },
+    "n02": {
+      "keyword": [
+        "volunteers",
+        "push",
+        "notification",
+        "survey",
+        "approved"
+      ],
+      "keyword_ungated": [
+        "volunteers",
+        "push",
+        "notification",
+        "survey",
+        "approved"
+      ]
+    },
+    "n03": {
+      "keyword": [
+        "payment",
+        "provider",
+        "handles",
+        "card",
+        "refunds",
+        "counter"
+      ],
+      "keyword_ungated": [
+        "payment",
+        "provider",
+        "handles",
+        "card",
+        "refunds",
+        "counter"
+      ]
+    },
+    "n04": {
+      "keyword": [
+        "plan",
+        "translating",
+        "blog",
+        "posts",
+        "spanish"
+      ],
+      "keyword_ungated": [
+        "plan",
+        "translating",
+        "blog",
+        "posts",
+        "spanish"
+      ]
+    },
+    "n05": {
+      "keyword": [
+        "ever",
+        "add",
+        "rate",
+        "limiting",
+        "public",
+        "api"
+      ],
+      "keyword_ungated": [
+        "ever",
+        "add",
+        "rate",
+        "limiting",
+        "public",
+        "api"
+      ]
+    },
+    "n06": {
+      "keyword": [
+        "font",
+        "choose",
+        "printed",
+        "menu",
+        "boards"
+      ],
+      "keyword_ungated": [
+        "font",
+        "choose",
+        "printed",
+        "menu",
+        "boards"
+      ]
+    }
+  },
+  "questions": {
+    "q01": "where does the species picker get its list of species from?",
+    "q02": "what horizontal accuracy makes a GPS reading get flagged amber?",
+    "q03": "which ingredient tags print a bold warning line on the allergen labels?",
+    "q04": "how many daily pg_dump copies of Postgres do we keep?",
+    "q05": "is the cafe discount applied before or after the wholesale price rounding?",
+    "q06": "why did we switch the markdown parser to goldmark?",
+    "q07": "how long does a full rebuild of all 900 posts take?",
+    "q08": "how many posts go into the RSS feed, and are drafts left out?",
+    "q09": "what happens when several people modify a single entry without internet, then come back online?",
+    "q10": "how does the app know which sea creatures someone can choose from?",
+    "q11": "when is the phone's position considered too imprecise, so a human has to double check it?",
+    "q12": "how would a customer find out a pastry could be dangerous for someone with food sensitivities?",
+    "q13": "if the server died tonight, how far back could we restore the shop's data?",
+    "q14": "what made us replace the text-to-HTML converter last time?",
+    "q15": "why is regenerating the site quick when I only edit one article?",
+    "q16": "what is the photo cap per survey and what size are photos resized to?",
+    "q17": "what did we decide the reorder point for bread flour is?",
+    "q18": "where is the docs site hosted?",
+    "q19": "how does the tidal-chart screen get its tide predictions?",
+    "q20": "did anyone check the wholesale rounding change against every SKU before it shipped?",
+    "n01": "what color scheme did we pick for the dark mode theme?",
+    "n02": "how do volunteers get a push notification when their survey is approved?",
+    "n03": "which payment provider handles card refunds at the counter?",
+    "n04": "what is the plan for translating the blog posts into Spanish?",
+    "n05": "did we ever add rate limiting to the public API?",
+    "n06": "which font did we choose for the printed menu boards?"
+  },
+  "caveats": [
+    "A question counts as found if ANY message from an expected session comes back.",
+    "No current-project boost is applied, so every project is treated the same.",
+    "A rival session that also answers a question counts against the method unless it is listed in 'expect'.",
+    "Every question here is phrased about the past, which trips the on_miss gate more often than everyday prompts do; remember_baseline.py shows the rate on your real prompts.",
+    "Meaning search runs here with the model already loaded; a cold start adds about 2.7 s per process.",
+    "mcp is the search_transcripts tool as Claude calls it: up to 20 rows, no weak-match gate and no recency weighting. It hides machine-written messages (task notices, system reminders) like the hook does; its 'injected' count is rows returned.",
+    "Keyword recency is measured from a fixed time (2026-06-01T00:00:00Z), not the clock."
+  ]
+}

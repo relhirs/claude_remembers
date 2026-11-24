@@ -5,10 +5,10 @@ server.py - MCP server for claude_remembers.
 Read-only access to the claude_remembers SQLite database.
 All writes are handled by hooks and scripts.
 
-11 tool functions:
+12 tool functions:
   get_profile, get_project_state, search_transcripts, get_session,
   get_recent_sessions, lookup_decision, lookup_fact, get_recent_summaries,
-  search_semantic, get_status, get_schema
+  search_semantic, explain_retrieval, get_status, get_schema
 
 Registration:
   claude mcp add remember-server python3 /path/to/mcp/server.py
@@ -29,7 +29,7 @@ from mcp.server.fastmcp import FastMCP
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from scripts.fuzzy_search import fuzzy_correct
 from scripts.semantic_search import semantic_search as _semantic_search
-from scripts.config_utils import resolve_db_path
+from scripts.config_utils import machine_filter_sql, resolve_db_path
 from scripts.profile_utils import fetch_merged_profile, format_profile_markdown
 
 # ---------------------------------------------------------------------------
@@ -192,7 +192,10 @@ def _build_fts_query(raw_query: str) -> str:
 
 def _run_fts_query(conn, fts_query: str, project: str | None, limit: int,
                     recency_bias: bool) -> list:
-    """Execute an FTS5 query and return rows."""
+    """Execute an FTS5 query and return rows. Harness-written messages (task
+    notices, system reminders, ...) are left out inside the query, before LIMIT,
+    so the tool still returns up to `limit` real messages."""
+    machine = machine_filter_sql("t.content")
     if recency_bias:
         order = "fts.rank * (1.0 / (1.0 + julianday('now') - julianday(t.timestamp)))"
     else:
@@ -205,6 +208,7 @@ def _run_fts_query(conn, fts_query: str, project: str | None, limit: int,
                FROM transcripts_fts fts
                JOIN transcripts t ON t.rowid = fts.rowid
                WHERE transcripts_fts MATCH ? AND t.project = ?
+                 {machine}
                ORDER BY {order}
                LIMIT ?""",
             (fts_query, project, limit),
@@ -216,6 +220,7 @@ def _run_fts_query(conn, fts_query: str, project: str | None, limit: int,
                FROM transcripts_fts fts
                JOIN transcripts t ON t.rowid = fts.rowid
                WHERE transcripts_fts MATCH ?
+                 {machine}
                ORDER BY {order}
                LIMIT ?""",
             (fts_query, limit),
@@ -247,7 +252,8 @@ def search_transcripts(
     """FTS5 full-text search across all conversation transcripts.
     Args: query - search terms (natural language or FTS5 syntax),
     project - filter by prefix (optional).
-    Returns up to 20 results ranked by relevance."""
+    Returns up to 20 results ranked by relevance. Messages the harness wrote
+    (task notices, system reminders) are left out."""
     limit = 20
     recency_bias = False
     conn = get_db()
@@ -563,7 +569,7 @@ def search_semantic(
         return f"Semantic search error: {e}"
 
 # ---------------------------------------------------------------------------
-# 10. get_status
+# 10. explain_retrieval
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
@@ -596,6 +602,10 @@ def explain_retrieval(
     except ExplainError as e:
         raise RuntimeError(str(e))
 
+
+# ---------------------------------------------------------------------------
+# 11. get_status
+# ---------------------------------------------------------------------------
 
 @mcp.tool()
 def get_status() -> str:
@@ -672,7 +682,7 @@ def get_status() -> str:
         conn.close()
 
 # ---------------------------------------------------------------------------
-# 11. get_schema
+# 12. get_schema
 # ---------------------------------------------------------------------------
 
 @mcp.tool()

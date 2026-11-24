@@ -1,0 +1,9 @@
+MCP weak-match gate (simulation) - 26 questions (20 answerable, 6 no-answer); hook bar (floor) = -4.188
+
+tool as shipped       : answers in top 5 13, in all rows 13; no-answer questions returning rows 3 of 6; questions gated 0
+tool + gate           : answers in top 5 13, in all rows 13; no-answer questions returning rows 1 of 6; questions gated 6
+[gate] answerable gated: ['q09', 'q13', 'q14', 'q15']  lost top 5: []  lost in all rows: []  gained top 5: []
+[gate] no-answer gated: ['n01', 'n04']
+Best rank per answerable question (more negative = stronger): [-21.67, -19.23, -17.91, -15.66, -15.48, -14.72, -11.39, -10.19, -10.08, -9.25, -9.21, -8.97, -8.51, -4.46, -4.16, -4.1, -3.45, -3.16]
+Best rank per no-answer question: [-4.8, -3.79, -3.37]
+

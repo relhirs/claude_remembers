@@ -50,6 +50,11 @@ Options:
   --compare-project NAME, --compare-as-of ISO
                    like the cap-study options: the project every question is
                    searched as, and a fixed "now" for a golden set with no as_of.
+  --compare-recorded
+                   (mcp-machine-filter, mcp-gate) also replay the real recorded search_transcripts calls.
+  --compare-ref GIT_REF, --compare-expect FILE
+                   (mcp-machine-filter) the git ref of the tool before the change, and a
+                   saved result its numbers must equal exactly.
   --compare-check FILE
                    a cap_study.json from the same dataset; the comparison's
                    bias-on side must equal it question by question.
@@ -253,15 +258,19 @@ def main():
     p.add_argument("--cap-study", action="store_true")
     p.add_argument("--cap-study-project")
     p.add_argument("--cap-study-as-of")
-    p.add_argument("--compare", choices=["project-bias"])
+    p.add_argument("--compare", choices=["project-bias", "mcp-machine-filter", "mcp-gate"])
+    p.add_argument("--compare-recorded", action="store_true")
+    p.add_argument("--compare-ref")
+    p.add_argument("--compare-expect")
     p.add_argument("--compare-project")
     p.add_argument("--compare-as-of")
     p.add_argument("--compare-check")
     args = p.parse_args()
-    if args.compare and args.keyword_only:
-        p.error("--compare needs the embedding model: drop --keyword-only")
-    if (args.compare_project or args.compare_as_of or args.compare_check) and not args.compare:
-        p.error("--compare-project, --compare-as-of and --compare-check only apply with --compare")
+    if args.compare == "project-bias" and args.keyword_only:
+        p.error("--compare project-bias needs the embedding model: drop --keyword-only")
+    if (args.compare_project or args.compare_as_of or args.compare_check or args.compare_recorded
+                                       or args.compare_ref or args.compare_expect) and not args.compare:
+        p.error("--compare-project, --compare-as-of, --compare-check and --compare-recorded only apply with --compare")
     if args.cap_study and args.keyword_only:
         p.error("--cap-study needs the embedding model: drop --keyword-only")
     if (args.cap_study_project or args.cap_study_as_of) and not args.cap_study:
@@ -367,6 +376,16 @@ def main():
                 cmp_args += ["--as-of", args.compare_as_of]
             if args.compare_check:
                 cmp_args += ["--check-against", str(pathlib.Path(args.compare_check).resolve())]
+            if args.compare in ("mcp-machine-filter", "mcp-gate"):
+                cmp_args += (["--recorded"] if args.compare_recorded else [])
+                if args.compare == "mcp-gate":
+                    cmp_args += ["--simulate"]
+                else:
+                    if not args.compare_ref:
+                        p.error("--compare mcp-machine-filter needs --compare-ref GIT_REF")
+                    cmp_args += ["--ref", args.compare_ref, "--repo", str(REPO)]
+                    if args.compare_expect:
+                        cmp_args += ["--expect", str(pathlib.Path(args.compare_expect).resolve())]
             run_script(root, "remember_compare.py", *cmp_args)
 
         (out / "run.json").write_text(json.dumps(run_info, indent=2) + "\n")

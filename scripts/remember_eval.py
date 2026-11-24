@@ -102,13 +102,14 @@ def _ro_connect(db_path):
     return sqlite3.connect(pathlib.Path(db_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=5.0)
 
 
-def load_mcp_server(db_path):
-    """Import mcp/server.py by path and point it at `db_path`, read-only.
+def load_mcp_server(db_path, server_path=None):
+    """Import mcp/server.py by path (or the copy at `server_path`) and point it at
+    `db_path`, read-only.
 
     The module itself is not changed: only its connection factory is swapped
     for a read-only one, so the eval measures exactly what the tool does.
     """
-    spec = importlib.util.spec_from_file_location("remember_mcp_server", ROOT / "mcp" / "server.py")
+    spec = importlib.util.spec_from_file_location("remember_mcp_server", server_path or ROOT / "mcp" / "server.py")
     server = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(server)
 
@@ -266,8 +267,8 @@ def run_question(semantic, conn, config, db_path, item, exclude, cold_start_ms=0
     }
     if server is not None:
         # Same leak filters as above (excluded sessions, rows quoting the
-        # question). No machine-row filter: the MCP tool has none, and that
-        # difference is part of what this measures.
+        # question). The tool hides machine-written messages itself (in its SQL),
+        # so no machine-row filter is added here; "machine_rows" should be 0.
         found, mcp_ms = mcp_search(server, question)
         mcp_rows = [r for r in found
                     if r["session_id"] not in exclude and quoted not in (r["preview"] or "").lower()]
@@ -488,8 +489,9 @@ def run_questions(config, exclude, questions, source, as_of=None, include_mcp=Fa
             if skipped_ids else []) + ([
             f"{len(errored_ids)} question(s) errored (meaning search or the on_miss gate failed) and were left "
             "out of every score above: they are neither found nor missed."] if errored_ids else []) + ([
-            "mcp is the search_transcripts tool as Claude calls it: up to 20 rows, no weak-match gate, "
-            "no recency weighting and no machine-message filter; its 'injected' count is rows returned."]
+            "mcp is the search_transcripts tool as Claude calls it: up to 20 rows, no weak-match gate "
+            "and no recency weighting. It hides machine-written messages (task notices, system reminders) "
+            "like the hook does; its 'injected' count is rows returned."]
             if include_mcp else []) + ([
             f"Keyword recency is measured from a fixed time ({as_of}), not the clock."] if as_of else []),
     }

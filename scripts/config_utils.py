@@ -42,6 +42,19 @@ def is_machine_generated(text):
     return (text or "").lstrip()[:60].lower().startswith(MACHINE_GENERATED_PREFIXES)
 
 
+def machine_filter_sql(column="t.content"):
+    """SQL fragment, starting with AND NOT, that hides harness-written messages.
+
+    Used by the MCP search tool. It looks at the first 80 characters of `column`,
+    strips leading space, tab, newline and carriage return, lowercases, and checks
+    the markers above. The hook keeps its own copy of the check in
+    scripts/retrieval.py, which strips spaces only; that difference is documented
+    in GO_DEEPER.md and is not changed here."""
+    assert all("'" not in p and "%" not in p and "_" not in p for p in MACHINE_GENERATED_PREFIXES)
+    trim = f"LTRIM(SUBSTR({column}, 1, 80), ' ' || char(9) || char(10) || char(13))"
+    return "AND NOT (" + " OR ".join(f"LOWER({trim}) LIKE '{p}%'" for p in MACHINE_GENERATED_PREFIXES) + ")"
+
+
 def resolve_db_path(config):
     """Return the expanded, absolute path to the claude_remembers SQLite DB."""
     storage = config["storage"]
