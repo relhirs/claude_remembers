@@ -42,26 +42,26 @@ One difference: the optional email digest feature schedules itself via `cron` on
 
 ### Configuring it manually
 
-`config.yaml` (the file everything actually reads from) is gitignored, so it never ships in the repo — it only exists once something generates it. `config.yaml.example` is the documented reference copy that does ship, with a comment above every option explaining what it does. You've got two ways to get from one to the other:
+`config.yaml` (the file everything actually reads from) is gitignored, so it never ships in the repo. It only exists once something generates it. `config.yaml.example` is the documented reference copy that does ship, with a comment above every option explaining what it does. You've got two ways to get from one to the other:
 
-- **Run the setup script** (`python3 scripts/remember-setup.py`) and answer its prompts — it writes `config.yaml` for you, interactively, based on your answers.
+- **Run the setup script** (`python3 scripts/remember-setup.py`) and answer its prompts. It writes `config.yaml` for you, interactively, based on your answers.
 - **Copy and edit it yourself**: `cp config.yaml.example config.yaml`, then open `config.yaml` and fill in your own values (root path, projects, etc.) by hand, using the comments in the example as your guide.
 
 Either way you end up with the same file; the setup script is just the interactive version of editing the example yourself.
 
 ## Security
 
-Everything just lives on your own disk. No cloud service, no third party server, nothing getting uploaded anywhere. The only outside call this ever makes is to Anthropic's API, and only for the optional summarization step, and even then it's just the text of your own conversations going there, same as it already does every time you talk to Claude anyway. Your `config.yaml` (which can have an API key in it) is excluded from git by default so it won't accidentally end up in a repo somewhere.
+Everything just lives on your own disk. No cloud service, no third party server, nothing getting uploaded anywhere. The outside calls it makes are these: Anthropic's API for the optional summarization step (just the text of your own conversations, same as it already goes there every time you talk to Claude), and a one-time download of the small meaning-search model from Hugging Face the first time it is needed. Your `config.yaml` (which can have an API key in it) is excluded from git by default so it won't accidentally end up in a repo somewhere.
 
 ## Credit
 
 This is a heavily restructured version of [claude-brain](https://github.com/mikeadolan/claude-brain) by Mike Dolan. The original idea of giving Claude Code actual persistent local memory is his. Most of what's here now has been rebuilt or added on top of that starting point:
 
 - **`/clear` recovery.** No time limit. Whenever you come back, even days later, your next message gets the real summary of the last session mixed with a search of what you just typed, once per `/clear`.
-- **Search.** This describes the automatic search that runs on every message: keyword search first, plus meaning-based search that either runs only when keyword search looks unreliable (`on_miss`, the default) or on every prompt through a small background helper (`always`), chosen in `config.yaml`. It skips weak matches instead of padding the results, never hands back the session you're already in, favors newer memories, and favors the project of the folder you're in when that folder is one you've mapped. Claude's own lookup tool (`search_transcripts`) is a separate, simpler search: up to 20 results, no weak-match skipping or recency weighting, and it hides machine-written messages. `GO_DEEPER.md` has a table of how the paths differ.
+- **Search.** This describes the automatic search that runs on every message: keyword search first, plus meaning-based search that either runs only when keyword search looks unreliable (`on_miss`, the default) or on every prompt through a small background helper (`always`), chosen in `config.yaml`. It skips weak matches instead of padding the results, never hands back the session you're already in, favors newer memories (in keyword search only), and favors the project of the folder you're in when that folder is one you've mapped. Claude's own lookup tool (`search_transcripts`) is a separate, simpler search: up to 20 results, no weak-match skipping or recency weighting, and it hides machine-written messages. `GO_DEEPER.md` has a table of how the paths differ.
 - **Summarization.** Every session gets a summary when it ends, a clearly marked fallback note if the API isn't available, and a startup sweep that catches sessions that never ended cleanly (closed terminal, crash, sleep).
-- **Measuring itself.** Built-in telemetry, a replay of your own past prompts, a golden-set test, and a memory check that runs in the background every couple of weeks and tells you in plain words whether search is finding the right things. Changes to the search were decided by these numbers, not by guessing. On my own history (about 14,800 messages) they caught an ordering bug that was injecting memories about four months old (median 115 days, now 6) and cut irrelevant injections on questions with no answer from 100% to 0%.
-- **Importing.** Claude.ai, ChatGPT and Gemini exports go into per-project folders with tags you choose, and nothing gets filed without you picking the folder.
+- **Measuring itself.** Built-in telemetry, a replay of your own past prompts, a golden-set test, and a memory check that runs in the background every couple of weeks and tells you in plain words whether search is finding the right things. Changes to the search were decided by these numbers, not by guessing. On my own history (about 14,000 messages) they caught an ordering bug that was injecting memories about four months old (median 115 days, now 6) and cut irrelevant injections on questions with no answer from 100% to 0% (that is keyword search only; the default mode, `on_miss`, still injected junk on 2 of 8 such questions).
+- **Importing.** Claude.ai, ChatGPT and Gemini exports go into per-project folders with tags you choose, and nothing gets filed without you picking the folder (a blank answer goes to the default project).
 - **Per-project profile.** Your preferences can be scoped to one project and override your global ones when you're in that folder.
 - **Tested.** The test suite runs in CI on macOS, Linux and Windows.
 

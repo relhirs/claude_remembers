@@ -268,10 +268,10 @@ def phase_projects():
     print("  anywhere on disk. No match found anywhere? Defaults to 'oth'.")
     print()
     print("  HOW TO PICK THE NAME: type it exactly as the real folder's name appears -")
-    print("  e.g. for a repo at '~/code/Listing Checker', type 'Listing Checker' with")
+    print("  e.g. for a repo at '~/code/my-app', type 'my-app' with")
     print("  the same case and spacing. This is an EXACT, case-sensitive match against")
-    print("  the folder name, so 'Listing Checker' will NOT match a folder named")
-    print("  'listing-checker' or 'listing_checker' - type it precisely.")
+    print("  the folder name, so 'my-app' will NOT match a folder named")
+    print("  'My-App' or 'my_app' - type it precisely.")
     print()
     print("  After the name, you'll also be asked for a DISPLAY NAME and a PREFIX:")
     print("    - Display name: a human-readable title, shown as the heading in that")
@@ -1670,8 +1670,8 @@ def _write_questionnaire_template(path, db_path=None):
         # Sections under a plain "## CATEGORY" header apply to EVERY project.
         # To make one section apply to only ONE project instead, use:
         #   ## PROJECT:<prefix> CATEGORY
-        # e.g. "## PROJECT:lc WORKING STYLE" with "Communication preference: terse"
-        # underneath makes that answer apply only in project lc, overriding the
+        # e.g. "## PROJECT:app WORKING STYLE" with "Communication preference: terse"
+        # underneath makes that answer apply only in project app, overriding the
         # global value of the same question everywhere else. A plain "## CATEGORY"
         # header afterward goes back to applying globally.
         {project_line}
