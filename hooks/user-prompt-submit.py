@@ -5,11 +5,14 @@ Fires before every user message is sent to Claude.
 1. Extracts user prompt text from stdin JSON
 2. Post-/clear recovery: if the previous session in this project ended via
    /clear and hasn't been shown yet (event-based, no time window), inject
-   its generated summary merged with a normal relevance search.
-3. Otherwise: keyword (FTS5) search first; only fall back to semantic
-   (embedding) search when keyword results are weak/empty, since semantic
-   search's cold model-load cost is only worth paying when the fast path
-   already struck out.
+   its generated summary plus a short keyword-only list of related messages
+   (no meaning search, no weak-match gate). That list favors the folder's
+   project, which is "oth" in an unmapped folder.
+3. Otherwise: keyword (FTS5) search first. Meaning (embedding) search is added
+   per config.yaml `semantic_search.mode`: on_miss only when keyword results
+   are weak or empty (the cold model load is only worth paying then);
+   always on every prompt, through the warm helper, merged with the keyword
+   results; off never.
 4. Returns results as additionalContext, capped by a relevance floor
    rather than always padding to a fixed count.
 
@@ -17,7 +20,6 @@ RULE: stdout is SACRED. Only valid JSON goes to stdout.
 """
 
 import json
-import math
 import os
 import re
 import sqlite3
@@ -124,7 +126,8 @@ def mapped_project_for_cwd(config, cwd):
     folder appears in `cwd`, or None when no entry matches ("mapped" means some
     entry matched, never "the project is oth")."""
     norm_cwd = normalize_for_match(cwd)
-    for folder, prefix in config.get("jsonl_project_mapping", {}).items():
+    # `jsonl_project_mapping:` with nothing under it loads as None, not {}.
+    for folder, prefix in (config.get("jsonl_project_mapping") or {}).items():
         if normalize_for_match(folder) in norm_cwd:
             return prefix
     return None
@@ -135,11 +138,13 @@ def project_for_cwd(config, cwd):
 
     "oth" matches write_exchange.py's detect_project() fallback. It is kept so an
     unmapped folder still finds its post-/clear session and is logged under the
-    label its messages are stored with (commit c26a868). It is NOT used to rank
-    search results: for an unmapped folder _run passes project=None to retrieve(),
+    label its messages are stored with (commit c26a868). It does not rank the
+    normal search: for an unmapped folder _run passes project=None to retrieve(),
     so no project is favored. That reverses the ranking half of c26a868, on the
     Phase 4 measurement (with bias off, 32 of 38 private questions found instead
-    of 29). A folder that is mapped to "oth" on purpose still favors "oth"."""
+    of 29). A folder that is mapped to "oth" on purpose still favors "oth".
+    The one place "oth" still ranks is the keyword list inside the post-/clear
+    recovery message, which is searched with this label (see _run)."""
     return mapped_project_for_cwd(config, cwd) or "oth"
 
 

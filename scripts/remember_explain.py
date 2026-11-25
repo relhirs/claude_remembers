@@ -4,10 +4,12 @@
 Used by the /remember-explain slash command (the question arrives on stdin) and
 by the MCP tool explain_retrieval, so both print identical text. It runs
 retrieve() (scripts/retrieval.py), the same function the live hook runs, on a
-read-only connection. It writes nothing: no retrieval.log line, no
-retrieval_events row, no "/clear recovery shown" mark, and it never starts the
-warm helper. It may query a helper that is already running and, if meaning
-search runs, load the embedding model (the same cost as the real hook).
+read-only connection. It writes nothing to the memory database: no
+retrieval_events row, no "/clear recovery shown" mark. It writes no retrieval.log
+line and never starts the warm helper. It may query a helper that is already
+running and, if meaning search runs, load the embedding model (the same cost as
+the real hook). The one thing it can write: if that model fails to load, the
+loader appends an error line to logs/semantic_search.log.
 
 All formatting lives here; retrieve() and the hook know nothing about it.
 """
@@ -216,8 +218,9 @@ def summarize(trace, ctx, g):
     best, floor = strength.get("best"), strength.get("floor")
     lines = []
     if ctx.get("clear_pending"):
-        lines.append(wrap("Right after a /clear, the hook shows your last session's summary instead of the "
-                          "normal results; below is what the normal search would find.", 2))
+        lines.append(wrap("Right after a /clear, the hook shows your last session's summary plus a short "
+                          "keyword-only list of related messages, with no meaning search; below is what the "
+                          "normal search would find.", 2))
         lines.append("")
     if outcome == "skipped_short":
         text = (f"Nothing would be searched: the question is {inp['prompt_chars']} characters and the hook "
@@ -573,9 +576,14 @@ def _load_hook():
     global _HOOK
     if _HOOK is None:
         _share_package_modules()
-        spec = importlib.util.spec_from_file_location("ups_hook_for_explain", HOOK_PATH)
-        hook = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(hook)
+        saved_path = list(sys.path)
+        try:
+            spec = importlib.util.spec_from_file_location("ups_hook_for_explain", HOOK_PATH)
+            hook = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(hook)
+        except BaseException:
+            sys.path[:] = saved_path     # a failed load must not leave scripts/ behind
+            raise
         _HOOK = hook
     return _HOOK
 
@@ -592,7 +600,8 @@ def detect_session_id(cwd):
 
 def explain(question, **kwargs):
     """The explanation for `question` as text (see run_explain for the options).
-    Raises ExplainError with a plain message when it can't run. Writes nothing."""
+    Raises ExplainError with a plain message when it can't run. Writes nothing to
+    the memory database (see the module docstring for the one log line it can write)."""
     trace, ctx = run_explain(question, **kwargs)
     return render(trace, ctx)
 
@@ -632,8 +641,9 @@ def run_explain(question, *, project=None, mode=None, as_of=None, exclude_sessio
         if project != hook_bias:
             ctx["project_note"] = (f"You chose project '{project}', so it is favored. "
                                    f"The hook here would favor {repr(hook_bias) if hook_bias else 'none'}.")
-    # /clear recovery is not about ranking: an unmapped folder still checks 'oth', as the hook does.
-    clear_project = project or "oth"
+    # The /clear check follows the folder, not --project: the hook looks under the folder's
+    # mapped project, else 'oth', whatever project is forced for ranking.
+    clear_project = hook_bias or "oth"
     if exclude_session is None:
         exclude_session = detect_session_id(cwd)
 

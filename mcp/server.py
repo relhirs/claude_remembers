@@ -227,6 +227,22 @@ def _run_fts_query(conn, fts_query: str, project: str | None, limit: int,
         ).fetchall()
 
 
+def _matches_exist(conn, fts_query: str, project: str | None) -> bool:
+    """True if the query matches at least one message at all, machine messages
+    included. Used only to tell "nothing matched" from "only hidden messages matched"."""
+    if project:
+        row = conn.execute(
+            """SELECT 1 FROM transcripts_fts fts JOIN transcripts t ON t.rowid = fts.rowid
+               WHERE transcripts_fts MATCH ? AND t.project = ? LIMIT 1""",
+            (fts_query, project),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT 1 FROM transcripts_fts WHERE transcripts_fts MATCH ? LIMIT 1", (fts_query,)
+        ).fetchone()
+    return row is not None
+
+
 def _format_results(rows, header: str = "") -> str:
     """Format search result rows into a readable string."""
     lines = []
@@ -277,6 +293,11 @@ def search_transcripts(
         rows = _run_fts_query(conn, raw_fts_query, project, limit, recency_bias)
         if rows:
             return _format_results(rows)
+
+        # The raw query matched only messages that are hidden (machine-written): the
+        # word is not a typo, so do not rewrite it into a different word.
+        if _matches_exist(conn, raw_fts_query, project):
+            return f"No results for '{query}'."
 
         # Raw query found nothing - only now attempt fuzzy correction.
         corrected, corrections = fuzzy_correct(keywords, DB_PATH)
@@ -583,7 +604,7 @@ def explain_retrieval(
     """Explain step by step how memory retrieval handles one question, with the real numbers:
     search words, match strength vs the bar it must clear, whether meaning search ran and why,
     what was left out, and what would be added to Claude's context. It runs the same retrieve()
-    function as the live hook and writes nothing.
+    function as the live hook and writes nothing to the memory database.
     When the user asks how something was found, quote the WHAT HAPPENED summary and the numbered
     step headlines word for word; do not paraphrase the numbers.
     Args: question - the question to explain; project - project prefix (default: from the working
