@@ -29,10 +29,17 @@ Usage:
     python3 scripts/remember_baseline.py --limit 500        # most recent 500
     python3 scripts/remember_baseline.py --since 2026-10-27 --label before-fix
     python3 scripts/remember_baseline.py --json             # machine-readable
+    python3 scripts/remember_baseline.py --outputs replay.jsonl   # + per-prompt fingerprints
+    python3 scripts/remember_baseline.py --questions examples/eval/golden_set.yaml --outputs q.jsonl
+
+--outputs records, per prompt, the ids and a sha256 of the exact text the
+hook's keyword path would inject, plus the on_miss gate's decision: a "before"
+file that a refactor must reproduce byte for byte (same DB, same code path).
 """
 
 import argparse
 import bisect
+import hashlib
 import importlib.util
 import json
 import os
@@ -50,6 +57,7 @@ from datetime import datetime, timezone
 import yaml
 
 from config_utils import resolve_db_path
+import retrieval
 from metrics_utils import (
     CHARS_PER_TOKEN,
     ensure_metrics_schema,
@@ -61,8 +69,6 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOK_PATH = ROOT / "hooks" / "user-prompt-submit.py"
 RETRIEVAL_LOG = ROOT / "logs" / "retrieval.log"
 
-SHORT_PROMPT_CHARS = 15        # the live hook skips anything shorter
-SEMANTIC_CUTOFF = 0.35         # cosine cutoff hard-coded in the hook (recorded, not used)
 GENERIC_DOC_SHARE = 0.05       # a word in >5% of messages is "generic"
 OLD_MEMORY_DAYS = (30, 90)
 DEFAULT_PRICE_RATIOS = {"input": 1.0, "cache_write": 1.25, "cache_read": 0.1, "output": 5.0}
@@ -71,7 +77,9 @@ LOG_LINE = re.compile(r"^(\S+) \[[^\]]*\] (\w+) n=(\d+)")
 
 
 def load_hook():
-    """Import hooks/user-prompt-submit.py (hyphenated name, so by path)."""
+    """Import hooks/user-prompt-submit.py (hyphenated name, so by path). Retrieval
+    itself is scripts/retrieval.py; the hook is loaded only for the pieces that
+    live there (project detection, the /clear lookup)."""
     spec = importlib.util.spec_from_file_location("ups_hook", HOOK_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -124,12 +132,36 @@ def fetch_prompts(conn, since=None, limit=None):
     return conn.execute(sql + " ORDER BY timestamp", args).fetchall()
 
 
-def replay(hook, conn, snapshot_path, prompts, progress=None):
-    """Run each prompt through the hook's keyword path as of its own timestamp.
+def fetch_questions(golden_path, as_of=None):
+    """Golden-set questions as replay prompts: each is searched as of one fixed
+    time (the golden set's `as_of`, or the `as_of` argument) from its own
+    `project`, with no session excluded. Same tuple shape as fetch_prompts."""
+    data = yaml.safe_load(pathlib.Path(golden_path).read_text())
+    if isinstance(data, list):
+        data = {"questions": data}
+    when = as_of or data.get("as_of")
+    if not when:
+        raise SystemExit("Replaying questions needs a fixed time: add as_of to the golden set or pass --as-of.")
+    return [(q["id"], None, q.get("project"), when, q["question"]) for q in data["questions"]]
 
-    Returns one record per prompt. Mirrors the hook's order of checks (short
-    prompt, no keywords, keyword search) so the outcome names match
-    retrieval_events.
+
+OUTPUT_FIELDS = ("id", "ts", "project", "outcome", "result_ids", "output_sha256", "gate_fires", "gate_reason")
+
+
+def write_outputs(records, path):
+    """One JSON line per replayed prompt: what the hook's keyword path would
+    have injected (ids in order + a sha256 of the exact text) and the on_miss
+    gate's decision. No message text, so it is safe to keep next to results."""
+    with open(path, "w") as f:
+        for rec in records:
+            f.write(json.dumps({k: rec.get(k) for k in OUTPUT_FIELDS}) + "\n")
+
+
+def replay(conn, snapshot_path, prompts, progress=None):
+    """Run each prompt through retrieve() (keyword path, mode "off") as of its
+    own timestamp.
+
+    Returns one record per prompt. The outcome names match retrieval_events.
     """
     total_docs = conn.execute(
         "SELECT COUNT(*) FROM transcripts WHERE LENGTH(TRIM(content)) > 0").fetchone()[0]
@@ -146,41 +178,44 @@ def replay(hook, conn, snapshot_path, prompts, progress=None):
     for i, (row_id, session_id, project, ts, content) in enumerate(prompts, 1):
         prompt = content.strip()
         rec = {"id": row_id, "ts": ts, "project": project,
-               "kind": "system_generated" if is_system_generated_prompt(prompt) else "user"}
-        if len(prompt) < SHORT_PROMPT_CHARS:
-            rec["outcome"] = "skipped_short"
+               "kind": "system_generated" if is_system_generated_prompt(prompt) else "user",
+               "result_ids": [], "output_sha256": None}
+        trace = {}
+        result = retrieval.retrieve(conn, {}, prompt, project=project, exclude_session=session_id,
+                                    as_of=ts, mode="off", trace=trace)
+        if trace["skip"]:
+            rec["outcome"] = trace["skip"]
         else:
-            keywords = hook.build_search_keywords(prompt, snapshot_path)
-            if not keywords:
-                rec["outcome"] = "skipped_no_keywords"
+            keywords = trace["keywords"]["kept"]
+            rows = result.rows
+            rec["keyword_ms"] = trace["keyword"]["ms"]
+            # Would mode=on_miss load the meaning model for this prompt, and why?
+            rec["gate_fires"], rec["gate_reason"] = trace["gate"]["fires"], trace["gate"]["reason"]
+            rec["generic_keywords"] = sum(1 for kw in keywords if generic(kw))
+            rec["n_keywords"] = len(keywords)
+            if not rows:
+                rec["outcome"] = "no_keyword_hit"     # live hook would try semantic here
             else:
-                fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
-                started = time.perf_counter()
-                info = {}
-                rows = hook._keyword_search(conn, fts_query, project, as_of=ts, exclude_session=session_id,
-                                            info=info)
-                rec["keyword_ms"] = (time.perf_counter() - started) * 1000
-                # Would mode=on_miss load the meaning model for this prompt, and why?
-                rec["gate_fires"], rec["gate_reason"] = hook.should_use_semantic(
-                    prompt, keywords, rows, info, conn)
-                rec["generic_keywords"] = sum(1 for kw in keywords if generic(kw))
-                rec["n_keywords"] = len(keywords)
-                if not rows:
-                    rec["outcome"] = "no_keyword_hit"     # live hook would try semantic here
-                else:
-                    now = _parse_ts(ts)
-                    ranks = [r[3] for r in rows if r[3] is not None]
-                    coverages = [c for c in (hook._coverage(keywords, r[2]) for r in rows)
-                                 if c is not None]
-                    rec.update(
-                        outcome="keyword_hit",
-                        n_results=len(rows),
-                        ages=[a for a in (hook._age_days(r[1], now) for r in rows) if a is not None],
-                        same_project=sum(1 for r in rows if r[0] == project),
-                        top_rank=min(ranks) if ranks else None,
-                        best_coverage=max(coverages) if coverages else None,
-                        injected_chars=len(hook.format_memories(rows)),
-                    )
+                now = _parse_ts(ts)
+                ranks = [r[3] for r in rows if r[3] is not None]
+                coverages = [c for c in (retrieval._coverage(keywords, r[2]) for r in rows)
+                             if c is not None]
+                # What the hook's keyword path injects when the prompt's stored project
+                # label is used as the favored project, fingerprinted so a refactor can
+                # be proven to change nothing. Prompts stored under oth are replayed with
+                # oth favored; the live hook favors nobody in an unmapped folder.
+                injected = trace["injected_text"]
+                rec.update(
+                    result_ids=[r[4] for r in rows],
+                    output_sha256=hashlib.sha256(injected.encode("utf-8")).hexdigest(),
+                    outcome="keyword_hit",
+                    n_results=len(rows),
+                    ages=[a for a in (retrieval._age_days(r[1], now) for r in rows) if a is not None],
+                    same_project=sum(1 for r in rows if r[0] == project),
+                    top_rank=min(ranks) if ranks else None,
+                    best_coverage=max(coverages) if coverages else None,
+                    injected_chars=len(injected),
+                )
         records.append(rec)
         if progress and i % 500 == 0:
             progress(f"  ...replayed {i:,} of {len(prompts):,} prompts")
@@ -471,19 +506,26 @@ def render_report(result):
 # Main
 # ---------------------------------------------------------------------------
 
-def run_baseline(config, since=None, limit=None, progress=print):
+def run_baseline(config, since=None, limit=None, progress=print, questions=None, as_of=None,
+                 outputs=None):
+    """`questions` (a golden-set path) replays those questions instead of the
+    stored prompts; `outputs` writes the per-prompt record file (write_outputs)."""
     db_path = resolve_db_path(config)
-    hook = load_hook()
     tmpdir = tempfile.mkdtemp(prefix="remember_baseline_")
     try:
         snapshot = make_snapshot(db_path, tmpdir)
         conn = sqlite3.connect(snapshot)
         try:
-            prompts = fetch_prompts(conn, since=since, limit=limit)
+            if questions:
+                prompts = fetch_questions(questions, as_of=as_of)
+            else:
+                prompts = fetch_prompts(conn, since=since, limit=limit)
             if not prompts:
                 return None
             progress(f"Replaying {len(prompts):,} prompts...")
-            records = replay(hook, conn, snapshot, prompts, progress=progress)
+            records = replay(conn, snapshot, prompts, progress=progress)
+            if outputs:
+                write_outputs(records, outputs)
             summary = summarize_replay(records)
             live = read_live_log()
             window = None
@@ -494,12 +536,13 @@ def run_baseline(config, since=None, limit=None, progress=print):
                 "created_at": utc_now(),
                 "git_commit": git_stamp(),
                 "params": {
-                    "mode": hook.RETRIEVAL_MODE,
-                    "recency_scale_days": hook.RECENCY_SCALE_DAYS,
-                    "fts_rank_floor": hook.FTS_RANK_FLOOR,
-                    "max_results": hook.MAX_RESULTS,
-                    "semantic_cutoff": SEMANTIC_CUTOFF,
+                    "mode": retrieval.RETRIEVAL_MODE,
+                    "recency_scale_days": retrieval.RECENCY_SCALE_DAYS,
+                    "fts_rank_floor": retrieval.FTS_RANK_FLOOR,
+                    "max_results": retrieval.MAX_RESULTS,
+                    "semantic_cutoff": retrieval.SEMANTIC_CUTOFF,
                     "since": since, "limit": limit,
+                    "replayed": "golden questions" if questions else "stored prompts",
                 },
                 "replay": summary,
                 "replay_same_window": window,
@@ -543,6 +586,11 @@ def main():
     parser.add_argument("--label", default="baseline", help="name for the saved snapshot")
     parser.add_argument("--no-save", action="store_true", help="print only; don't save to metrics_snapshots")
     parser.add_argument("--json", action="store_true", help="print the full result as JSON")
+    parser.add_argument("--outputs", help="write one JSON line per prompt (result ids, sha256 of the "
+                                          "injected text, gate decision) to this file")
+    parser.add_argument("--questions", help="replay this golden set's questions (each from its own "
+                                            "project, at its fixed as_of) instead of stored prompts")
+    parser.add_argument("--as-of", help="fixed time for --questions when the golden set has no as_of")
     args = parser.parse_args()
 
     with open(ROOT / "config.yaml") as f:
@@ -552,7 +600,8 @@ def main():
         sys.exit(2)
 
     result = run_baseline(config, since=args.since, limit=args.limit,
-                          progress=lambda m: print(m, file=sys.stderr))
+                          progress=lambda m: print(m, file=sys.stderr),
+                          questions=args.questions, as_of=args.as_of, outputs=args.outputs)
     if result is None:
         print("No prompts found to replay.")
         sys.exit(1)

@@ -1,0 +1,9335 @@
+{
+  "dataset": {
+    "role": "illustration",
+    "questions": 26,
+    "answerable": 20,
+    "no_answer": 6,
+    "skipped": 0,
+    "as_of": "2026-06-01T00:00:00Z",
+    "default_project": null
+  },
+  "checks": {
+    "G1": {
+      "passed": true,
+      "failed_ids": [],
+      "compared_to": [
+        "same_run",
+        "saved"
+      ],
+      "saved_matches": true,
+      "saved_mismatch_tolerated": false
+    },
+    "G2": {
+      "passed": true,
+      "failed_ids": [],
+      "skipped_check": false
+    },
+    "G3": {
+      "passed": true,
+      "failed_ids": []
+    },
+    "rows_hidden_by_as_of": 0,
+    "keyword_self_check": "passed"
+  },
+  "pool": {
+    "project_matched": {
+      "min": 0,
+      "median": 2.0,
+      "max": 6
+    },
+    "global_matched": {
+      "min": 0,
+      "median": 2.0,
+      "max": 15
+    },
+    "project_returned": {
+      "min": 0,
+      "median": 2.0,
+      "max": 3
+    },
+    "global_returned": {
+      "min": 0,
+      "median": 2.0,
+      "max": 7
+    },
+    "duplicates": {
+      "min": 0,
+      "median": 2.0,
+      "max": 3
+    },
+    "below_floor": {
+      "min": 0,
+      "median": 0.0,
+      "max": 2
+    },
+    "survivors": {
+      "min": 0,
+      "median": 2.0,
+      "max": 7
+    },
+    "leak_removed": {
+      "min": 0,
+      "median": 0.0,
+      "max": 0
+    },
+    "after_leak": {
+      "min": 0,
+      "median": 2.0,
+      "max": 7
+    },
+    "scored": {
+      "min": 30,
+      "median": 30.0,
+      "max": 30
+    },
+    "above_cutoff": {
+      "min": 0,
+      "median": 1.0,
+      "max": 6
+    },
+    "kept": {
+      "min": 0,
+      "median": 1.0,
+      "max": 4
+    },
+    "dropped": {
+      "min": 26,
+      "median": 29.0,
+      "max": 30
+    },
+    "union": {
+      "min": 0,
+      "median": 2.0,
+      "max": 9
+    },
+    "more_than_5": 3,
+    "more_than_10": 0,
+    "more_than_15": 0,
+    "project_cut_by_limit": 8,
+    "global_cut_by_limit": 2,
+    "tail_above_cutoff": 0
+  },
+  "first_expected_row": {
+    "where": {
+      "keyword_list": {
+        "1": 11,
+        "2": 2,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6-10": 0,
+        "11+": 0,
+        "none": 7
+      },
+      "meaning_list": {
+        "1": 13,
+        "2": 3,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6-10": 0,
+        "11+": 0,
+        "none": 4
+      },
+      "rrf_list": {
+        "1": 13,
+        "2": 3,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6-10": 0,
+        "11+": 0,
+        "none": 4
+      }
+    }
+  },
+  "pool_rows": {
+    "q01": [
+      {
+        "id": 41,
+        "bm25": -8.393817680336209,
+        "adjusted_rank": -5.496530957185213,
+        "cosine": 0.8337604999542236,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 31
+      },
+      {
+        "id": 42,
+        "bm25": -5.547368078758713,
+        "adjusted_rank": -3.6325969318998856,
+        "cosine": 0.6600675582885742,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 44
+      },
+      {
+        "id": 36,
+        "bm25": -3.6374721482173573,
+        "adjusted_rank": -2.126419604917654,
+        "cosine": null,
+        "rrf_position": 3,
+        "source": "keyword",
+        "tokens": 73
+      },
+      {
+        "id": 18,
+        "bm25": -2.9360275541878376,
+        "adjusted_rank": -2.7743788158747686,
+        "cosine": null,
+        "rrf_position": 4,
+        "source": "keyword",
+        "tokens": 30
+      }
+    ],
+    "q02": [
+      {
+        "id": 44,
+        "bm25": -15.481740580621663,
+        "adjusted_rank": -11.13292943096476,
+        "cosine": 0.7303653359413147,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 41
+      },
+      {
+        "id": 43,
+        "bm25": -3.6980074432017185,
+        "adjusted_rank": -2.6592322118807568,
+        "cosine": 0.3675689399242401,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 25
+      },
+      {
+        "id": 49,
+        "bm25": null,
+        "adjusted_rank": null,
+        "cosine": 0.35452964901924133,
+        "rrf_position": 3,
+        "source": "meaning",
+        "tokens": 46
+      }
+    ],
+    "q03": [
+      {
+        "id": 6,
+        "bm25": -21.67443681287033,
+        "adjusted_rank": -14.503931500041563,
+        "cosine": 0.7323776483535767,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 39
+      }
+    ],
+    "q04": [
+      {
+        "id": 8,
+        "bm25": -14.7234313755421,
+        "adjusted_rank": -11.552478295701434,
+        "cosine": 0.7900300025939941,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 36
+      },
+      {
+        "id": 39,
+        "bm25": -3.149967689827094,
+        "adjusted_rank": -2.6398523797933886,
+        "cosine": null,
+        "rrf_position": 2,
+        "source": "keyword",
+        "tokens": 30
+      }
+    ],
+    "q05": [
+      {
+        "id": 10,
+        "bm25": -15.658186885933377,
+        "adjusted_rank": -12.628073840597596,
+        "cosine": 0.7990118265151978,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 34
+      },
+      {
+        "id": 14,
+        "bm25": -5.039573298515249,
+        "adjusted_rank": -4.075239510656757,
+        "cosine": 0.3622955083847046,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 35
+      },
+      {
+        "id": 9,
+        "bm25": -3.488940133171897,
+        "adjusted_rank": -2.813765012574647,
+        "cosine": 0.5244742035865784,
+        "rrf_position": 3,
+        "source": "both",
+        "tokens": 21
+      },
+      {
+        "id": 12,
+        "bm25": -4.062531518909503,
+        "adjusted_rank": -3.285136675916469,
+        "cosine": null,
+        "rrf_position": 4,
+        "source": "keyword",
+        "tokens": 39
+      },
+      {
+        "id": 13,
+        "bm25": -3.1049737447821695,
+        "adjusted_rank": -2.5108222461406395,
+        "cosine": null,
+        "rrf_position": 5,
+        "source": "keyword",
+        "tokens": 15
+      },
+      {
+        "id": 23,
+        "bm25": -2.1822896878982028,
+        "adjusted_rank": -2.0200976751660713,
+        "cosine": null,
+        "rrf_position": 6,
+        "source": "keyword",
+        "tokens": 19
+      },
+      {
+        "id": 51,
+        "bm25": -2.219416599171233,
+        "adjusted_rank": -1.9091193276321214,
+        "cosine": null,
+        "rrf_position": 7,
+        "source": "keyword",
+        "tokens": 24
+      }
+    ],
+    "q06": [
+      {
+        "id": 20,
+        "bm25": -9.247431939382947,
+        "adjusted_rank": -5.7181901926118375,
+        "cosine": 0.723039448261261,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 41
+      },
+      {
+        "id": 19,
+        "bm25": -3.081313457436304,
+        "adjusted_rank": -1.9053392390923785,
+        "cosine": 0.3580484688282013,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 23
+      }
+    ],
+    "q07": [
+      {
+        "id": 26,
+        "bm25": -6.656629716110021,
+        "adjusted_rank": -4.962321651250574,
+        "cosine": 0.6032117605209351,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 51
+      },
+      {
+        "id": 25,
+        "bm25": -2.851197439358031,
+        "adjusted_rank": -2.1254777949771384,
+        "cosine": 0.6873096227645874,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 29
+      },
+      {
+        "id": 28,
+        "bm25": -5.06990863757794,
+        "adjusted_rank": -4.421578679987929,
+        "cosine": null,
+        "rrf_position": 3,
+        "source": "keyword",
+        "tokens": 36
+      },
+      {
+        "id": 40,
+        "bm25": -2.4858096432952204,
+        "adjusted_rank": -2.0832567426904456,
+        "cosine": null,
+        "rrf_position": 4,
+        "source": "keyword",
+        "tokens": 37
+      },
+      {
+        "id": 38,
+        "bm25": -2.4858096432952204,
+        "adjusted_rank": -1.4982278111272047,
+        "cosine": null,
+        "rrf_position": 5,
+        "source": "keyword",
+        "tokens": 39
+      }
+    ],
+    "q08": [
+      {
+        "id": 28,
+        "bm25": -11.391161974131114,
+        "adjusted_rank": -9.934482556902497,
+        "cosine": 0.7636966109275818,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 36
+      },
+      {
+        "id": 34,
+        "bm25": -3.790064586949915,
+        "adjusted_rank": -3.6736281867168183,
+        "cosine": null,
+        "rrf_position": 2,
+        "source": "keyword",
+        "tokens": 23
+      },
+      {
+        "id": 27,
+        "bm25": -4.031193060809103,
+        "adjusted_rank": -3.5156803437391346,
+        "cosine": null,
+        "rrf_position": 3,
+        "source": "keyword",
+        "tokens": 15
+      },
+      {
+        "id": 25,
+        "bm25": -2.851197439358031,
+        "adjusted_rank": -2.1254777949771384,
+        "cosine": null,
+        "rrf_position": 4,
+        "source": "keyword",
+        "tokens": 29
+      },
+      {
+        "id": 26,
+        "bm25": -2.039046397618478,
+        "adjusted_rank": -1.5200491116876513,
+        "cosine": null,
+        "rrf_position": 5,
+        "source": "keyword",
+        "tokens": 51
+      }
+    ],
+    "q09": [
+      {
+        "id": 16,
+        "bm25": -4.095955213452709,
+        "adjusted_rank": -3.870416556143782,
+        "cosine": null,
+        "rrf_position": 1,
+        "source": "keyword",
+        "tokens": 24
+      }
+    ],
+    "q10": [
+      {
+        "id": 41,
+        "bm25": null,
+        "adjusted_rank": null,
+        "cosine": 0.4080633521080017,
+        "rrf_position": 1,
+        "source": "meaning",
+        "tokens": 31
+      },
+      {
+        "id": 49,
+        "bm25": null,
+        "adjusted_rank": null,
+        "cosine": 0.36970072984695435,
+        "rrf_position": 2,
+        "source": "meaning",
+        "tokens": 46
+      }
+    ],
+    "q11": [
+      {
+        "id": 21,
+        "bm25": -4.455556749022892,
+        "adjusted_rank": -3.0312734639205137,
+        "cosine": null,
+        "rrf_position": 1,
+        "source": "keyword",
+        "tokens": 20
+      },
+      {
+        "id": 44,
+        "bm25": null,
+        "adjusted_rank": null,
+        "cosine": 0.37901628017425537,
+        "rrf_position": 2,
+        "source": "meaning",
+        "tokens": 41
+      }
+    ],
+    "q12": [],
+    "q13": [
+      {
+        "id": 18,
+        "bm25": -3.4468454339694965,
+        "adjusted_rank": -3.2570726183954077,
+        "cosine": null,
+        "rrf_position": 1,
+        "source": "keyword",
+        "tokens": 30
+      },
+      {
+        "id": 3,
+        "bm25": null,
+        "adjusted_rank": null,
+        "cosine": 0.37359097599983215,
+        "rrf_position": 2,
+        "source": "meaning",
+        "tokens": 25
+      }
+    ],
+    "q14": [
+      {
+        "id": 20,
+        "bm25": null,
+        "adjusted_rank": null,
+        "cosine": 0.40565454959869385,
+        "rrf_position": 1,
+        "source": "meaning",
+        "tokens": 41
+      }
+    ],
+    "q15": [
+      {
+        "id": 33,
+        "bm25": -4.160519077546393,
+        "adjusted_rank": -4.032686892766369,
+        "cosine": null,
+        "rrf_position": 1,
+        "source": "keyword",
+        "tokens": 15
+      },
+      {
+        "id": 24,
+        "bm25": -2.8710291762287756,
+        "adjusted_rank": -2.6576580668227865,
+        "cosine": null,
+        "rrf_position": 2,
+        "source": "keyword",
+        "tokens": 32
+      },
+      {
+        "id": 21,
+        "bm25": -3.7952492024899325,
+        "adjusted_rank": -2.582042793865471,
+        "cosine": null,
+        "rrf_position": 3,
+        "source": "keyword",
+        "tokens": 20
+      },
+      {
+        "id": 36,
+        "bm25": -4.017861608561519,
+        "adjusted_rank": -2.3487904088772886,
+        "cosine": null,
+        "rrf_position": 4,
+        "source": "keyword",
+        "tokens": 73
+      },
+      {
+        "id": 28,
+        "bm25": -2.692226026472612,
+        "adjusted_rank": -2.3479494506328606,
+        "cosine": null,
+        "rrf_position": 5,
+        "source": "keyword",
+        "tokens": 36
+      },
+      {
+        "id": 22,
+        "bm25": -3.397536709921315,
+        "adjusted_rank": -2.3114708471527616,
+        "cosine": null,
+        "rrf_position": 6,
+        "source": "keyword",
+        "tokens": 21
+      },
+      {
+        "id": 35,
+        "bm25": -2.8634120556875966,
+        "adjusted_rank": -1.6739102705927504,
+        "cosine": null,
+        "rrf_position": 7,
+        "source": "keyword",
+        "tokens": 45
+      }
+    ],
+    "q16": [
+      {
+        "id": 38,
+        "bm25": -19.23455199976462,
+        "adjusted_rank": -11.592899246467876,
+        "cosine": 0.7854267358779907,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 39
+      },
+      {
+        "id": 40,
+        "bm25": -9.141179899811508,
+        "adjusted_rank": -7.66085396514292,
+        "cosine": 0.6105951070785522,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 37
+      },
+      {
+        "id": 43,
+        "bm25": -2.5016383497242916,
+        "adjusted_rank": -1.7989247951062541,
+        "cosine": null,
+        "rrf_position": 3,
+        "source": "keyword",
+        "tokens": 25
+      },
+      {
+        "id": 49,
+        "bm25": -2.329327012118125,
+        "adjusted_rank": -1.7951581640551533,
+        "cosine": null,
+        "rrf_position": 4,
+        "source": "keyword",
+        "tokens": 46
+      }
+    ],
+    "q17": [
+      {
+        "id": 2,
+        "bm25": -17.908925254306556,
+        "adjusted_rank": -10.745379685414266,
+        "cosine": 0.7942882180213928,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 42
+      },
+      {
+        "id": 4,
+        "bm25": -5.498600087742665,
+        "adjusted_rank": -4.875663566641662,
+        "cosine": 0.5904701352119446,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 36
+      }
+    ],
+    "q18": [
+      {
+        "id": 24,
+        "bm25": -8.613087528686327,
+        "adjusted_rank": -7.97297420046836,
+        "cosine": 0.4548359513282776,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 32
+      },
+      {
+        "id": 22,
+        "bm25": -10.192610129763946,
+        "adjusted_rank": -6.9344125414582845,
+        "cosine": 0.8022981286048889,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 21
+      },
+      {
+        "id": 21,
+        "bm25": null,
+        "adjusted_rank": null,
+        "cosine": 0.36965152621269226,
+        "rrf_position": 3,
+        "source": "meaning",
+        "tokens": 20
+      }
+    ],
+    "q19": [
+      {
+        "id": 48,
+        "bm25": -6.641262026307945,
+        "adjusted_rank": -5.118251203852575,
+        "cosine": 0.7768393158912659,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 26
+      },
+      {
+        "id": 49,
+        "bm25": -5.2749469394275685,
+        "adjusted_rank": -4.0652789470982755,
+        "cosine": 0.7977891564369202,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 46
+      },
+      {
+        "id": 35,
+        "bm25": -2.439058221653586,
+        "adjusted_rank": -1.425839008985811,
+        "cosine": 0.37254753708839417,
+        "rrf_position": 3,
+        "source": "both",
+        "tokens": 45
+      },
+      {
+        "id": 36,
+        "bm25": -2.169704452130991,
+        "adjusted_rank": -1.2683814187139626,
+        "cosine": null,
+        "rrf_position": 4,
+        "source": "keyword",
+        "tokens": 73
+      }
+    ],
+    "q20": [
+      {
+        "id": 14,
+        "bm25": -10.079146597030498,
+        "adjusted_rank": -8.150479021313513,
+        "cosine": 0.6982493996620178,
+        "rrf_position": 1,
+        "source": "both",
+        "tokens": 35
+      },
+      {
+        "id": 10,
+        "bm25": -2.8710291762287756,
+        "adjusted_rank": -2.315438479566077,
+        "cosine": 0.49058741331100464,
+        "rrf_position": 2,
+        "source": "both",
+        "tokens": 34
+      },
+      {
+        "id": 12,
+        "bm25": -10.779561054800407,
+        "adjusted_rank": -8.716813938938078,
+        "cosine": null,
+        "rrf_position": 3,
+        "source": "keyword",
+        "tokens": 39
+      },
+      {
+        "id": 13,
+        "bm25": -6.5578567922722035,
+        "adjusted_rank": -5.302979694662987,
+        "cosine": null,
+        "rrf_position": 4,
+        "source": "keyword",
+        "tokens": 15
+      },
+      {
+        "id": 4,
+        "bm25": null,
+        "adjusted_rank": null,
+        "cosine": 0.3780384063720703,
+        "rrf_position": 5,
+        "source": "meaning",
+        "tokens": 36
+      },
+      {
+        "id": 21,
+        "bm25": -4.455556749022892,
+        "adjusted_rank": -3.0312734639205137,
+        "cosine": null,
+        "rrf_position": 6,
+        "source": "keyword",
+        "tokens": 20
+      },
+      {
+        "id": 9,
+        "bm25": null,
+        "adjusted_rank": null,
+        "cosine": 0.35541683435440063,
+        "rrf_position": 7,
+        "source": "meaning",
+        "tokens": 21
+      },
+      {
+        "id": 3,
+        "bm25": -3.081313457436304,
+        "adjusted_rank": -2.7322221714342714,
+        "cosine": null,
+        "rrf_position": 8,
+        "source": "keyword",
+        "tokens": 25
+      },
+      {
+        "id": 24,
+        "bm25": -2.2801112257838723,
+        "adjusted_rank": -2.1106563606634814,
+        "cosine": null,
+        "rrf_position": 9,
+        "source": "keyword",
+        "tokens": 32
+      }
+    ],
+    "n01": [],
+    "n02": [],
+    "n03": [],
+    "n04": [],
+    "n05": [],
+    "n06": []
+  },
+  "baselines": {
+    "k5_today": {
+      "questions": 20,
+      "found": 16,
+      "first_hit": {
+        "1": 13,
+        "2": 3,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6-10": 0,
+        "11+": 0,
+        "none": 4
+      },
+      "junk_total": 24,
+      "junk_per_question": 1.2,
+      "neutral_total": 9,
+      "tokens_mean": 90.6,
+      "tokens_max": 198,
+      "rows_max": 5
+    },
+    "k5_filter_then_cap": {
+      "questions": 20,
+      "found": 16,
+      "first_hit": {
+        "1": 13,
+        "2": 3,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6-10": 0,
+        "11+": 0,
+        "none": 4
+      },
+      "junk_total": 24,
+      "junk_per_question": 1.2,
+      "neutral_total": 9,
+      "tokens_mean": 90.6,
+      "tokens_max": 198,
+      "rows_max": 5
+    },
+    "questions_that_differ": [],
+    "gained_ids": [],
+    "lost_ids": []
+  },
+  "policies": {
+    "F1": {
+      "label": "Inject at most 1, gates still see 5",
+      "kind": "fixed",
+      "overall": {
+        "questions": 20,
+        "found": 13,
+        "first_hit": {
+          "1": 13,
+          "2": 0,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 7
+        },
+        "junk_total": 4,
+        "junk_per_question": 0.2,
+        "neutral_total": 0,
+        "tokens_mean": 34.8,
+        "tokens_max": 56,
+        "rows_max": 1
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 1,
+        "rows_max": 1,
+        "tokens_total": 50,
+        "tokens_max": 50,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 3,
+      "gained_vs_baseline": 0,
+      "lost_ids": [
+        "q11",
+        "q16",
+        "q17"
+      ],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 36,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            41
+          ],
+          "keyword_ids": [
+            41
+          ],
+          "always_ids": [
+            41
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            44
+          ],
+          "keyword_ids": [
+            44
+          ],
+          "always_ids": [
+            44
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 42,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            8
+          ],
+          "keyword_ids": [
+            8
+          ],
+          "always_ids": [
+            8
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 39,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            10
+          ],
+          "keyword_ids": [
+            10
+          ],
+          "always_ids": [
+            10
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [
+            20
+          ],
+          "always_ids": [
+            20
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 56,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            26
+          ],
+          "keyword_ids": [
+            26
+          ],
+          "always_ids": [
+            26
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 41,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            28
+          ],
+          "keyword_ids": [
+            28
+          ],
+          "always_ids": [
+            28
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 36,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            41
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41
+          ]
+        },
+        "q11": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 25,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 44,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            38
+          ],
+          "keyword_ids": [
+            38
+          ],
+          "always_ids": [
+            38
+          ]
+        },
+        "q17": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 47,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2
+          ],
+          "keyword_ids": [
+            2
+          ],
+          "always_ids": [
+            2
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 38,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            24
+          ],
+          "keyword_ids": [
+            24
+          ],
+          "always_ids": [
+            24
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 32,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            48
+          ],
+          "keyword_ids": [
+            48
+          ],
+          "always_ids": [
+            48
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 44,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            12
+          ],
+          "keyword_ids": [
+            12
+          ],
+          "always_ids": [
+            12
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 50,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            35
+          ],
+          "keyword_ids": [
+            35
+          ],
+          "always_ids": [
+            35
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "F2": {
+      "label": "Inject at most 2, gates still see 5",
+      "kind": "fixed",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 10,
+        "junk_per_question": 0.5,
+        "neutral_total": 5,
+        "tokens_mean": 59.1,
+        "tokens_max": 92,
+        "rows_max": 2
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 81,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            41,
+            42
+          ],
+          "keyword_ids": [
+            41,
+            42
+          ],
+          "always_ids": [
+            41,
+            42
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 75,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            10,
+            14
+          ],
+          "keyword_ids": [
+            10,
+            14
+          ],
+          "always_ids": [
+            10,
+            14
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 92,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            26,
+            28
+          ],
+          "keyword_ids": [
+            26,
+            28
+          ],
+          "always_ids": [
+            26,
+            25
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 65,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            28,
+            34
+          ],
+          "keyword_ids": [
+            28,
+            34
+          ],
+          "always_ids": [
+            28,
+            34
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 82,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            38,
+            40
+          ],
+          "keyword_ids": [
+            38,
+            40
+          ],
+          "always_ids": [
+            38,
+            40
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 79,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            48,
+            49
+          ],
+          "keyword_ids": [
+            48,
+            49
+          ],
+          "always_ids": [
+            48,
+            49
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 80,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            12,
+            14
+          ],
+          "keyword_ids": [
+            12,
+            14
+          ],
+          "always_ids": [
+            14,
+            12
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "F3": {
+      "label": "Inject at most 3, gates still see 5",
+      "kind": "fixed",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 14,
+        "junk_per_question": 0.7,
+        "neutral_total": 8,
+        "tokens_mean": 71.2,
+        "tokens_max": 154,
+        "rows_max": 3
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 154,
+          "junk": 1,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            36
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            36
+          ],
+          "always_ids": [
+            41,
+            42,
+            36
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43,
+            49
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 114,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            10,
+            14,
+            12
+          ],
+          "keyword_ids": [
+            10,
+            14,
+            12
+          ],
+          "always_ids": [
+            10,
+            14,
+            9
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 121,
+          "junk": 1,
+          "neutral": 1,
+          "ids": [
+            26,
+            28,
+            25
+          ],
+          "keyword_ids": [
+            26,
+            28,
+            25
+          ],
+          "always_ids": [
+            26,
+            25,
+            28
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 80,
+          "junk": 1,
+          "neutral": 1,
+          "ids": [
+            28,
+            34,
+            27
+          ],
+          "keyword_ids": [
+            28,
+            34,
+            27
+          ],
+          "always_ids": [
+            28,
+            34,
+            27
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 3,
+          "tokens": 107,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            38,
+            40,
+            43
+          ],
+          "keyword_ids": [
+            38,
+            40,
+            43
+          ],
+          "always_ids": [
+            38,
+            40,
+            43
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22,
+            21
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 124,
+          "junk": 1,
+          "neutral": 1,
+          "ids": [
+            48,
+            49,
+            35
+          ],
+          "keyword_ids": [
+            48,
+            49,
+            35
+          ],
+          "always_ids": [
+            48,
+            49,
+            35
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 95,
+          "junk": 0,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13
+          ],
+          "always_ids": [
+            14,
+            12,
+            10
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "F4": {
+      "label": "Inject at most 5, gates still see 5",
+      "kind": "fixed",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 24,
+        "junk_per_question": 1.2,
+        "neutral_total": 9,
+        "tokens_mean": 90.6,
+        "tokens_max": 198,
+        "rows_max": 5
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 185,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            36,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43,
+            49
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 150,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            10,
+            14,
+            12,
+            9,
+            13
+          ],
+          "keyword_ids": [
+            10,
+            14,
+            12,
+            9,
+            13
+          ],
+          "always_ids": [
+            10,
+            14,
+            9,
+            12,
+            13
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 198,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "keyword_ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "always_ids": [
+            26,
+            25,
+            28,
+            40,
+            38
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 160,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "keyword_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "always_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 4,
+          "tokens": 154,
+          "junk": 3,
+          "neutral": 0,
+          "ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "keyword_ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "always_ids": [
+            38,
+            40,
+            43,
+            49
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22,
+            21
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 197,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "keyword_ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "always_ids": [
+            48,
+            49,
+            35,
+            36
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 140,
+          "junk": 2,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13,
+            21,
+            3
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13,
+            21,
+            3
+          ],
+          "always_ids": [
+            14,
+            12,
+            10,
+            13,
+            4
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "F5": {
+      "label": "Inject at most 10, gates still see 5",
+      "kind": "fixed",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 28,
+        "junk_per_question": 1.4,
+        "neutral_total": 9,
+        "tokens_mean": 96.2,
+        "tokens_max": 207,
+        "rows_max": 7
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 185,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            36,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43,
+            49
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 194,
+          "junk": 5,
+          "neutral": 1,
+          "ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "keyword_ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "always_ids": [
+            10,
+            14,
+            9,
+            12,
+            13,
+            23,
+            51
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 198,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "keyword_ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "always_ids": [
+            26,
+            25,
+            28,
+            40,
+            38
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 160,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "keyword_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "always_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 4,
+          "tokens": 154,
+          "junk": 3,
+          "neutral": 0,
+          "ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "keyword_ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "always_ids": [
+            38,
+            40,
+            43,
+            49
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22,
+            21
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 197,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "keyword_ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "always_ids": [
+            48,
+            49,
+            35,
+            36
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 207,
+          "junk": 4,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "always_ids": [
+            14,
+            10,
+            12,
+            13,
+            4,
+            21,
+            9,
+            3,
+            24
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "F6": {
+      "label": "Inject at most 15, gates still see 5",
+      "kind": "fixed",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 28,
+        "junk_per_question": 1.4,
+        "neutral_total": 9,
+        "tokens_mean": 96.2,
+        "tokens_max": 207,
+        "rows_max": 7
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 185,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            36,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43,
+            49
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 194,
+          "junk": 5,
+          "neutral": 1,
+          "ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "keyword_ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "always_ids": [
+            10,
+            14,
+            9,
+            12,
+            13,
+            23,
+            51
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 198,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "keyword_ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "always_ids": [
+            26,
+            25,
+            28,
+            40,
+            38
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 160,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "keyword_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "always_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 4,
+          "tokens": 154,
+          "junk": 3,
+          "neutral": 0,
+          "ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "keyword_ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "always_ids": [
+            38,
+            40,
+            43,
+            49
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22,
+            21
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 197,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "keyword_ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "always_ids": [
+            48,
+            49,
+            35,
+            36
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 207,
+          "junk": 4,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "always_ids": [
+            14,
+            10,
+            12,
+            13,
+            4,
+            21,
+            9,
+            3,
+            24
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "S1": {
+      "label": "Score margin loose (rho 0.5, delta 0.10), ceiling 5",
+      "kind": "score",
+      "overall": {
+        "questions": 20,
+        "found": 15,
+        "first_hit": {
+          "1": 13,
+          "2": 2,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 5
+        },
+        "junk_total": 8,
+        "junk_per_question": 0.4,
+        "neutral_total": 4,
+        "tokens_mean": 52.7,
+        "tokens_max": 112,
+        "rows_max": 3
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 1,
+      "gained_vs_baseline": 0,
+      "lost_ids": [
+        "q17"
+      ],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 112,
+          "junk": 1,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            44
+          ],
+          "keyword_ids": [
+            44
+          ],
+          "always_ids": [
+            44
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 42,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            8
+          ],
+          "keyword_ids": [
+            8
+          ],
+          "always_ids": [
+            8
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 39,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            10
+          ],
+          "keyword_ids": [
+            10
+          ],
+          "always_ids": [
+            10
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [
+            20
+          ],
+          "always_ids": [
+            20
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 92,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            26,
+            28
+          ],
+          "keyword_ids": [
+            26,
+            28
+          ],
+          "always_ids": [
+            26,
+            25,
+            28
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 41,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            28
+          ],
+          "keyword_ids": [
+            28
+          ],
+          "always_ids": [
+            28
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 82,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            38,
+            40
+          ],
+          "keyword_ids": [
+            38,
+            40
+          ],
+          "always_ids": [
+            38,
+            40
+          ]
+        },
+        "q17": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 47,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2
+          ],
+          "keyword_ids": [
+            2
+          ],
+          "always_ids": [
+            2
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            22,
+            24
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 79,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            48,
+            49
+          ],
+          "keyword_ids": [
+            48,
+            49
+          ],
+          "always_ids": [
+            48,
+            49
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 95,
+          "junk": 0,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13
+          ],
+          "always_ids": [
+            14,
+            12,
+            13
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "S2": {
+      "label": "Score margin loose (rho 0.5, delta 0.10), ceiling 10",
+      "kind": "score",
+      "overall": {
+        "questions": 20,
+        "found": 15,
+        "first_hit": {
+          "1": 13,
+          "2": 2,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 5
+        },
+        "junk_total": 8,
+        "junk_per_question": 0.4,
+        "neutral_total": 4,
+        "tokens_mean": 52.7,
+        "tokens_max": 112,
+        "rows_max": 3
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 1,
+      "gained_vs_baseline": 0,
+      "lost_ids": [
+        "q17"
+      ],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 112,
+          "junk": 1,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            44
+          ],
+          "keyword_ids": [
+            44
+          ],
+          "always_ids": [
+            44
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 42,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            8
+          ],
+          "keyword_ids": [
+            8
+          ],
+          "always_ids": [
+            8
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 39,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            10
+          ],
+          "keyword_ids": [
+            10
+          ],
+          "always_ids": [
+            10
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [
+            20
+          ],
+          "always_ids": [
+            20
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 92,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            26,
+            28
+          ],
+          "keyword_ids": [
+            26,
+            28
+          ],
+          "always_ids": [
+            26,
+            25,
+            28
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 41,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            28
+          ],
+          "keyword_ids": [
+            28
+          ],
+          "always_ids": [
+            28
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 82,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            38,
+            40
+          ],
+          "keyword_ids": [
+            38,
+            40
+          ],
+          "always_ids": [
+            38,
+            40
+          ]
+        },
+        "q17": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 47,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2
+          ],
+          "keyword_ids": [
+            2
+          ],
+          "always_ids": [
+            2
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            22,
+            24
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 79,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            48,
+            49
+          ],
+          "keyword_ids": [
+            48,
+            49
+          ],
+          "always_ids": [
+            48,
+            49
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 95,
+          "junk": 0,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13
+          ],
+          "always_ids": [
+            14,
+            12,
+            13
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "S3": {
+      "label": "Score margin tight (rho 0.75, delta 0.05), ceiling 5",
+      "kind": "score",
+      "overall": {
+        "questions": 20,
+        "found": 14,
+        "first_hit": {
+          "1": 13,
+          "2": 1,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 6
+        },
+        "junk_total": 7,
+        "junk_per_question": 0.35,
+        "neutral_total": 2,
+        "tokens_mean": 46.2,
+        "tokens_max": 92,
+        "rows_max": 2
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 1,
+        "rows_max": 1,
+        "tokens_total": 50,
+        "tokens_max": 50,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 2,
+      "gained_vs_baseline": 0,
+      "lost_ids": [
+        "q16",
+        "q17"
+      ],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 36,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            41
+          ],
+          "keyword_ids": [
+            41
+          ],
+          "always_ids": [
+            41
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            44
+          ],
+          "keyword_ids": [
+            44
+          ],
+          "always_ids": [
+            44
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 42,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            8
+          ],
+          "keyword_ids": [
+            8
+          ],
+          "always_ids": [
+            8
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 39,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            10
+          ],
+          "keyword_ids": [
+            10
+          ],
+          "always_ids": [
+            10
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [
+            20
+          ],
+          "always_ids": [
+            20
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 92,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            26,
+            28
+          ],
+          "keyword_ids": [
+            26,
+            28
+          ],
+          "always_ids": [
+            26,
+            25,
+            28
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 41,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            28
+          ],
+          "keyword_ids": [
+            28
+          ],
+          "always_ids": [
+            28
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 44,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            38
+          ],
+          "keyword_ids": [
+            38
+          ],
+          "always_ids": [
+            38
+          ]
+        },
+        "q17": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 47,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2
+          ],
+          "keyword_ids": [
+            2
+          ],
+          "always_ids": [
+            2
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            22,
+            24
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 79,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            48,
+            49
+          ],
+          "keyword_ids": [
+            48,
+            49
+          ],
+          "always_ids": [
+            48,
+            49
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 80,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            12,
+            14
+          ],
+          "keyword_ids": [
+            12,
+            14
+          ],
+          "always_ids": [
+            14,
+            12
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 50,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            35
+          ],
+          "keyword_ids": [
+            35
+          ],
+          "always_ids": [
+            35
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "S4": {
+      "label": "Score margin tight (rho 0.75, delta 0.05), ceiling 10",
+      "kind": "score",
+      "overall": {
+        "questions": 20,
+        "found": 14,
+        "first_hit": {
+          "1": 13,
+          "2": 1,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 6
+        },
+        "junk_total": 7,
+        "junk_per_question": 0.35,
+        "neutral_total": 2,
+        "tokens_mean": 46.2,
+        "tokens_max": 92,
+        "rows_max": 2
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 1,
+        "rows_max": 1,
+        "tokens_total": 50,
+        "tokens_max": 50,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 2,
+      "gained_vs_baseline": 0,
+      "lost_ids": [
+        "q16",
+        "q17"
+      ],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 36,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            41
+          ],
+          "keyword_ids": [
+            41
+          ],
+          "always_ids": [
+            41
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            44
+          ],
+          "keyword_ids": [
+            44
+          ],
+          "always_ids": [
+            44
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 42,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            8
+          ],
+          "keyword_ids": [
+            8
+          ],
+          "always_ids": [
+            8
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 39,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            10
+          ],
+          "keyword_ids": [
+            10
+          ],
+          "always_ids": [
+            10
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [
+            20
+          ],
+          "always_ids": [
+            20
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 92,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            26,
+            28
+          ],
+          "keyword_ids": [
+            26,
+            28
+          ],
+          "always_ids": [
+            26,
+            25,
+            28
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 41,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            28
+          ],
+          "keyword_ids": [
+            28
+          ],
+          "always_ids": [
+            28
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 44,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            38
+          ],
+          "keyword_ids": [
+            38
+          ],
+          "always_ids": [
+            38
+          ]
+        },
+        "q17": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 47,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2
+          ],
+          "keyword_ids": [
+            2
+          ],
+          "always_ids": [
+            2
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            22,
+            24
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 79,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            48,
+            49
+          ],
+          "keyword_ids": [
+            48,
+            49
+          ],
+          "always_ids": [
+            48,
+            49
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 80,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            12,
+            14
+          ],
+          "keyword_ids": [
+            12,
+            14
+          ],
+          "always_ids": [
+            14,
+            12
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 50,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            35
+          ],
+          "keyword_ids": [
+            35
+          ],
+          "always_ids": [
+            35
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "S5": {
+      "label": "Largest gap, ceiling 5",
+      "kind": "gap",
+      "overall": {
+        "questions": 20,
+        "found": 15,
+        "first_hit": {
+          "1": 13,
+          "2": 2,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 5
+        },
+        "junk_total": 5,
+        "junk_per_question": 0.25,
+        "neutral_total": 3,
+        "tokens_mean": 45.5,
+        "tokens_max": 95,
+        "rows_max": 3
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 1,
+        "rows_max": 1,
+        "tokens_total": 50,
+        "tokens_max": 50,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 1,
+      "gained_vs_baseline": 0,
+      "lost_ids": [
+        "q17"
+      ],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 36,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            41
+          ],
+          "keyword_ids": [
+            41
+          ],
+          "always_ids": [
+            41
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            44
+          ],
+          "keyword_ids": [
+            44
+          ],
+          "always_ids": [
+            44
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 42,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            8
+          ],
+          "keyword_ids": [
+            8
+          ],
+          "always_ids": [
+            8
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 39,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            10
+          ],
+          "keyword_ids": [
+            10
+          ],
+          "always_ids": [
+            10
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [
+            20
+          ],
+          "always_ids": [
+            20
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 92,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            26,
+            28
+          ],
+          "keyword_ids": [
+            26,
+            28
+          ],
+          "always_ids": [
+            26,
+            25,
+            28
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 41,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            28
+          ],
+          "keyword_ids": [
+            28
+          ],
+          "always_ids": [
+            28
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 36,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            41
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 82,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            38,
+            40
+          ],
+          "keyword_ids": [
+            38,
+            40
+          ],
+          "always_ids": [
+            38,
+            40
+          ]
+        },
+        "q17": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 47,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2
+          ],
+          "keyword_ids": [
+            2
+          ],
+          "always_ids": [
+            2
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 38,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            24
+          ],
+          "keyword_ids": [
+            24
+          ],
+          "always_ids": [
+            24,
+            22
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 79,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            48,
+            49
+          ],
+          "keyword_ids": [
+            48,
+            49
+          ],
+          "always_ids": [
+            48,
+            49
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 95,
+          "junk": 0,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13
+          ],
+          "always_ids": [
+            14,
+            12,
+            13
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 50,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            35
+          ],
+          "keyword_ids": [
+            35
+          ],
+          "always_ids": [
+            35
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "S6": {
+      "label": "Largest gap, ceiling 10",
+      "kind": "gap",
+      "overall": {
+        "questions": 20,
+        "found": 15,
+        "first_hit": {
+          "1": 13,
+          "2": 2,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 5
+        },
+        "junk_total": 5,
+        "junk_per_question": 0.25,
+        "neutral_total": 3,
+        "tokens_mean": 45.5,
+        "tokens_max": 95,
+        "rows_max": 3
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 1,
+        "rows_max": 1,
+        "tokens_total": 50,
+        "tokens_max": 50,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 1,
+      "gained_vs_baseline": 0,
+      "lost_ids": [
+        "q17"
+      ],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 36,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            41
+          ],
+          "keyword_ids": [
+            41
+          ],
+          "always_ids": [
+            41
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            44
+          ],
+          "keyword_ids": [
+            44
+          ],
+          "always_ids": [
+            44
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 42,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            8
+          ],
+          "keyword_ids": [
+            8
+          ],
+          "always_ids": [
+            8
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 39,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            10
+          ],
+          "keyword_ids": [
+            10
+          ],
+          "always_ids": [
+            10
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [
+            20
+          ],
+          "always_ids": [
+            20
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 92,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            26,
+            28
+          ],
+          "keyword_ids": [
+            26,
+            28
+          ],
+          "always_ids": [
+            26,
+            25,
+            28
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 41,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            28
+          ],
+          "keyword_ids": [
+            28
+          ],
+          "always_ids": [
+            28
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 36,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            41
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 82,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            38,
+            40
+          ],
+          "keyword_ids": [
+            38,
+            40
+          ],
+          "always_ids": [
+            38,
+            40
+          ]
+        },
+        "q17": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 47,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2
+          ],
+          "keyword_ids": [
+            2
+          ],
+          "always_ids": [
+            2
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 38,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            24
+          ],
+          "keyword_ids": [
+            24
+          ],
+          "always_ids": [
+            24,
+            22
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 79,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            48,
+            49
+          ],
+          "keyword_ids": [
+            48,
+            49
+          ],
+          "always_ids": [
+            48,
+            49
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 3,
+          "tokens": 95,
+          "junk": 0,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13
+          ],
+          "always_ids": [
+            14,
+            12,
+            13
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 50,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            35
+          ],
+          "keyword_ids": [
+            35
+          ],
+          "always_ids": [
+            35
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "T1": {
+      "label": "No cap (bounded only by the search limits)",
+      "kind": "t1",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 28,
+        "junk_per_question": 1.4,
+        "neutral_total": 9,
+        "tokens_mean": 96.2,
+        "tokens_max": 207,
+        "rows_max": 7
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 185,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            36,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43,
+            49
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 194,
+          "junk": 5,
+          "neutral": 1,
+          "ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "keyword_ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "always_ids": [
+            10,
+            14,
+            9,
+            12,
+            13,
+            23,
+            51
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 198,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "keyword_ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "always_ids": [
+            26,
+            25,
+            28,
+            40,
+            38
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 160,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "keyword_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "always_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 4,
+          "tokens": 154,
+          "junk": 3,
+          "neutral": 0,
+          "ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "keyword_ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "always_ids": [
+            38,
+            40,
+            43,
+            49
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22,
+            21
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 197,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "keyword_ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "always_ids": [
+            48,
+            49,
+            35,
+            36
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 207,
+          "junk": 4,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "always_ids": [
+            14,
+            10,
+            12,
+            13,
+            4,
+            21,
+            9,
+            3,
+            24
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "B1": {
+      "label": "Token budget 250",
+      "kind": "budget",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 28,
+        "junk_per_question": 1.4,
+        "neutral_total": 9,
+        "tokens_mean": 96.2,
+        "tokens_max": 207,
+        "rows_max": 7
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 185,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            36,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43,
+            49
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 194,
+          "junk": 5,
+          "neutral": 1,
+          "ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "keyword_ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "always_ids": [
+            10,
+            14,
+            9,
+            12,
+            13,
+            23,
+            51
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 198,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "keyword_ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "always_ids": [
+            26,
+            25,
+            28,
+            40,
+            38
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 160,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "keyword_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "always_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 4,
+          "tokens": 154,
+          "junk": 3,
+          "neutral": 0,
+          "ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "keyword_ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "always_ids": [
+            38,
+            40,
+            43,
+            49
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22,
+            21
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 197,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "keyword_ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "always_ids": [
+            48,
+            49,
+            35,
+            36
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 207,
+          "junk": 4,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "always_ids": [
+            14,
+            10,
+            12,
+            13,
+            4,
+            21,
+            9,
+            3
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "B2": {
+      "label": "Token budget 500",
+      "kind": "budget",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 28,
+        "junk_per_question": 1.4,
+        "neutral_total": 9,
+        "tokens_mean": 96.2,
+        "tokens_max": 207,
+        "rows_max": 7
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 185,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            36,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43,
+            49
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 194,
+          "junk": 5,
+          "neutral": 1,
+          "ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "keyword_ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "always_ids": [
+            10,
+            14,
+            9,
+            12,
+            13,
+            23,
+            51
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 198,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "keyword_ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "always_ids": [
+            26,
+            25,
+            28,
+            40,
+            38
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 160,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "keyword_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "always_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 4,
+          "tokens": 154,
+          "junk": 3,
+          "neutral": 0,
+          "ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "keyword_ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "always_ids": [
+            38,
+            40,
+            43,
+            49
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22,
+            21
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 197,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "keyword_ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "always_ids": [
+            48,
+            49,
+            35,
+            36
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 207,
+          "junk": 4,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "always_ids": [
+            14,
+            10,
+            12,
+            13,
+            4,
+            21,
+            9,
+            3,
+            24
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "B3": {
+      "label": "Token budget 1000",
+      "kind": "budget",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 28,
+        "junk_per_question": 1.4,
+        "neutral_total": 9,
+        "tokens_mean": 96.2,
+        "tokens_max": 207,
+        "rows_max": 7
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 185,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            36,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43,
+            49
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 194,
+          "junk": 5,
+          "neutral": 1,
+          "ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "keyword_ids": [
+            10,
+            14,
+            12,
+            9,
+            13,
+            23,
+            51
+          ],
+          "always_ids": [
+            10,
+            14,
+            9,
+            12,
+            13,
+            23,
+            51
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 198,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "keyword_ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "always_ids": [
+            26,
+            25,
+            28,
+            40,
+            38
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 160,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "keyword_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "always_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 4,
+          "tokens": 154,
+          "junk": 3,
+          "neutral": 0,
+          "ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "keyword_ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "always_ids": [
+            38,
+            40,
+            43,
+            49
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22,
+            21
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 197,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "keyword_ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "always_ids": [
+            48,
+            49,
+            35,
+            36
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 7,
+          "tokens": 207,
+          "junk": 4,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13,
+            21,
+            3,
+            10,
+            24
+          ],
+          "always_ids": [
+            14,
+            10,
+            12,
+            13,
+            4,
+            21,
+            9,
+            3,
+            24
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    },
+    "F4-ctf": {
+      "label": "Inject at most 5 as it runs today (cap, then filter)",
+      "kind": "fixed",
+      "overall": {
+        "questions": 20,
+        "found": 16,
+        "first_hit": {
+          "1": 13,
+          "2": 3,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6-10": 0,
+          "11+": 0,
+          "none": 4
+        },
+        "junk_total": 24,
+        "junk_per_question": 1.2,
+        "neutral_total": 9,
+        "tokens_mean": 90.6,
+        "tokens_max": 198,
+        "rows_max": 5
+      },
+      "no_answer": {
+        "questions": 6,
+        "rows_total": 2,
+        "rows_max": 2,
+        "tokens_total": 75,
+        "tokens_max": 75,
+        "false_injection": 1
+      },
+      "lost_vs_baseline": 0,
+      "gained_vs_baseline": 0,
+      "lost_ids": [],
+      "gained_ids": [],
+      "gate_flips": 0,
+      "gate_flip_ids": [],
+      "per_question": {
+        "q01": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 185,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "keyword_ids": [
+            41,
+            42,
+            36,
+            18
+          ],
+          "always_ids": [
+            41,
+            42,
+            36,
+            18
+          ]
+        },
+        "q02": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            44,
+            43
+          ],
+          "keyword_ids": [
+            44,
+            43
+          ],
+          "always_ids": [
+            44,
+            43,
+            49
+          ]
+        },
+        "q03": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 45,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            6
+          ],
+          "keyword_ids": [
+            6
+          ],
+          "always_ids": [
+            6
+          ]
+        },
+        "q04": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 72,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            8,
+            39
+          ],
+          "keyword_ids": [
+            8,
+            39
+          ],
+          "always_ids": [
+            8,
+            39
+          ]
+        },
+        "q05": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 150,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            10,
+            14,
+            12,
+            9,
+            13
+          ],
+          "keyword_ids": [
+            10,
+            14,
+            12,
+            9,
+            13
+          ],
+          "always_ids": [
+            10,
+            14,
+            9,
+            12,
+            13
+          ]
+        },
+        "q06": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 70,
+          "junk": 0,
+          "neutral": 1,
+          "ids": [
+            20,
+            19
+          ],
+          "keyword_ids": [
+            20,
+            19
+          ],
+          "always_ids": [
+            20,
+            19
+          ]
+        },
+        "q07": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 198,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "keyword_ids": [
+            26,
+            28,
+            25,
+            40,
+            38
+          ],
+          "always_ids": [
+            26,
+            25,
+            28,
+            40,
+            38
+          ]
+        },
+        "q08": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 160,
+          "junk": 3,
+          "neutral": 1,
+          "ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "keyword_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ],
+          "always_ids": [
+            28,
+            34,
+            27,
+            25,
+            26
+          ]
+        },
+        "q09": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q10": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            41,
+            49
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            41,
+            49
+          ]
+        },
+        "q11": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 67,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            21,
+            44
+          ],
+          "keyword_ids": [
+            21
+          ],
+          "always_ids": [
+            21,
+            44
+          ]
+        },
+        "q12": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q13": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 1,
+          "tokens": 30,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            3
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            3
+          ]
+        },
+        "q14": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 1,
+          "tokens": 47,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [
+            20
+          ],
+          "keyword_ids": [],
+          "always_ids": [
+            20
+          ]
+        },
+        "q15": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "q16": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 4,
+          "tokens": 154,
+          "junk": 3,
+          "neutral": 0,
+          "ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "keyword_ids": [
+            38,
+            40,
+            43,
+            49
+          ],
+          "always_ids": [
+            38,
+            40,
+            43,
+            49
+          ]
+        },
+        "q17": {
+          "found_flag": true,
+          "first_pos": 2,
+          "n": 2,
+          "tokens": 83,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            2,
+            4
+          ],
+          "keyword_ids": [
+            2,
+            4
+          ],
+          "always_ids": [
+            2,
+            4
+          ]
+        },
+        "q18": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 2,
+          "tokens": 59,
+          "junk": 1,
+          "neutral": 0,
+          "ids": [
+            24,
+            22
+          ],
+          "keyword_ids": [
+            24,
+            22
+          ],
+          "always_ids": [
+            24,
+            22,
+            21
+          ]
+        },
+        "q19": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 4,
+          "tokens": 197,
+          "junk": 2,
+          "neutral": 1,
+          "ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "keyword_ids": [
+            48,
+            49,
+            35,
+            36
+          ],
+          "always_ids": [
+            48,
+            49,
+            35,
+            36
+          ]
+        },
+        "q20": {
+          "found_flag": true,
+          "first_pos": 1,
+          "n": 5,
+          "tokens": 140,
+          "junk": 2,
+          "neutral": 2,
+          "ids": [
+            12,
+            14,
+            13,
+            21,
+            3
+          ],
+          "keyword_ids": [
+            12,
+            14,
+            13,
+            21,
+            3
+          ],
+          "always_ids": [
+            14,
+            12,
+            10,
+            13,
+            4
+          ]
+        },
+        "n01": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n02": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 2,
+          "tokens": 75,
+          "junk": 2,
+          "neutral": 0,
+          "ids": [
+            35,
+            43
+          ],
+          "keyword_ids": [
+            35,
+            43
+          ],
+          "always_ids": [
+            35,
+            43
+          ]
+        },
+        "n03": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n04": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n05": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        },
+        "n06": {
+          "found_flag": false,
+          "first_pos": null,
+          "n": 0,
+          "tokens": 0,
+          "junk": 0,
+          "neutral": 0,
+          "ids": [],
+          "keyword_ids": [],
+          "always_ids": []
+        }
+      },
+      "false_injection_constant": true
+    }
+  },
+  "worst_case": {
+    "F1": {
+      "rows_max": 1,
+      "tokens_max": 56
+    },
+    "F2": {
+      "rows_max": 2,
+      "tokens_max": 92
+    },
+    "F3": {
+      "rows_max": 3,
+      "tokens_max": 154
+    },
+    "F4": {
+      "rows_max": 5,
+      "tokens_max": 198
+    },
+    "F5": {
+      "rows_max": 7,
+      "tokens_max": 207
+    },
+    "F6": {
+      "rows_max": 7,
+      "tokens_max": 207
+    },
+    "S1": {
+      "rows_max": 3,
+      "tokens_max": 112
+    },
+    "S2": {
+      "rows_max": 3,
+      "tokens_max": 112
+    },
+    "S3": {
+      "rows_max": 2,
+      "tokens_max": 92
+    },
+    "S4": {
+      "rows_max": 2,
+      "tokens_max": 92
+    },
+    "S5": {
+      "rows_max": 3,
+      "tokens_max": 95
+    },
+    "S6": {
+      "rows_max": 3,
+      "tokens_max": 95
+    },
+    "T1": {
+      "rows_max": 7,
+      "tokens_max": 207
+    },
+    "B1": {
+      "rows_max": 7,
+      "tokens_max": 207
+    },
+    "B2": {
+      "rows_max": 7,
+      "tokens_max": 207
+    },
+    "B3": {
+      "rows_max": 7,
+      "tokens_max": 207
+    },
+    "F4-ctf": {
+      "rows_max": 5,
+      "tokens_max": 198
+    }
+  }
+}

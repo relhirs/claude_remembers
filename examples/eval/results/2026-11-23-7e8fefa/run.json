@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-23T17:04:16Z",
+  "commit": "7e8fefa",
+  "uncommitted_changes": true,
+  "retrieval_code_matches_commit": true,
+  "python": "3.14.6",
+  "sqlite": "3.54.1",
+  "platform": "darwin",
+  "keyword_only": false,
+  "golden": "examples/eval/golden_set.yaml",
+  "database": "built from examples/eval/sessions",
+  "files": 22,
+  "records_imported": 54,
+  "database_facts": {
+    "sessions": 22,
+    "messages": 54,
+    "messages_50_chars_or_more": 46,
+    "embedded": 46,
+    "fts_rows": 54,
+    "projects": {
+      "lgl": 18,
+      "qst": 16,
+      "tdp": 20
+    }
+  },
+  "config_used": {
+    "semantic_search.enabled": true,
+    "semantic_search.model": "all-MiniLM-L6-v2",
+    "semantic_search.mode": "(not set: on_miss)"
+  }
+}

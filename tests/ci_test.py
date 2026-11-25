@@ -362,6 +362,7 @@ def test_user_prompt_submit_hook_payload():
         (fake_root / "scripts").mkdir()
         shutil.copy(hook_src, fake_root / "hooks" / "user-prompt-submit.py")
         shutil.copy(config_utils_src, fake_root / "scripts" / "config_utils.py")
+        shutil.copy(ROOT / "scripts" / "retrieval.py", fake_root / "scripts" / "retrieval.py")
 
         db_path = fake_root / "claude_remembers.db"
         conn = sqlite3.connect(str(db_path))
@@ -602,6 +603,7 @@ def _make_hook_sandbox(tmpdir, with_metrics=True, config_extra=""):
     (root / "scripts").mkdir()
     shutil.copy(ROOT / "hooks" / "user-prompt-submit.py", root / "hooks" / "user-prompt-submit.py")
     shutil.copy(ROOT / "scripts" / "config_utils.py", root / "scripts" / "config_utils.py")
+    shutil.copy(ROOT / "scripts" / "retrieval.py", root / "scripts" / "retrieval.py")
     if with_metrics:
         shutil.copy(ROOT / "scripts" / "metrics_utils.py", root / "scripts" / "metrics_utils.py")
 
@@ -948,8 +950,6 @@ def test_eval_scoring():
         return
     check("rows collapse to distinct sessions in order",
           ev._rank_sessions([(1, "a"), (2, "b"), (3, "a"), (4, None)]) == ["a", "b"])
-    fused = ev._rrf([(1, "a"), (2, "b")], [(2, "b"), (3, "c")])
-    check("RRF puts the row both lists agree on first", fused[0] == (2, "b"))
     kept = ev._clean("Where is the key", [{"content": "so where is the key stored"},
                                           {"content": "in zshrc"}])
     check("leak guard drops rows that quote the question", [r["content"] for r in kept] == ["in zshrc"])
@@ -1548,10 +1548,1615 @@ def test_file_structure():
         "hooks/session-end.py", "hooks/stop.py",
         "hooks/user-prompt-submit.py",
         "scripts/metrics_utils.py", "scripts/backfill_metrics.py",
-        "scripts/remember_baseline.py",
+        "scripts/remember_baseline.py", "scripts/retrieval.py", "scripts/remember_explain.py",
+        "tests/hook_equivalence.py",
+        "examples/eval/run_eval.py", "examples/eval/golden_set.yaml",
+        "examples/eval/README.md",
     ]
     for f in expected_files:
         check(f"{f} exists", (ROOT / f).exists())
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: retrieve() / explain
+# ---------------------------------------------------------------------------
+
+def _real_layout_files():
+    """Files of the real folder layout under hooks/, scripts/ and mcp/: tracked
+    plus untracked-but-not-ignored (so a new module is included before it is
+    staged; a gitignored one is not)."""
+    try:
+        res = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard",
+                              "hooks", "scripts", "mcp"], cwd=ROOT, capture_output=True, text=True, timeout=30)
+        files = [f for f in res.stdout.splitlines() if (ROOT / f).is_file()]
+        if res.returncode == 0 and files:
+            return files
+    except Exception:
+        pass
+    return sorted(str(p.relative_to(ROOT)) for d in ("hooks", "scripts", "mcp") for p in (ROOT / d).glob("*.py"))
+
+
+def _add_clear_tables(db_path, project="oth", session="old-clear-session"):
+    """A previous session that ended via /clear and has not been shown yet."""
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""CREATE TABLE sys_sessions (session_id TEXT PRIMARY KEY, project TEXT, ended_at TEXT,
+        message_count INTEGER, notes TEXT, end_reason TEXT, clear_recovery_shown INTEGER DEFAULT 0)""")
+    conn.execute("CREATE TABLE project_registry (prefix TEXT, label TEXT, summary TEXT)")
+    conn.execute("INSERT INTO sys_sessions VALUES (?, ?, '2026-01-01T00:00:00', 7, 'Topic: fixture summary', 'clear', 0)",
+                 (session, project))
+    conn.commit()
+    conn.close()
+
+
+def _make_real_layout(tmpdir):
+    """A hook sandbox that holds every real hooks/scripts/mcp file at its real path."""
+    root, db_path = _make_hook_sandbox(tmpdir)
+    for f in _real_layout_files():
+        dest = root / f
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / f, dest)
+    _add_clear_tables(db_path)
+    return root, db_path
+
+
+def test_hook_real_layout():
+    """The hook runs from the real folder layout, finds scripts/retrieval.py, and
+    degrades safely (prints {}, exits 0, says so in the log and the event row, and
+    still shows /clear recovery) when that module is missing or broken."""
+    print("\n--- Hook From The Real Folder Layout ---")
+    prompt = "what is the status of the frobnicator staging rollout checklist"
+    check("retrieval.py is part of the real layout file list", "scripts/retrieval.py" in _real_layout_files())
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root, db_path = _make_real_layout(tmpdir)
+        first = _run_hook(root, prompt, session_id="new-session")
+        second = _run_hook(root, prompt, session_id="new-session")
+        check("first prompt after /clear shows the recovery summary", "POST-/CLEAR CONTEXT RECOVERY" in first.stdout,
+              first.stdout[:150])
+        ctx = json.loads(second.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+        check("next prompt gets normal memories from the real layout", "frobnicator" in ctx and second.returncode == 0,
+              second.stderr[:200])
+
+    for label, breaker in (("missing", lambda path: path.unlink()),
+                           ("broken (syntax error)", lambda path: path.write_text("def retrieve(:\n"))):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, db_path = _make_real_layout(tmpdir)
+            breaker(root / "scripts" / "retrieval.py")
+            first = _run_hook(root, prompt, session_id="new-session")
+            second = _run_hook(root, prompt, session_id="new-session")
+            check(f"retrieval.py {label}: /clear recovery still works", "POST-/CLEAR CONTEXT RECOVERY" in first.stdout,
+                  first.stdout[:150])
+            check(f"retrieval.py {label}: normal prompt prints {{}} and exits 0",
+                  second.returncode == 0 and second.stdout.strip() == "{}", f"{second.returncode} {second.stdout[:100]}")
+            check(f"retrieval.py {label}: says so on stderr", "retrieval unavailable" in second.stderr, second.stderr[:200])
+            log = (root / "logs" / "retrieval.log").read_text() if (root / "logs" / "retrieval.log").exists() else ""
+            check(f"retrieval.py {label}: logged as retrieval_unavailable", "retrieval_unavailable" in log, log[:200])
+            conn = sqlite3.connect(str(db_path))
+            outcomes = [r[0] for r in conn.execute("SELECT outcome FROM retrieval_events ORDER BY id")]
+            conn.close()
+            check(f"retrieval.py {label}: event row outcome is retrieval_unavailable",
+                  outcomes[-1:] == ["retrieval_unavailable"], str(outcomes))
+
+
+def _build_synthetic_keyword_db(tmp):
+    """The public synthetic database, keyword-only (no embedding model), built like run_eval.py."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("run_eval_ci", ROOT / "examples" / "eval" / "run_eval.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    root = mod.make_sandbox(tmp)
+    mod.write_config(root, {"storage": {"mode": "local", "root_path": root.as_posix()},
+                            "jsonl_project_mapping": mod.SYNTHETIC_PROJECTS,
+                            "semantic_search": {"enabled": False, "model": mod.MODEL}})
+    db = str(root / "claude_remembers.db")
+    mod.build_schema(root, db)
+    mod.ingest_sessions(root)
+    return root, db, mod
+
+
+def test_explain_matches_hook():
+    """For every synthetic golden question, what explain says would be injected is
+    exactly what the real hook injects: same text, ids, outcome and log lines."""
+    print("\n--- Explain Matches The Hook ---")
+    import importlib.util
+    import contextlib
+    import io
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    import yaml as _yaml
+    questions = _yaml.safe_load((ROOT / "examples" / "eval" / "golden_set.yaml").read_text())["questions"]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, mod = _build_synthetic_keyword_db(tmp)
+        folder_for = {v: k for k, v in mod.SYNTHETIC_PROJECTS.items()}
+        mismatches = []
+        for q in questions:
+            prefix = q["project"]
+            cwd = f"/work/{folder_for[prefix]}"
+            log_path = root / "logs" / "retrieval.log"
+            before = log_path.read_text() if log_path.exists() else ""
+            payload = json.dumps({"session_id": "ci-session", "prompt": q["question"]})
+            res = subprocess.run([sys.executable, str(root / "hooks" / "user-prompt-submit.py")], input=payload,
+                                 capture_output=True, text=True, timeout=60, env={**os.environ, "CWD": cwd})
+            hook_ctx = json.loads(res.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+            after = log_path.read_text() if log_path.exists() else ""
+            hook_log = [ln.split(" ")[2] for ln in after[len(before):].splitlines()]
+            conn = sqlite3.connect(db)
+            event = conn.execute("SELECT outcome, result_ids FROM retrieval_events ORDER BY id DESC LIMIT 1").fetchone()
+            conn.close()
+            trace, _ctx = rx.run_explain(q["question"], project=prefix, exclude_session="ci-session", root=root, cwd=cwd)
+            skip = trace.get("skip")
+            expect_log = ["skipped_no_keywords"] if skip == "skipped_no_keywords" else [] if skip else \
+                [e["outcome"] for e in trace["log_events"]]
+            hook_ids = json.loads(event[1]) if event[1] else []
+            if (trace["injected_text"] != hook_ctx or [r["id"] for r in trace["rows"]] != hook_ids
+                    or trace["outcome"] != event[0] or hook_log != expect_log):
+                mismatches.append(q["id"])
+        check(f"explain == hook on all {len(questions)} synthetic questions (text, ids, outcome, log lines)",
+              not mismatches, f"differ on {mismatches}")
+
+        # Meaning search and the merge, with a stand-in for the model (no download in CI).
+        def stub(conn, config, prompt, project=None, limit=10, query_vec=None):
+            rows = conn.execute("SELECT project, timestamp, content, id, session_id FROM transcripts "
+                                "WHERE LENGTH(content) >= 50 ORDER BY id LIMIT 400").fetchall()
+            out = [{"similarity": 0.15 + ((rid * 37 + len(prompt) * 11) % 70) / 100.0, "project": pr, "timestamp": ts,
+                    "content": c, "id": rid, "session_id": sid} for pr, ts, c, rid, sid in rows]
+            out.sort(key=lambda r: (-r["similarity"], r["id"]))
+            return out[:limit]
+
+        spec = importlib.util.spec_from_file_location("ups_hook_ci_explain", root / "hooks" / "user-prompt-submit.py")
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        hook.semantic_search = stub
+        hook._helper_vector = lambda r, t: [0.1, 0.2]
+        hook._start_helper = lambda r, c: None
+        bad = []
+        for mode in ("on_miss", "always"):
+            cfg = _yaml.safe_load((root / "config.yaml").read_text())
+            cfg["semantic_search"] = {"enabled": True, "mode": mode, "model": mod.MODEL}
+            (root / "config.yaml").write_text(_yaml.safe_dump(cfg))
+            for q in questions:
+                prefix = q["project"]
+                os.environ["CWD"] = f"/work/{folder_for[prefix]}"
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    hook._run(json.dumps({"session_id": "ci-session", "prompt": q["question"]}), {})
+                out = buf.getvalue().strip()
+                hook_ctx = json.loads(out).get("hookSpecificOutput", {}).get("additionalContext", "") if out else ""
+                trace, _ctx = rx.run_explain(q["question"], project=prefix, exclude_session="ci-session", root=root,
+                                             cwd=os.environ["CWD"], mode=mode, semantic_fn=stub,
+                                             helper_fn=lambda t: [0.1, 0.2])
+                if trace["injected_text"] != hook_ctx:
+                    bad.append(f"{mode}:{q['id']}")
+        os.environ.pop("CWD", None)
+        check("explain == hook with meaning search and the merge (stand-in model), on_miss and always", not bad,
+              f"differ on {bad[:6]}")
+
+
+def test_hook_project_bias_by_folder():
+    """Which project the real hook favors depends on the folder, and only on whether a
+    mapping entry matched: a mapped folder favors its project, an unmapped one favors
+    none, a folder mapped to "oth" on purpose still favors "oth". One question (the
+    synthetic q01) and a few invented "oth" rows make the three results differ."""
+    print("\n--- Hook Project Bias By Folder ---")
+    import yaml as _yaml
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import retrieval as _retrieval
+    q = _yaml.safe_load((ROOT / "examples" / "eval" / "golden_set.yaml").read_text())["questions"][0]
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, mod = _build_synthetic_keyword_db(tmp)
+        conn = sqlite3.connect(db)
+        for i in range(5):          # invented; the insert trigger puts them in the search index
+            conn.execute("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp, source) "
+                         "VALUES (?, 'oth', ?, 'user', ?, '2026-05-01T00:00:00Z', 'test')",
+                         (f"inv-oth-{i}", f"inv-{i}", f"Invented note {i}: the species picker came up once during "
+                          "an unrelated chat about lunch plans and nothing else."))
+        conn.commit()
+        base_cfg = _yaml.safe_load((root / "config.yaml").read_text())
+
+        def injected(project):
+            trace = {}
+            _retrieval.retrieve(conn, base_cfg, q["question"], project=project, exclude_session="ci-session",
+                                mode="off", trace=trace)
+            return trace["injected_text"]
+
+        def hook_says(folder, mapping):
+            (root / "config.yaml").write_text(_yaml.safe_dump({**base_cfg, "jsonl_project_mapping": mapping}))
+            res = subprocess.run([sys.executable, str(root / "hooks" / "user-prompt-submit.py")],
+                                 input=json.dumps({"session_id": "ci-session", "prompt": q["question"]}),
+                                 capture_output=True, text=True, timeout=60, env={**os.environ, "CWD": folder})
+            return json.loads(res.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+
+        synthetic = mod.SYNTHETIC_PROJECTS
+        cases = [   # name, folder, mapping, project the hook must favor, project it must NOT behave as
+            ("mapped folder favors its project", "/work/tidepool", synthetic, "tdp", None),
+            ("unmapped folder favors none", "/work/unmapped-folder", synthetic, None, "oth"),
+            ("folder mapped to oth still favors oth", "/work/other", {**synthetic, "other": "oth"}, "oth", None)]
+        for name, folder, mapping, want, not_want in cases:
+            expect, other = injected(want), injected(not_want)
+            if expect == other:
+                check(f"{name}: fixture can tell the two searches apart", False,
+                      "both searches inject the same text, so this row would pass for any rule")
+                continue
+            got = hook_says(folder, mapping)
+            check(name, got == expect and got != other)
+
+        # explain describes the search the hook runs, including in an unmapped folder
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import remember_explain as rx
+        (root / "config.yaml").write_text(_yaml.safe_dump({**base_cfg, "jsonl_project_mapping": synthetic}))
+        trace, ctx = rx.run_explain(q["question"], exclude_session="ci-session", root=root, cwd="/work/unmapped-folder")
+        check("explain in an unmapped folder searches with no project and says so",
+              trace["injected_text"] == injected(None) and trace["inputs"]["project"] is None
+              and "no project is favored" in ctx.get("project_note", ""))
+        trace, ctx = rx.run_explain(q["question"], exclude_session="ci-session", root=root, cwd="/work/tidepool")
+        check("explain's default project in a mapped folder equals the hook's",
+              trace["inputs"]["project"] == "tdp" == rx._load_hook().mapped_project_for_cwd(
+                  _yaml.safe_load((root / "config.yaml").read_text()), "/work/tidepool")
+              and trace["injected_text"] == hook_says("/work/tidepool", synthetic))
+        trace, ctx = rx.run_explain(q["question"], project="tdp", exclude_session="ci-session", root=root,
+                                    cwd="/work/unmapped-folder")
+        check("explain with a chosen project says the hook here would favor none",
+              trace["injected_text"] == injected("tdp") and "would favor none" in ctx.get("project_note", ""))
+        conn.close()
+
+
+def test_explain_writes_nothing():
+    """Explain changes nothing: no log line, no event row, /clear still pending, no
+    helper, database bytes untouched, and hostile question text sent on stdin is not executed.
+    (The command template's own quoting is tested in test_explain_command_template.)"""
+    print("\n--- Explain Writes Nothing ---")
+    import hashlib
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    question = 'what is `frobnicator` $(touch SHOULD_NOT_EXIST) "quoted" staging rollout'
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db_path = _make_real_layout(tmp)
+        conn = sqlite3.connect(str(db_path))                     # metrics on, event table present
+        conn.execute("CREATE TABLE IF NOT EXISTS retrieval_events (id INTEGER PRIMARY KEY, outcome TEXT)")
+        conn.commit()
+        conn.close()
+        digest = lambda: hashlib.sha256(Path(db_path).read_bytes()).hexdigest()
+        before = digest()
+        res = subprocess.run([sys.executable, str(root / "scripts" / "remember_explain.py"), "--session", "new-session"],
+                             input=question, capture_output=True, text=True, encoding="utf-8",
+                             timeout=60, cwd=str(root))
+        text, err = res.stdout, res.stderr
+        check("script runs and prints the explanation", res.returncode == 0 and "WHAT HAPPENED" in text, err[-300:])
+        check("a hostile question on stdin is only read, never run (script does not interpret it)",
+              not (root / "SHOULD_NOT_EXIST").exists() and "frobnicator" in text and "quoted" in text)
+        check("it says the /clear recovery would fire", "Right after a /clear" in text)
+        trace, ctx = rx.run_explain(question, exclude_session="new-session", root=root, cwd=str(root))
+        check("the function path says the same", ctx.get("clear_pending") == "old-clear-session")
+        check("database file is byte-identical afterwards", digest() == before)
+        conn = sqlite3.connect(str(db_path))
+        shown = conn.execute("SELECT clear_recovery_shown FROM sys_sessions").fetchone()[0]
+        events = conn.execute("SELECT COUNT(*) FROM retrieval_events").fetchone()[0]
+        conn.close()
+        check("/clear recovery was not marked as shown", shown == 0)
+        check("no retrieval_events row was written", events == 0)
+        check("no retrieval.log was written", not (root / "logs" / "retrieval.log").exists())
+        check("no helper was started (no helper info file)", not list(root.glob("**/*helper*.json"))
+              and not list(root.glob("logs/*helper*")))
+
+
+def test_explain_clear_uses_hook_project():
+    """Explain looks for a pending /clear under the project the HOOK uses for this
+    folder (the folder's mapped project, else "oth"), even when --project forces a
+    different project for ranking. Unmapped folder, /clear waiting under "oth",
+    forced project "tdp": the note must show. A /clear waiting only under "tdp"
+    must not show, because the hook here would never look there."""
+    print("\n--- Explain /clear Check Follows The Hook ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    question = "what is the status of the frobnicator staging rollout checklist"
+    unmapped = "/work/unmapped-folder-for-clear-test"
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db_path = _make_real_layout(tmp)            # one /clear waiting under "oth"
+        _trace, ctx = rx.run_explain(question, project="tdp", exclude_session="new-session", root=root, cwd=unmapped)
+        check("unmapped folder, forced project: the /clear waiting under oth is shown",
+              ctx.get("clear_pending") == "old-clear-session", str(ctx))
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("UPDATE sys_sessions SET project = 'tdp'")      # now it waits under tdp only
+        conn.commit()
+        conn.close()
+        _trace, ctx = rx.run_explain(question, project="tdp", exclude_session="new-session", root=root, cwd=unmapped)
+        check("unmapped folder, forced project: a /clear waiting only under tdp is not shown",
+              "clear_pending" not in ctx, str(ctx))
+
+
+def test_explain_clear_mapped_folder_forced_project():
+    """The mapped half of the rule in test_explain_clear_uses_hook_project: in a
+    MAPPED folder, explain looks for a pending /clear under the folder's mapped
+    project even when --project forces another one for ranking. Folder maps to
+    "tdp", /clear waiting under "tdp", forced project "lgl": the note must show.
+    A /clear waiting only under "lgl" must not show, because the hook here looks
+    under "tdp"."""
+    print("\n--- Explain /clear Check Follows The Hook, Mapped Folder ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    question = "what is the status of the frobnicator staging rollout checklist"
+    mapped = "/work/tidepool-clear-test"
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db_path = _make_real_layout(tmp)
+        config = root / "config.yaml"
+        config.write_text(config.read_text().replace("jsonl_project_mapping: {}",
+                                                     "jsonl_project_mapping: {tidepool: tdp}"))
+        for waiting_under, shown in (("tdp", True), ("lgl", False)):
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("UPDATE sys_sessions SET project = ?", (waiting_under,))
+            conn.commit()
+            conn.close()
+            _trace, ctx = rx.run_explain(question, project="lgl", exclude_session="new-session",
+                                         root=root, cwd=mapped)
+            if shown:
+                check("mapped folder, forced project: the /clear waiting under the mapped project is shown",
+                      ctx.get("clear_pending") == "old-clear-session", str(ctx))
+            else:
+                check("mapped folder, forced project: a /clear waiting only under the forced project is not shown",
+                      "clear_pending" not in ctx, str(ctx))
+
+
+def test_explain_hook_load_failure_keeps_sys_path():
+    """If the hook fails to load, scripts/ must not be left on sys.path, and a
+    second call must not add it again. The hook copy here is the real hook plus a
+    line that fails after its own sys.path.insert, so it adds a path like the real one."""
+    print("\n--- Explain Hook Load Failure Keeps sys.path ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    saved_path, saved_hook = rx.HOOK_PATH, rx._HOOK
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = Path(tmp) / "hooks" / "user-prompt-submit.py"
+        fake.parent.mkdir()
+        fake.write_text((ROOT / "hooks" / "user-prompt-submit.py").read_text() + "\nraise ImportError('boom')\n")
+        rx.HOOK_PATH, rx._HOOK = fake, None
+        before = list(sys.path)
+        errors = 0
+        try:
+            for _ in range(2):
+                try:
+                    rx._load_hook()
+                except ImportError:
+                    errors += 1
+            after = list(sys.path)
+        finally:
+            rx.HOOK_PATH, rx._HOOK = saved_path, saved_hook
+            sys.path[:] = before
+        check("the failing hook raised on both calls", errors == 2, str(errors))
+        check("sys.path is unchanged after two failed loads", after == before,
+              f"{len(after) - len(before)} entries added")
+
+
+def test_empty_project_mapping_key():
+    """`jsonl_project_mapping:` with nothing under it loads as None. The hook must treat
+    that as "no folders mapped" and still inject memories (it used to fail on .items()
+    inside its outer except, which turned memory silently off), and explain must run too."""
+    print("\n--- Empty jsonl_project_mapping Key ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    prompt = "what is the status of the frobnicator staging rollout checklist"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root, db_path = _make_real_layout(tmpdir)
+        cfg = (root / "config.yaml").read_text().replace("jsonl_project_mapping: {}", "jsonl_project_mapping:")
+        check("fixture: the key is present with no value", "jsonl_project_mapping:\n" in cfg and "{}" not in cfg, cfg)
+        (root / "config.yaml").write_text(cfg)
+        res = _run_hook(root, prompt)
+        ctx = json.loads(res.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+        check("hook with an empty mapping key still injects memories", "frobnicator" in ctx, res.stdout[:200] + res.stderr[-200:])
+        conn = sqlite3.connect(str(db_path))
+        outcomes = [r[0] for r in conn.execute("SELECT outcome FROM retrieval_events ORDER BY id")]
+        conn.close()
+        check("hook with an empty mapping key does not record an error outcome", "error" not in outcomes, str(outcomes))
+        trace, ctx2 = rx.run_explain(prompt, exclude_session="ci-session", root=root, cwd="/work/anywhere")
+        check("explain with an empty mapping key runs and favors no project",
+              trace["inputs"]["project"] is None and "no project is favored" in ctx2.get("project_note", ""), str(ctx2))
+        hook = rx._load_hook()
+        check("mapped_project_for_cwd treats a None mapping as no entries",
+              hook.mapped_project_for_cwd({"jsonl_project_mapping": None}, "/work/anywhere") is None)
+
+
+def test_retrieve_trace():
+    """retrieve() records every drop with its reason and numbers, keeps rows at 5
+    fields, never lets a display-only gate error change the result, and treats
+    semantic_fn=None as 'meaning search unavailable'."""
+    print("\n--- retrieve() Trace ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import retrieval
+    conn = _crafted_conn()
+    strong = "tell me about the quokka zebracode rollback plan"
+
+    res = retrieval.retrieve(conn, {}, strong, project="oth", mode="off", detail=True)
+    tr = res.trace
+    check("rows keep the 5-field shape", all(len(r) == 5 for r in res.rows) and res.rows)
+    check("keyword candidates carry rank, age and adjusted rank",
+          all(c["rank"] is not None and c["age_days"] is not None and c["adjusted_rank"] is not None
+              for c in tr["keyword"]["candidates"]))
+    sg = tr["keyword"]["strength_gate"]
+    check("the strength check records value and bar together",
+          sg["applied"] and sg["floor"] is not None and sg["best"] is not None and sg["weak"] is False
+          and abs(sg["floor"] + retrieval.MIN_STRENGTH_PER_LOG_DOC * __import__("math").log(sg["n_docs"])) < 1e-9)
+    check("keywords record every dropped word with its reason",
+          retrieval.keyword_breakdown("tell me about the quokka quokka it")[1]
+          == [("tell", "stop_word"), ("me", "too_short"), ("about", "stop_word"), ("the", "stop_word"),
+              ("quokka", "repeat"), ("it", "too_short")]
+          and retrieval.keyword_breakdown("tell me about the quokka quokka it")[0] == ["quokka"])
+    kept, dropped = retrieval.keyword_breakdown("alpha bravo charlie delta echo foxtrot golf hotel india juliet")
+    check("keywords beyond the 8-word cap are reported as over_cap",
+          kept == retrieval.extract_keywords("alpha bravo charlie delta echo foxtrot golf hotel india juliet")
+          and [w for w, why in dropped] == ["india", "juliet"] and {why for _, why in dropped} == {"over_cap"})
+
+    dup = retrieval.retrieve(conn, {}, "dupe sentence about marmot rollout", project="oth", mode="off", detail=True).trace
+    reasons = {d["reason"] for d in dup["keyword"]["dropped"]}
+    check("a repeated message is listed as a duplicate, and rows beyond the cap as over_cap",
+          reasons == {"duplicate", "over_cap"}
+          and all(d["id"] is not None and d["rank"] is not None for d in dup["keyword"]["dropped"]),
+          str(reasons))
+    weak = retrieval.retrieve(conn, {}, "common routine meeting plan notes", project="oth", mode="off",
+                              detail=True).trace
+    check("rows too weak to count are listed as below_floor and none are kept",
+          "below_floor" in {d["reason"] for d in weak["keyword"]["dropped"]}
+          and weak["keyword"]["candidates"] == [])
+
+    def boom(*a, **k):
+        raise RuntimeError("display-only gate failure")
+    plain = retrieval.retrieve(conn, {}, strong, project="oth", mode="off")
+    guarded = retrieval.retrieve(conn, {}, strong, project="oth", mode="off", gate_fn=boom)
+    check("a failing gate in mode off does not change the result and is recorded as gate error",
+          guarded.rows == plain.rows and "display-only" in (guarded.trace["gate"]["error"] or ""))
+    unavailable = retrieval.retrieve(conn, {}, "zzqplex wibblefrotz quuxborg nothing here", project="oth",
+                                     mode="on_miss", semantic_fn=None)
+    check("semantic_fn=None means unavailable (not 'use the default')",
+          unavailable.trace["outcome"] == "no_match_semantic_unavailable"
+          and [e["outcome"] for e in unavailable.trace["log_events"]]
+          == ["no_match_semantic_unavailable", "no_match"])      # the hook has always logged both lines
+    short = retrieval.retrieve(conn, {}, "hi there", project="oth", mode="off")
+    check("a short prompt is skipped before any search", short.trace["skip"] == "skipped_short" and not short.rows)
+    _check_retrieve_has_no_side_effects(retrieval)
+    check("strict vs inclusive bars match the wording: 0.35 is not enough, 0.25 coverage does not fire the gate",
+          retrieval.semantic_rows([{"similarity": 0.35, "project": "oth", "timestamp": "t", "content": "x y z",
+                                    "id": 1, "session_id": "s"}], "oth", "cur") == []
+          and retrieval.should_use_semantic("some prompt here", ["aaa", "bbb", "ccc", "ddd"],
+                                            [("oth", "t", "aaa only", -9.0, 1)], {}, conn) == (False, "keyword_confident"))
+
+
+def _check_retrieve_has_no_side_effects(retrieval):
+    """Run retrieve() in every mode against an on-disk database that has the tables a
+    side effect would write to (retrieval_events, a pending /clear mark) and a logs
+    folder, from inside an otherwise empty working folder. Nothing may change: not one
+    database byte, not one row, no new file anywhere."""
+    import hashlib
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp) / "work"
+        (work / "logs").mkdir(parents=True)
+        db_file = Path(tmp) / "mem.db"
+        src = _crafted_conn()
+        disk = sqlite3.connect(str(db_file))
+        src.backup(disk)
+        disk.execute("CREATE TABLE retrieval_events (id INTEGER PRIMARY KEY, outcome TEXT)")
+        disk.execute("CREATE TABLE sys_sessions (session_id TEXT, clear_recovery_shown INTEGER DEFAULT 0)")
+        disk.execute("INSERT INTO sys_sessions (session_id) VALUES ('old')")
+        disk.commit()
+        disk.close()
+
+        def snapshot():
+            return (hashlib.sha256(db_file.read_bytes()).hexdigest(),
+                    sorted(str(p.relative_to(tmp)) for p in Path(tmp).rglob("*")))
+        before = snapshot()
+        conn = sqlite3.connect(str(db_file))
+        old_cwd = os.getcwd()
+        os.chdir(work)
+        try:
+            for mode in ("off", "on_miss", "always"):
+                retrieval.retrieve(conn, {}, "tell me about the quokka zebracode rollback plan", project="oth",
+                                   mode=mode, detail=True, semantic_fn=lambda *a, **k: [],
+                                   query_vec_fn=(lambda text: [0.1]) if mode == "always" else None)
+        finally:
+            os.chdir(old_cwd)
+        changes = conn.total_changes
+        shown = conn.execute("SELECT clear_recovery_shown FROM sys_sessions").fetchone()[0]
+        events = conn.execute("SELECT COUNT(*) FROM retrieval_events").fetchone()[0]
+        conn.close()
+        check("retrieve() has no side effects: no row written or changed, no /clear mark set, "
+              "database bytes identical, no new file or log anywhere",
+              changes == 0 and shown == 0 and events == 0 and snapshot() == before,
+              f"changes={changes} shown={shown} events={events}")
+
+
+def _crafted_conn():
+    """An in-memory memory database with a few distinctive messages among filler."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""CREATE TABLE transcripts (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT,
+        project TEXT, uuid TEXT UNIQUE, role TEXT, content TEXT, timestamp TEXT, source TEXT)""")
+    conn.execute("CREATE VIRTUAL TABLE transcripts_fts USING fts5(content, content=transcripts, content_rowid=id)")
+    rows = [("target", "2026-03-01T00:00:00Z", "decided the quokka migration needs a zebracode rollback plan"),
+            ("dupe-a", "2026-03-01T00:00:00Z", "dupe sentence about marmot rollout one"),
+            ("dupe-b", "2026-03-02T00:00:00Z", "dupe sentence about marmot rollout one"),
+            ("old", "2025-01-01T00:00:00Z", "an older note about the quokka rollback")]
+    rows += [(f"f{i}", "2026-03-01T00:00:00Z",
+              f"note {i} about the common rollout plan{' with a marmot' if i % 20 == 0 else ''} and routine meeting")
+             for i in range(300)]
+    for i, (sid, ts, content) in enumerate(rows):
+        conn.execute("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp) "
+                     "VALUES (?, 'oth', ?, 'user', ?, ?)", (sid, f"u{i}", content, ts))
+    conn.execute("INSERT INTO transcripts_fts(transcripts_fts) VALUES('rebuild')")
+    conn.commit()
+    return conn
+
+
+def test_explain_render():
+    """The output format rules, on a trace of every outcome."""
+    print("\n--- Explain Output Format ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import re as _re
+    import retrieval
+    import remember_explain as rx
+    conn = _crafted_conn()
+    strong = "tell me about the quokka zebracode rollback plan"
+    nonsense = "zzqplex wibblefrotz quuxborg nothing matches here"
+
+    def stub(similarity):
+        def fn(c, config, prompt, project=None, limit=10, query_vec=None):
+            r = c.execute("SELECT project, timestamp, content, id, session_id FROM transcripts WHERE id <= 3").fetchall()
+            return [{"similarity": similarity - i * 0.01, "project": p, "timestamp": t, "content": ct, "id": i2,
+                     "session_id": s} for i, (p, t, ct, i2, s) in enumerate(r)]
+        return fn
+
+    cases = {
+        "keyword_hit": dict(prompt=strong, mode="off"),
+        "keyword_hit (trusted, on_miss)": dict(prompt=strong, mode="on_miss", semantic_fn=stub(0.9)),
+        "hybrid_hit": dict(prompt=strong, mode="always", semantic_fn=stub(0.9)),
+        "semantic_hit": dict(prompt=nonsense, mode="on_miss", semantic_fn=stub(0.9)),
+        "no_match (nothing close)": dict(prompt=nonsense, mode="on_miss", semantic_fn=stub(0.2)),
+        "no_match (off)": dict(prompt=nonsense, mode="off"),
+        "no_match_semantic_unavailable": dict(prompt=nonsense, mode="on_miss", semantic_fn=None),
+        "skipped_short": dict(prompt="hi there", mode="off"),
+        "skipped_no_keywords": dict(prompt="what is the and for with this that", mode="off"),
+        "helper_unavailable": dict(prompt=strong, mode="always", semantic_fn=stub(0.9), query_vec_fn=lambda t: None),
+        "helper_unavailable (no match)": dict(prompt=nonsense, mode="always", semantic_fn=stub(0.9),
+                                              query_vec_fn=lambda t: None),
+    }
+    seen = {}
+    problems = []
+    for name, kw in cases.items():
+        trace = {}
+        retrieval.retrieve(conn, {}, kw.pop("prompt"), project="oth", detail=True, trace=trace, **kw)
+        text = rx.render(trace, {})
+        seen[name] = trace.get("outcome")
+        steps = _re.findall(r"^ (\d)\. ", text, _re.M)
+        if not text.startswith("WHAT HAPPENED") or steps != [str(i) for i in range(1, 10)]:
+            problems.append(f"{name}: structure {steps}")
+        if any(len(line) > 100 for line in text.splitlines()):
+            problems.append(f"{name}: line over 100 columns")
+        if _re.search(r"\b(better|worse|higher is)\b", text, _re.I):
+            problems.append(f"{name}: direction word 'better/worse'")
+        for key, (term, gloss) in rx.GLOSSARY.items():
+            if text.count(f"{term} ({gloss}") > 1:
+                problems.append(f"{name}: '{term}' glossed more than once")
+        if trace.get("skip"):
+            continue
+        if "WHAT HAPPENED" in text and "would be added" not in text and "No memories would be added" not in text \
+                and "Nothing would be searched" not in text:
+            problems.append(f"{name}: no outcome sentence")
+    check("every outcome renders: summary first, all 9 steps in order, <=100 columns, no better/worse, terms glossed once",
+          not problems, "; ".join(problems[:4]))
+    check("the cases cover every outcome the trace can produce",
+          {"keyword_hit", "hybrid_hit", "semantic_hit", "no_match", "skipped_short", "skipped_no_keywords",
+           "no_match_semantic_unavailable"} <= set(seen.values()), str(sorted({str(v) for v in seen.values()})))
+
+    # tables: the lists and the settings are aligned tables, every column bar lines up
+    trace = {}
+    retrieval.retrieve(conn, {}, strong, project="oth", mode="always", semantic_fn=stub(0.9), detail=True, trace=trace)
+    lines = rx.render(trace, {}).splitlines()
+    heads = [i for i, l in enumerate(lines) if l.lstrip().startswith(("Setting ", "# |", "Left out |"))]
+    aligned = bool(heads)
+    for h in heads:
+        bars = [k for k, ch in enumerate(lines[h]) if ch == "|"]
+        for row in lines[h + 2:]:                      # rows continue until a line without a bar
+            if "|" not in row:
+                break
+            aligned &= [k for k, ch in enumerate(row) if ch == "|"] == bars
+    names = [lines[h].strip().split(" ")[0] for h in heads]
+    check("settings, keyword results, meaning results, left-out reasons and the final list are tables with aligned columns",
+          aligned and names.count("#") == 3 and "Setting" in names and "Left" in names, str(names))
+    trace["keyword"]["sql_filtered"] = {"matching_total": 20, "current_session": 6, "machine_message": 5}
+    text = rx.render(trace, {})
+    check("the 'also counted' note has no comma after 'also', no 'message (…)s', and is a table",
+          "Also counted just for this explanation" in text and "also," not in text.lower()
+          and ")s" not in text and "machine messages (text the tools wrote" in text
+          and any(l.strip().startswith("6 | from this conversation") or "| from this conversation" in l
+                  for l in text.splitlines()), text[text.find("Also counted"):][:400])
+    capped = {}
+    retrieval.retrieve(conn, {}, "dupe sentence about marmot rollout", project="oth", mode="off", detail=True, trace=capped)
+    text_capped, text_plain = rx.render(capped, {}), rx.render(trace, {})
+    check("when results are cut at the limit, step 7 says why the limit is 5 (and what that means), else it stays quiet",
+          "Why 5? It is a fixed limit (MAX_RESULTS" in text_capped and "not tuned against the eval" in text_capped
+          and "Why 5?" not in text_plain)
+    t = rx.table(["a", "b"], [("x" * 200, "1"), ("y", "22")], indent=4, width=60, right={1})
+    check("a table too wide for the screen shrinks its widest column and wraps, never passing the width",
+          max(len(l) for l in t) <= 60 and len(t) > 4 and t[0].count("|") == 1)
+    trace = {}
+    retrieval.retrieve(conn, {}, strong, project="oth", mode="off", detail=True, trace=trace)
+    lead = rx.render(trace, {"clear_pending": "old-session"}).splitlines()
+    check("a pending /clear recovery leads the summary", lead[0] == "WHAT HAPPENED" and "Right after a /clear" in lead[1])
+    trace = {}
+    retrieval.retrieve(conn, {}, nonsense, project="oth", mode="on_miss", semantic_fn=stub(0.2), detail=True, trace=trace)
+    text = rx.render(trace, {})
+    check("thresholds print next to their values, with the code's strict/inclusive wording",
+          "needs to be above 0.350" in text and "The cutoff" in text and "above 0.350" in text)
+    check("close values get extra decimals so a failing comparison never looks equal",
+          rx.pair(0.3504, 0.35, 3) == ("0.3504", "0.3500") and rx.pair(0.288, 0.35, 3) == ("0.288", "0.350")
+          and rx.num(-4.1, 2) == "−4.10")
+    check("each threshold wording matches the comparison in retrieval.py",
+          rx.THRESHOLD_WORDING["cutoff"].startswith("above") and rx.THRESHOLD_WORDING["coverage"].startswith("at least")
+          and rx.THRESHOLD_WORDING["strength"].endswith("or stronger"))
+
+    # errors: plain messages, non-zero exit, no empty success
+    try:
+        rx.explain("   ")
+        check("an empty question is refused", False)
+    except rx.ExplainError as e:
+        check("an empty question gets a usage message", "Usage: /remember-explain" in str(e))
+    try:
+        rx.explain("what is up with the thing", mode="sometimes")
+        check("an unknown mode is refused", False)
+    except rx.ExplainError as e:
+        check("an unknown mode names the valid ones", "off, on_miss, always" in str(e))
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            rx.explain("what is up with the thing", root=tmp)
+            check("a missing config is refused", False)
+        except rx.ExplainError as e:
+            check("a missing config says where it looked and what to run", "config.yaml not found" in str(e)
+                  and "remember-setup.py" in str(e))
+        (Path(tmp) / "config.yaml").write_text(f'storage:\n  mode: local\n  root_path: "{Path(tmp).as_posix()}"\n')
+        try:
+            rx.explain("what is up with the thing", root=tmp)
+            check("a missing database is refused", False)
+        except rx.ExplainError as e:
+            check("a missing database says where it looked", "Memory database not found" in str(e))
+    res = subprocess.run([sys.executable, str(ROOT / "scripts" / "remember_explain.py")], input="",
+                         capture_output=True, text=True, encoding="utf-8", timeout=60)
+    check("the script exits non-zero with the message on stderr (nothing on stdout)",
+          res.returncode == 2 and "No question given" in res.stderr and not res.stdout.strip())
+    _check_mcp_explain_tool_errors()
+
+
+MCP_CALL = """
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("srv", sys.argv[1] + "/mcp/server.py")
+srv = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(srv)
+out = {}
+for name, kwargs in json.loads(sys.argv[2]).items():
+    try:
+        out[name] = ["returned", srv.explain_retrieval(**kwargs)]
+    except Exception as e:
+        out[name] = [type(e).__name__, str(e)]
+print("RESULT" + json.dumps(out))
+"""
+
+
+def _call_mcp_explain(root, calls):
+    res = subprocess.run([sys.executable, "-c", MCP_CALL, str(root), json.dumps(calls)],
+                         capture_output=True, text=True, timeout=120, cwd=str(root))
+    line = next((l for l in res.stdout.splitlines() if l.startswith("RESULT")), None)
+    return (json.loads(line[6:]) if line else None), res.stderr[-400:]
+
+
+def _check_mcp_explain_tool_errors():
+    """Call the real explain_retrieval tool (as Claude would): bad input and a missing
+    module must surface as errors, never as an empty success, and a good call works."""
+    good = {"question": "what is the status of the frobnicator staging rollout checklist",
+            "mode": "off", "project": "oth", "exclude_session": "none"}
+    with tempfile.TemporaryDirectory() as tmp:
+        root, _db = _make_real_layout(tmp)
+        out, err = _call_mcp_explain(root, {"empty": {"question": "  "}, "mode": {**good, "mode": "sometimes"},
+                                            "good": good})
+        check("the MCP tool can be imported and called in a sandbox", out is not None, err)
+        if out is None:
+            return
+        check("the MCP tool raises an error (not an empty result) for an empty question",
+              out["empty"][0] == "RuntimeError" and "Usage: /remember-explain" in out["empty"][1], str(out["empty"]))
+        check("the MCP tool raises an error naming the valid modes for a bad mode",
+              out["mode"][0] == "RuntimeError" and "off, on_miss, always" in out["mode"][1], str(out["mode"]))
+        check("a good call returns the explanation text",
+              out["good"][0] == "returned" and "WHAT HAPPENED" in out["good"][1], str(out["good"])[:200])
+    with tempfile.TemporaryDirectory() as tmp:
+        root, _db = _make_real_layout(tmp)
+        (root / "scripts" / "remember_explain.py").write_text("def broken(:\n")
+        out, err = _call_mcp_explain(root, {"good": good})
+        check("with scripts/remember_explain.py broken the tool raises 'unavailable', never returns success",
+              out is not None and out["good"][0] == "RuntimeError" and "unavailable" in out["good"][1],
+              str(out)[:300] + err)
+
+
+def test_package_import_identity():
+    """The MCP server imports scripts.X with only the repo root on sys.path: the
+    explain path must resolve to that one module copy (one embedding model), and
+    retrieval must still import without the optional metrics module."""
+    print("\n--- Package Imports ---")
+    code = ("import sys; sys.path.insert(0, sys.argv[1]);"
+            "import scripts.remember_explain as rx, scripts.retrieval as rv, scripts.semantic_search as ss;"
+            "print(rv._default_semantic is ss.semantic_search, rx.retrieval is rv)")
+    res = subprocess.run([sys.executable, "-c", code, str(ROOT)], capture_output=True, text=True, timeout=60,
+                         cwd=tempfile.gettempdir())
+    check("scripts.retrieval shares scripts.semantic_search's function (one model cache)",
+          res.stdout.strip() == "True True", res.stdout[-200:] + res.stderr[-300:])
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "scripts").mkdir()
+        for name in ("retrieval.py", "config_utils.py"):
+            shutil.copy(ROOT / "scripts" / name, Path(tmp) / "scripts" / name)
+        res = subprocess.run([sys.executable, "-c",
+                              "import sys; sys.path.insert(0, 'scripts'); import retrieval; print(retrieval.CHARS_PER_TOKEN)"],
+                             capture_output=True, text=True, timeout=60, cwd=tmp)
+        check("retrieval imports without metrics_utils (falls back to 4 characters per token)",
+              res.stdout.strip() == "4", res.stderr[-300:])
+
+
+def test_setup_commands_only():
+    """remember-setup.py --commands-only writes only missing command files into the
+    home folder, never overwrites, and never starts the normal setup."""
+    print("\n--- Setup --commands-only ---")
+    import importlib.util
+    sys.path.insert(0, str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location("remember_setup_ci", ROOT / "scripts" / "remember-setup.py")
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)
+    names = list(setup.slash_commands(Path("/some/root")))
+    check("remember-explain is among the installed commands", "remember-explain" in names)
+    body = setup.slash_commands(Path("/some/root"))["remember-explain"]
+    check("the command passes the question on stdin through a quoted heredoc and asks for verbatim output",
+          f"<<'{setup.EXPLAIN_END}'" in body and "remember_explain.py" in body and "exactly as printed" in body
+          and "/some/root/scripts/remember_explain.py" in body)
+    with tempfile.TemporaryDirectory() as tmp:
+        home = Path(tmp) / "home"
+        home.mkdir()
+        written, listed = setup.install_slash_commands(Path("/some/root"), home)
+        check("first run writes every command", written == len(listed) and (home / ".claude" / "commands" / "remember-explain.md").exists())
+        (home / ".claude" / "commands" / "remember-status.md").write_text("my own edit")
+        written, _ = setup.install_slash_commands(Path("/some/root"), home)
+        check("second run writes nothing and keeps edits", written == 0
+              and (home / ".claude" / "commands" / "remember-status.md").read_text() == "my own edit")
+        check("nothing but the commands folder was created in the home folder",
+              sorted(p.name for p in home.iterdir()) == [".claude"]
+              and sorted(p.name for p in (home / ".claude").iterdir()) == ["commands"])
+
+        # the flag itself, with the normal setup replaced by a tripwire
+        root = Path(tmp) / "root"
+        (root / "scripts").mkdir(parents=True)
+        (root / "config.yaml").write_text(f'storage:\n  mode: local\n  root_path: "{root.as_posix()}"\n')
+        fake_home = Path(tmp) / "home2"
+        fake_home.mkdir()
+        spec2 = importlib.util.spec_from_file_location("remember_setup_ci2", ROOT / "scripts" / "remember-setup.py")
+        setup2 = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(setup2)
+        shutil.copy(ROOT / "scripts" / "remember-setup.py", root / "scripts" / "remember-setup.py")
+        setup2.__file__ = str(root / "scripts" / "remember-setup.py")
+
+        def tripwire():
+            raise AssertionError("normal setup ran")
+        setup2.phase_preflight = tripwire
+        # Path.home() reads HOME on Linux/macOS but USERPROFILE on Windows, so fake both.
+        home_vars = ("HOME", "USERPROFILE")
+        old_argv, old_homes = sys.argv, {v: os.environ.get(v) for v in home_vars}
+        sys.argv = ["remember-setup.py", "--commands-only"]
+        for v in home_vars:
+            os.environ[v] = str(fake_home)
+        try:
+            setup2.main()
+            ran = True
+        except AssertionError as e:
+            ran = False
+        finally:
+            sys.argv = old_argv
+            for v, old in old_homes.items():
+                if old is None:
+                    os.environ.pop(v, None)
+                else:
+                    os.environ[v] = old
+        check("--commands-only installs the commands without starting the normal setup",
+              ran and (fake_home / ".claude" / "commands" / "remember-explain.md").exists()
+              and not (fake_home / ".claude" / "settings.json").exists())
+
+
+
+# Compared between a fresh keyword-only run and the committed synthetic
+# results: ranked ids, outcomes, text fingerprints and metrics (all derived
+# from rank order). Never raw BM25 scores, similarities or timings.
+SYNTH_KEYWORD_METHODS = ("keyword", "keyword_ungated", "mcp")
+SYNTH_QUESTION_KEYS = ("sessions", "ids", "injected", "machine_rows")
+SYNTH_METRIC_KEYS = ("recall_at_1", "recall_at_3", "recall_at_5", "mrr", "false_injection_rate",
+                     "answerable_with_nothing_returned", "missed_ids", "machine_rows_returned",
+                     "by_tag", "recency")
+SYNTH_REPLAY_KEYS = ("id", "outcome", "result_ids", "output_sha256", "gate_fires", "gate_reason")
+
+
+def synthetic_differences(ref_dir, new_dir, methods=SYNTH_KEYWORD_METHODS):
+    """List every difference between two run_eval.py result folders."""
+    ref = json.loads((Path(ref_dir) / "eval.json").read_text())
+    new = json.loads((Path(new_dir) / "eval.json").read_text())
+    diffs = []
+    for m in methods:
+        for k in SYNTH_METRIC_KEYS:
+            if ref["methods"][m].get(k) != new["methods"][m].get(k):
+                diffs.append(f"{m}.{k}: {ref['methods'][m].get(k)} -> {new['methods'][m].get(k)}")
+        for q in ref["per_question"]:
+            for k in SYNTH_QUESTION_KEYS:
+                if ref["per_question"][q][m].get(k) != new["per_question"].get(q, {}).get(m, {}).get(k):
+                    diffs.append(f"{q}.{m}.{k}")
+    for name in ("replay_questions.jsonl", "replay_prompts.jsonl"):
+        read = lambda d: [{k: r.get(k) for k in SYNTH_REPLAY_KEYS}
+                          for r in map(json.loads, (Path(d) / name).read_text().splitlines())]
+        a, b = read(ref_dir), read(new_dir)
+        if len(a) != len(b):
+            diffs.append(f"{name}: {len(a)} records -> {len(b)}")
+        diffs += [f"{name}: {x['id']}" for x, y in zip(a, b) if x != y]
+    return diffs
+
+
+def test_synthetic_eval():
+    """examples/eval: rebuild the public synthetic database from scratch
+    (real schema, real ingest, real hook and MCP code in a sandbox) and check
+    the keyword paths still return exactly what the committed results say.
+    Keyword-only, because meaning search needs the embedding model download."""
+    print("\n--- Synthetic Eval (keyword-only) ---")
+    results = ROOT / "examples" / "eval" / "results"
+    runs = []
+    for d in (results.iterdir() if results.exists() else []):
+        info = d / "run.json"
+        if info.exists():
+            meta = json.loads(info.read_text())
+            if not meta.get("keyword_only"):
+                runs.append((meta["date"], d))
+    check("committed synthetic results exist", bool(runs))
+    if not runs:
+        return
+    ref = max(runs)[1]
+    with tempfile.TemporaryDirectory() as tmp:
+        res = subprocess.run([sys.executable, str(ROOT / "examples" / "eval" / "run_eval.py"),
+                              "--keyword-only", "--out", tmp], capture_output=True, text=True, timeout=900)
+        check("run_eval.py --keyword-only builds and scores the synthetic set", res.returncode == 0,
+              res.stderr[-800:])
+        if res.returncode != 0:
+            return
+        meta = json.loads((Path(tmp) / "run.json").read_text())
+        check("synthetic database: 22 sessions, 54 messages, 3 projects",
+              meta["database_facts"]["sessions"] == 22 and meta["database_facts"]["messages"] == 54
+              and len(meta["database_facts"]["projects"]) == 3, str(meta["database_facts"]))
+        diffs = synthetic_differences(ref, tmp)
+        check(f"keyword, keyword_ungated, mcp and the hook replay match {ref.name}", not diffs,
+              f"{len(diffs)} differences, e.g. {diffs[:5]}")
+
+
+def test_explain_command_template():
+    """The installed /remember-explain command text, run through a real shell: a root
+    folder with spaces and quotes works, and a question holding a line that is just
+    QUESTION plus $(...) and backticks reaches the script as plain text."""
+    print("\n--- /remember-explain Command Template ---")
+    import importlib.util
+    if not (shutil.which("sh") and shutil.which("python3")):
+        print("  (skipped: needs sh and python3)")
+        return
+    spec = importlib.util.spec_from_file_location("remember_setup_tpl", ROOT / "scripts" / "remember-setup.py")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)
+    question = ("why did we pick $(touch PWNED_NEW) here\n"
+                "QUESTION\n"
+                "$(touch PWNED_NEW) `touch PWNED_NEW2` \"dq\" 'sq' $HOME \\ done")
+
+    def command_from_template(root, text):
+        lines = setup.slash_commands(root)["remember-explain"].splitlines()
+        start = next(i for i, l in enumerate(lines) if "remember_explain.py" in l and "<<" in l)
+        end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == setup.EXPLAIN_END)
+        assert lines[start + 1].strip() == "<the question>" and end == start + 2
+        return "\n".join([lines[start], text, lines[end]]) + "\n"
+
+    stub = "import sys\nsys.stdout.write('GOT<' + sys.stdin.read() + '>')\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        for label, folder in (("a plain folder", "plain"), ("a folder with spaces, a quote and a $", "my dir it's $HOME")):
+            root = Path(tmp) / folder
+            (root / "scripts").mkdir(parents=True)
+            (root / "scripts" / "remember_explain.py").write_text(stub)
+            work = Path(tmp) / f"work-{abs(hash(folder))}"
+            work.mkdir()
+            res = subprocess.run(["sh", "-c", command_from_template(root, question)], cwd=work,
+                                 capture_output=True, text=True, timeout=30)
+            check(f"{label}: the script runs and gets the question exactly, line for line",
+                  res.stdout == f"GOT<{question}\n>", f"{res.stdout!r} {res.stderr[-200:]}")
+            check(f"{label}: no command inside the question ran",
+                  not list(work.glob("PWNED*")) and not list(Path(tmp).glob("PWNED*")))
+
+        # Control: the old template (fixed QUESTION marker) is broken by this very question,
+        # so the checks above can fail.
+        plain_root = Path(tmp) / "plain"
+        old_cmd = f"python3 {plain_root}/scripts/remember_explain.py <<'QUESTION'\n{question}\nQUESTION\n"
+        work = Path(tmp) / "work-old"
+        work.mkdir()
+        subprocess.run(["sh", "-c", old_cmd], cwd=work, capture_output=True, text=True, timeout=30)
+        check("control: the old QUESTION-marker design really is broken by this question",
+              (work / "PWNED_NEW").exists())
+    body = setup.slash_commands(Path("/some root/it's"))["remember-explain"]
+    check("paths in the command are shell-quoted", "'/some root/it'\"'\"'s/scripts/remember_explain.py'" in body, body[-900:])
+
+
+def test_eval_skips_short_questions():
+    """A question the hook would skip (under 15 characters, or only stop words) must not
+    crash the eval: it is recorded as skipped with no results and counted in the report."""
+    print("\n--- Eval: Skipped Questions ---")
+    import types
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_eval as ev
+    questions = [
+        {"id": "ok1", "kind": "answerable", "question": "tell me about the quokka zebracode rollback plan",
+         "expect": ["target"]},
+        {"id": "short1", "kind": "answerable", "question": "Species CSV?", "expect": ["target"]},
+        {"id": "stop1", "kind": "no_answer", "question": "what is this and that", "expect": []},
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        db_file = Path(tmp) / "m.db"
+        disk = sqlite3.connect(str(db_file))
+        _crafted_conn().backup(disk)
+        disk.close()
+        config = {"storage": {"mode": "synced", "local_db_path": str(db_file), "root_path": tmp}}
+        fake = types.ModuleType("sentence_transformers")
+        fake.SentenceTransformer = lambda *a, **k: types.SimpleNamespace(encode=lambda text: [0.0, 0.0, 0.0])
+        saved = sys.modules.get("sentence_transformers")
+        sys.modules["sentence_transformers"] = fake
+        try:
+            try:
+                result = ev.run_questions(config, [], questions, "ci")
+                crashed = None
+            except Exception as e:
+                result, crashed = None, f"{type(e).__name__}: {e}"
+        finally:
+            if saved is None:
+                sys.modules.pop("sentence_transformers", None)
+            else:
+                sys.modules["sentence_transformers"] = saved
+    check("a model-written question like 'Species CSV?' does not crash the eval", crashed is None, str(crashed))
+    if crashed:
+        return
+    per = result["per_question"]
+    note = ev.SKIPPED_NOTE
+    check("skipped questions are recorded as skipped (too short or no usable keywords)",
+          note == "skipped (too short or no usable keywords)"
+          and all(per[q][m]["skipped"] == note for q in ("short1", "stop1") for m in ev.METHODS))
+    check("skipped questions return nothing in every method",
+          all(per[q][m]["injected"] == 0 and per[q][m]["ids"] == [] for q in ("short1", "stop1") for m in ev.METHODS))
+    check("a normal question beside them is searched as usual and not marked skipped",
+          "skipped" not in per["ok1"]["keyword"] and per["ok1"]["keyword"]["injected"] > 0)
+    check("the skipped count and ids are reported separately",
+          result["counts"]["skipped"] == 2 and result["skipped_ids"] == ["short1", "stop1"])
+    report = ev.render_report(result)
+    check("the report says how many were skipped, which ones, and how they were scored",
+          "2 of those questions were skipped" in report and "short1" in report and "stop1" in report
+          and "count as misses" in report)
+    check("scores are unchanged by the skip: the skipped answerable question counts as a miss (1 of 2)",
+          result["methods"]["keyword"]["recall_at_5"] == 0.5 and result["methods"]["keyword"]["missed_ids"] == ["short1"])
+
+
+def test_eval_hidden_errors():
+    """Item 9: retrieve() records a meaning-search or gate error in its trace instead of
+    raising, so the eval used to score it as a quiet empty result. Now strict=True stops
+    with EvalError naming the question id and the step; strict=False (what the background
+    Memory Check uses) finishes, counts the question as errored and leaves it out of the
+    scores (neither found nor missed)."""
+    print("\n--- Eval: Hidden Errors ---")
+    import types
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_eval as ev
+    import retrieval
+    secret = "PRIVATE-TEXT-ZQX"
+    ok_q = {"id": "ok1", "kind": "answerable", "question": "tell me about the quokka zebracode rollback plan",
+            "expect": ["target"]}
+    gate_q = {"id": "gate1", "kind": "answerable", "question": "tell me about the quokka rollback gatefail plan",
+              "expect": ["target"]}
+    sem_q = {"id": "sem1", "kind": "answerable", "question": "tell me about the quokka rollback semfail plan",
+             "expect": ["target"]}
+    nogate_q = {"id": "none1", "kind": "no_answer", "question": "tell me about the marmot rollout nogatedecision",
+                "expect": []}
+    short_q = {"id": "short1", "kind": "answerable", "question": "Species CSV?", "expect": ["target"]}
+    questions = [ok_q, gate_q, sem_q, nogate_q, short_q]
+
+    def failing_semantic(*a, **k):
+        raise RuntimeError(secret)
+
+    real_gate = retrieval.should_use_semantic
+
+    def faulty_gate(prompt, keywords, rows, kw_info, conn):
+        if "gatefail" in prompt:
+            raise ValueError(secret)
+        if "nogatedecision" in prompt:
+            return None, "undecided"               # the gate returned, but never said yes or no
+        return real_gate(prompt, keywords, rows, kw_info, conn)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_file = Path(tmp) / "m.db"
+        disk = sqlite3.connect(str(db_file))
+        _crafted_conn().backup(disk)
+        disk.close()
+        config = {"storage": {"mode": "synced", "local_db_path": str(db_file), "root_path": tmp}}
+        fake = types.ModuleType("sentence_transformers")
+        fake.SentenceTransformer = lambda *a, **k: types.SimpleNamespace(encode=lambda text: [0.0, 0.0, 0.0])
+        saved_st = sys.modules.get("sentence_transformers")
+        sys.modules["sentence_transformers"] = fake
+        real_run_question = ev.run_question
+
+        def wrapped(semantic, conn, cfg, db_path, item, *a, **k):
+            if item["id"] == "sem1":              # meaning search itself fails for this one question
+                semantic = types.SimpleNamespace(semantic_search=failing_semantic)
+            return real_run_question(semantic, conn, cfg, db_path, item, *a, **k)
+
+        retrieval.should_use_semantic = faulty_gate
+        ev.run_question = wrapped
+        try:
+            def strict_error(q):
+                try:
+                    ev.run_questions(config, [], [ok_q, q], "ci", strict=True)
+                except ev.EvalError as e:
+                    return e
+                return None
+            cases = [("a gate exception", gate_q, "gate"), ("a meaning-search exception", sem_q, "semantic"),
+                     ("a gate that returns no decision", nogate_q, "gate")]
+            for label, q, field in cases:
+                e = strict_error(q)
+                check(f"strict: {label} stops the run with EvalError naming the question and the step",
+                      e is not None and e.question_id == q["id"] and e.field == field,
+                      f"{type(e).__name__ if e else None}")
+                check(f"strict: {label}: the printed error carries no underlying message text",
+                      e is not None and secret not in str(e) and q["id"] in str(e) and field in str(e))
+            check("strict: a clean set of questions does not raise", strict_error(short_q) is None)
+
+            result = ev.run_questions(config, [], questions, "ci", strict=False)
+            check("not strict: the run finishes and counts the three errored questions",
+                  result["counts"].get("errored") == 3
+                  and result["errored_ids"] == ["gate1", "sem1", "none1"], str(result["counts"]))
+            per = result["per_question"]
+            check("an errored question is marked in every method and returns nothing",
+                  all(per[q][m].get("errored") and per[q][m]["injected"] == 0
+                      for q in ("gate1", "sem1", "none1") for m in ev.METHODS))
+            check("errored questions are left out of the scores: neither found nor missed",
+                  result["counts"]["answerable"] == 2 and result["counts"]["no_answer"] == 0
+                  and "gate1" not in result["methods"]["always"]["missed_ids"]
+                  and "sem1" not in result["methods"]["always"]["missed_ids"])
+            check("a skipped question is still skipped, not mistaken for an errored one",
+                  "short1" not in result["errored_ids"] and result["counts"]["skipped"] == 1)
+            check("the report-level result never mentions the underlying error text",
+                  secret not in json.dumps(result))
+            check("run_questions defaults to not strict (other callers keep running)",
+                  ev.run_questions.__defaults__ is not None and ev.run_questions.__kwdefaults__ is None
+                  and ev.run_questions.__defaults__[-1] is False)
+            check("run_eval and the command line are strict by default",
+                  ev.run_eval.__defaults__[-1] is True)
+        finally:
+            retrieval.should_use_semantic = real_gate
+            ev.run_question = real_run_question
+            if saved_st is None:
+                sys.modules.pop("sentence_transformers", None)
+            else:
+                sys.modules["sentence_transformers"] = saved_st
+
+
+def test_memory_check_reports_errored():
+    """Memory Check's report says how many questions errored and were left out."""
+    print("\n--- Memory Check: Errored Questions ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_check as rc
+
+    def m(r):
+        return {"recall_at_5": r, "false_injection_rate": 0.0, "model_load_rate": 0.4}
+    result = {"methods": {"keyword": m(0.7), "on_miss": m(0.7), "always": m(0.7)},
+              "counts": {"answerable": 20, "no_answer": 4, "errored": 1}, "created_at": "2026-11-23T00:00:00Z",
+              "question_style": "reworded"}
+    check("the report says 1 question errored and was left out",
+          "1 question(s) errored and were left out" in rc.render_report(result))
+    del result["counts"]["errored"]
+    check("with no errored questions the report has no such line", "errored" not in rc.render_report(result))
+
+
+def test_cap_study_selector():
+    """scripts/remember_cap_study.py picks which rows each policy injects. These cases use
+    hand-built rows (no database, no model) to pin the sign, boundary and ordering rules
+    the policy numbers depend on. They do not prove the real retrieve() matches: the
+    G1-G3 match checks inside the study do that."""
+    print("\n--- Cap Study: Selector ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_cap_study as cs
+    import retrieval
+
+    def row(i, rank=-5.0, project="p", content=None):
+        return (project, "2026-01-01T00:00:00Z", content or f"memory number {i:03d} " + "word " * 12, rank, i)
+    ids = lambda rows: [r[4] for r in rows]
+    adjs = lambda table: (lambda r: table[r[4]])
+
+    # --- cap order: a row that quotes the question must not use up a slot ---
+    S = [row(1), row(2), row(3)]
+    keep = lambda r: r[4] != 1
+    ctf, weak = cs.cap_then_filter(S, 2, keep, lambda rows: False)
+    check("cap order: cap-then-filter lets the quoting row at position 1 use up a slot", ids(ctf) == [2] and not weak)
+    check("cap order: filter-then-cap fills the slots with real rows", ids(cs.filter_then_cap(S, 2, keep)) == [2, 3])
+    check("cap order: a weak capped list empties the keyword rows",
+          cs.cap_then_filter(S, 2, keep, lambda rows: True)[0] == [])
+    check("cap order: the weak-match gate sees only the first k rows",
+          cs.cap_then_filter(S, 2, keep, lambda rows: len(rows) == 3)[0] == [row(2)])
+
+    # --- duplicates and the floor ---
+    same = "the very same sentence text, long enough to share its first fifty characters"
+    survivors, dropped = cs.keyword_survivors([row(1, content=same)], [row(2, content=same), row(3)])
+    check("duplicates: the same project and first 50 characters keep only the first row",
+          ids(survivors) == [1, 3] and dropped["duplicate"] == 1)
+    other_project = cs.keyword_survivors([row(1, content=same, project="a")], [row(2, content=same, project="b")])[0]
+    check("duplicates: the same text in another project is not a duplicate", ids(other_project) == [1, 2])
+    edge, dropped = cs.keyword_survivors([row(1, rank=-2.0), row(2, rank=-1.99), row(3, rank=-2.01)], [])
+    check("floor: a rank of exactly -2.0 stays, one just weaker goes",
+          ids(edge) == [1, 3] and dropped["below_floor"] == 1)
+    seen_first, dropped = cs.keyword_survivors([row(1, rank=-1.0, content=same), row(2, rank=-9.0, content=same)], [])
+    check("floor: a weak row still marks its text as seen (a later strong copy is a duplicate)",
+          seen_first == [] and dropped == {"duplicate": 1, "below_floor": 1})
+
+    # --- RRF ties: keyword rows first ---
+    sem = [("p", "t", "meaning content " + "z" * 40, None, 90)]
+    check("RRF tie: equal scores keep the keyword row first", ids(cs.merge([row(1)], sem, 5)) == [1, 90])
+    check("RRF tie: the cap keeps the keyword row", ids(cs.merge([row(1)], sem, 1)) == [1])
+    check("merging restores the real cap afterwards", retrieval.MAX_RESULTS == 5)
+
+    # --- rho: ratio exactly rho is kept (adj values are negative) ---
+    rows = [row(1), row(2), row(3), row(4)]
+    adj = adjs({1: -2.0, 2: -1.0, 3: -0.99, 4: -2.0})
+    check("rho boundary: a ratio of exactly 0.5 is kept, just under is dropped",
+          ids(cs.margin_keyword(rows, 0.5, adj)) == [1, 2, 4])
+    check("rho: the original order is kept", ids(cs.margin_keyword(rows, 0.5, adj)) == sorted(ids(cs.margin_keyword(rows, 0.5, adj))))
+    check("rho: 0.75 of 0.3 is kept despite float noise",
+          ids(cs.margin_keyword([row(1), row(2)], 0.75, adjs({1: -0.3, 2: -0.225}))) == [1, 2])
+
+    # --- delta: cosine exactly best - delta is kept ---
+    mrows = [row(1), row(2), row(3)]
+    cos = {1: 0.80, 2: 0.70, 3: 0.69}
+    check("delta boundary: exactly best - 0.10 is kept (0.8 - 0.1 is 0.7000000000000001 in floats), 0.01 less is not",
+          ids(cs.margin_meaning(mrows, 0.10, cos)) == [1, 2])
+
+    # --- largest gap ---
+    check("gap: a list of one stays", ids(cs.gap_keyword([row(1)], adjs({1: -3.0}))) == [1]
+          and ids(cs.gap_meaning([row(1)], {1: 0.5})) == [1])
+    check("gap: two rows always become one",
+          ids(cs.gap_keyword([row(1), row(2)], adjs({1: -3.0, 2: -2.9}))) == [1]
+          and ids(cs.gap_meaning([row(1), row(2)], {1: 0.5, 2: 0.49})) == [1])
+    check("gap: equal gaps cut at the first one",
+          ids(cs.gap_keyword([row(1), row(2), row(3), row(4)], adjs({1: -8.0, 2: -4.0, 3: -2.0, 4: -1.0}))) == [1]
+          and ids(cs.gap_meaning([row(1), row(2), row(3)], {1: 0.75, 2: 0.5, 3: 0.25})) == [1])
+    check("gap: keyword cut is before the largest relative drop",
+          ids(cs.gap_keyword([row(1), row(2), row(3)], adjs({1: -10.0, 2: -9.0, 3: -3.0}))) == [1, 2])
+    check("gap: meaning cut is before the largest absolute drop",
+          ids(cs.gap_meaning([row(1), row(2), row(3)], {1: 0.9, 2: 0.85, 3: 0.5})) == [1, 2])
+    check("gap: an unsorted list is cut by score, and the survivors keep their original order",
+          ids(cs.gap_keyword([row(3), row(1), row(2)], adjs({1: -10.0, 2: -9.0, 3: -3.0}))) == [1, 2]
+          and ids(cs.gap_meaning([row(3), row(1), row(2)], {1: 0.9, 2: 0.85, 3: 0.5})) == [1, 2])
+
+    # --- token budget ---
+    big = [row(i, content=f"memory {i} " + "x" * 300) for i in range(1, 5)]
+    t2 = cs.tokens_of(big[:2])
+    check("budget: a row landing exactly on N is included", ids(cs.budget_trim(big, t2)) == [1, 2])
+    check("budget: one token less leaves it out", ids(cs.budget_trim(big, t2 - 1)) == [1])
+    check("budget: the first row is injected even when it alone is over N", ids(cs.budget_trim(big, 1)) == [1])
+    check("budget: nothing in, nothing out", cs.budget_trim([], 500) == [])
+
+    # --- the whole policy, on empty and one-sided pools; gates are taken as given ---
+    P = {p["id"]: p for p in cs.POLICIES}
+    cosm = {90: 0.6, 91: 0.5}
+    msem = [("p", "t", "meaning a " + "z" * 40, None, 90), ("p", "t", "meaning b " + "y" * 40, None, 91)]
+    L5 = [row(i) for i in range(1, 8)]
+    adj_flat = adjs({i: -5.0 for i in range(1, 8)})
+    run = lambda pid, mode, L, M, weak=False, fires=True: ids(
+        cs.policy_rows(P[pid], mode, L, M, cosm, adj_flat, weak, fires))
+    check("empty lists: every policy returns nothing when both lists are empty",
+          all(run(pid, "on_miss", [], []) == [] and run(pid, "always", [], []) == [] for pid in P))
+    check("keyword only (nothing from meaning): fixed cap 3 keeps the first 3, no cap keeps all 7",
+          run("F3", "on_miss", L5, [], fires=False) == [1, 2, 3] and run("T1", "on_miss", L5, [], fires=False) == list(range(1, 8)))
+    check("meaning only: rows come from meaning when the keyword list is empty",
+          run("F4", "on_miss", [], msem) == [90, 91])
+    check("a weak keyword gate empties the keyword rows for every policy, whatever its list says",
+          all(run(pid, "on_miss", L5, [], weak=True, fires=True) == [] for pid in P))
+    check("on_miss that does not fire returns only keyword rows; always merges meaning in",
+          run("F6", "on_miss", L5[:2], msem, fires=False) == [1, 2]
+          and sorted(run("F6", "always", L5[:2], msem)) == [1, 2, 90, 91])
+    check("fixed cap 1 injects exactly one row and no cap is bounded by the pool, not by 5",
+          len(run("F1", "always", L5, msem)) == 1 and len(run("T1", "always", L5, msem)) == 9)
+    check("the baseline policy is F4 = inject at most 5, filter-then-cap", cs.BASELINE_ID == "F4" and P["F4"]["k"] == 5)
+
+    # --- judging and choosing ---
+    session_of = {1: "ans", 2: "ans", 3: "other"}
+    j = cs.judge([row(3), row(1), row(2)], {"ans"}, session_of)
+    check("judge: found, first position, junk and neutral extra rows from the expected session",
+          j["found"] and j["first_pos"] == 2 and j["junk"] == 1 and j["neutral"] == 1)
+    check("judge: nothing injected is not found and has no tokens", cs.judge([], {"ans"}, session_of)["tokens"] == 0)
+    res = lambda found, junk, tok=100, na=0: {"tuning": {"found": found, "junk_per_question": junk, "tokens_mean": tok},
+                                              "no_answer": {"rows_total": na, "tokens_total": na * 50}}
+    pols = [P["F4"], P["F1"], P["S1"], P["T1"]]
+    results = {"F4": res(10, 1.0), "F1": res(9, 0.0), "S1": res(10, 0.2), "T1": res(10, 0.2)}
+    pick = cs.select_policy(pols, results, {"F4": 0, "F1": 0, "S1": 0, "T1": 0})
+    check("choosing: found within 1 of the best is a tie, so the least junk wins (F1 beats the baseline)", pick["id"] == "F1")
+    pick = cs.select_policy(pols, results, {"F4": 0, "F1": 2, "S1": 0, "T1": 0})
+    check("choosing: a policy that loses 2 questions is out whatever it saves; a tie then goes to the simpler kind (T1 over S1)",
+          pick["id"] == "T1")
+    check("choosing: nobody eligible gives no policy",
+          cs.select_policy([P["F1"]], results, {"F1": 2}) is None)
+    far = {"F4": res(10, 1.0), "F1": res(8, 0.0), "S1": res(10, 1.0), "T1": res(10, 1.0)}
+    check("choosing: 2 fewer found than the best is outside the noise band, whatever the junk",
+          cs.select_policy([P["F4"], P["F1"]], far, {"F4": 0, "F1": 0})["id"] == "F4")
+
+    # --- the output allow-list ---
+    good = {"dataset": {"role": "select", "questions": 3}, "policies": {"F4": {"label": "Inject at most 5, gates still see 5",
+            "overall": {"found": 1}, "per_question": {"q01": {"ids": [4, 5]}}}}}
+    allowed = dict(extra_keys=["q01", "F4"], extra_strings=["Inject at most 5, gates still see 5"])
+    check("allow-list: ids, labels and numbers pass", cs.check_allowlist(good, **allowed) is None)
+
+    def rejected(obj):
+        try:
+            cs.check_allowlist(obj, **allowed)
+        except ValueError:
+            return True
+        return False
+    check("allow-list: a snippet or content key is rejected",
+          rejected({"policies": {"F4": {"snippet": "x"}}}) and rejected({"content": 1}))
+    check("allow-list: a string of text (a question or memory) is rejected",
+          rejected({"dataset": {"role": "where is the api key stored now"}}))
+
+
+def test_cap_study_output_allowlist():
+    """The study's committed output may contain only ids and numbers. CI has no embedding
+    model, so it cannot rerun the study; it checks the real cap_study.json the study wrote on
+    the public synthetic set, and proves the check can fail (planted key and planted text)."""
+    print("\n--- Cap Study: Output Allow-list ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_cap_study as cs
+    runs = []
+    results = ROOT / "examples" / "eval" / "results"
+    for d in (results.iterdir() if results.exists() else []):
+        if (d / "cap_study.json").exists() and (d / "run.json").exists():
+            runs.append((json.loads((d / "run.json").read_text())["date"], d))
+    check("a cap_study.json from the synthetic run is committed alongside the other results", bool(runs))
+    if not runs:
+        return
+    folder = max(runs)[1]
+    out = json.loads((folder / "cap_study.json").read_text())
+    golden = yaml_load(ROOT / "examples" / "eval" / "golden_set.yaml")
+    qids = [q["id"] for q in golden["questions"]]
+    labels = [p["label"] for p in cs.POLICIES] + ["Inject at most 5 as it runs today (cap, then filter)"]
+    extra = dict(extra_keys=qids + [p["id"] for p in cs.POLICIES] + ["F4-ctf"] + list(cs.BUCKETS),
+                 extra_strings=qids + labels + [out["dataset"]["as_of"]])
+
+    def passes(obj):
+        try:
+            cs.check_allowlist(obj, **extra)
+            return True
+        except ValueError:
+            return False
+    check("every key and string in the real synthetic cap_study.json is allow-listed", passes(out))
+    planted = json.loads(json.dumps(out))
+    planted["policies"]["F4"]["per_question"][qids[0]]["snippet"] = "x"
+    check("control: a planted snippet key makes the check fail", not passes(planted))
+    planted = json.loads(json.dumps(out))
+    planted["dataset"]["role"] = golden["questions"][0]["question"]
+    check("control: planted question text makes the check fail", not passes(planted))
+    raw = (folder / "cap_study.json").read_text() + (folder / "cap_study.txt").read_text()
+    check("no question text from the golden set appears in the written files",
+          not any(q["question"].lower() in raw.lower() for q in golden["questions"]))
+
+
+def yaml_load(path):
+    import yaml
+    return yaml.safe_load(Path(path).read_text())
+
+
+def test_eval_mcp_is_read_only():
+    """The eval's mcp method reaches the typo-correction fallback when nothing matches;
+    that must not write to the database it is measuring (it used to CREATE a vocabulary
+    table in it).
+
+    This tests the eval's read-only wrapper (remember_eval.load_mcp_server), NOT the
+    live MCP server: the live server opens its database read-write, and its no-match
+    fallback can create a vocabulary table there."""
+    print("\n--- Eval: MCP Path Is Read-Only ---")
+    import hashlib
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, _mod = _build_synthetic_keyword_db(tmp)
+        conn = sqlite3.connect(db)
+        conn.execute("DROP TABLE IF EXISTS transcripts_fts_vocab")     # as in a database made before it existed
+        conn.commit()
+        conn.close()
+        def digest():          # the database file plus its write-ahead log, where an uncheckpointed write sits
+            wal = Path(db + "-wal")
+            return hashlib.sha256(Path(db).read_bytes() + (wal.read_bytes() if wal.exists() else b"")).hexdigest()
+        before = digest()
+        code = ("import functools, json, sys\n"
+                "sys.path.insert(0, sys.argv[1] + '/scripts')\n"
+                "import remember_eval as ev\n"
+                "server = ev.load_mcp_server(sys.argv[2])\n"
+                "calls = []\n"
+                "real = server.fuzzy_correct\n"
+                "@functools.wraps(real)\n"
+                "def spy(*a, **k):\n"
+                "    calls.append(1)\n"
+                "    return real(*a, **k)\n"
+                "server.fuzzy_correct = spy\n"
+                "rows, ms = ev.mcp_search(server, 'zzqxv blorptang wumpfle')\n"
+                "print('RESULT' + json.dumps({'fuzzy_calls': len(calls), 'rows': len(rows)}))\n")
+        res = subprocess.run([sys.executable, "-c", code, str(root), db], capture_output=True, text=True,
+                             timeout=300, cwd=str(root))
+        line = next((l for l in res.stdout.splitlines() if l.startswith("RESULT")), None)
+        out = json.loads(line[6:]) if line else {}
+        check("the eval's mcp call ran and reached the typo-correction fallback", out.get("fuzzy_calls") == 1,
+              res.stderr[-500:])
+        check("the database file is byte-identical after it", digest() == before)
+        wal = Path(db + "-wal")
+        check("nothing was left in a write-ahead log next to the database (a reader may create an empty one)",
+              not wal.exists() or wal.stat().st_size == 0, f"{wal.stat().st_size if wal.exists() else 0} bytes")
+        probe = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        names = [r[0] for r in probe.execute("SELECT name FROM sqlite_master WHERE name LIKE 'transcripts_fts_vocab%'")]
+        probe.close()
+        check("no vocabulary table was added to the database", names == [], str(names))
+
+
+def test_mcp_hides_machine_messages():
+    """The MCP search tool leaves out harness-written messages inside its SQL, before
+    LIMIT 20, so real matches still fill the answer even when machine messages outrank
+    them; leading newlines and tabs don't hide a marker (the hook's check misses newlines)."""
+    print("\n--- MCP: Machine Messages Hidden ---")
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, _mod = _build_synthetic_keyword_db(tmp)
+        conn = sqlite3.connect(db)
+        ins = ("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp, source) "
+               "VALUES (?, 'tdp', ?, 'user', ?, '2026-05-01T00:00:00Z', 'test')")
+        for i in range(25):      # more machine messages than the 20-row limit, each stronger than a real match
+            lead = ["", "\n", "\t", "  \r\n"][i % 4]
+            conn.execute(ins, (f"mach-{i}", f"mach-{i}", f"{lead}<system-reminder> zorbline zorbline zorbline {i}"))
+        for i in range(3):
+            conn.execute(ins, (f"real-{i}", f"real-{i}", f"We settled the zorbline question during planning, note {i}."))
+        conn.commit()
+        conn.close()
+        code = ("import json, sys\n"
+                "sys.path.insert(0, sys.argv[1] + '/scripts')\n"
+                "import remember_eval as ev\n"
+                "server = ev.load_mcp_server(sys.argv[2])\n"
+                "out = {}\n"
+                "for name, q, proj in (('plain', 'zorbline', None), ('project', 'zorbline', 'tdp'), ('fts', '\"zorbline\"', None)):\n"
+                "    rows, ms = ev.mcp_search(server, q) if proj is None else (None, 0)\n"
+                "    if rows is None:\n"
+                "        server._format_results, orig = (lambda r, header='': out.__setitem__('captured', [dict(x) for x in r]) or 'x'), server._format_results\n"
+                "        server.search_transcripts(q, proj); server._format_results = orig\n"
+                "        rows = out.pop('captured')\n"
+                "    out[name] = [r['preview'] for r in rows]\n"
+                "server.machine_filter_sql = lambda column='t.content': ''      # the same search with the filter removed\n"
+                "rows, ms = ev.mcp_search(server, 'zorbline')\n"
+                "out['unfiltered'] = [r['preview'] for r in rows]\n"
+                "print('RESULT' + json.dumps(out))\n")
+        res = subprocess.run([sys.executable, "-c", code, str(root), db], capture_output=True, text=True,
+                             timeout=300, cwd=str(root))
+        line = next((l for l in res.stdout.splitlines() if l.startswith("RESULT")), None)
+        out = json.loads(line[6:]) if line else {}
+        unfiltered = out.get("unfiltered", [])
+        check("control: without the filter the machine messages DO appear (so the checks below can fail)",
+              any("system-reminder" in p for p in unfiltered), f"{len(unfiltered)} rows; {res.stderr[-300:]}")
+        for name in ("plain", "project", "fts"):
+            previews = out.get(name, ["?"])
+            check(f"{name} search: only the 3 real matches come back (machine messages hidden, backfilled past the limit)",
+                  len(previews) == 3 and all("system-reminder" not in p for p in previews), f"{len(previews)} rows; {res.stderr[-300:]}")
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import config_utils as cu
+        frag = cu.machine_filter_sql("t.content")
+        check("machine_filter_sql() names every marker once and starts with AND NOT",
+              frag.startswith("AND NOT (") and all(frag.count(f"LIKE '{p}%'") == 1 for p in cu.MACHINE_GENERATED_PREFIXES))
+
+
+def test_mcp_no_rewrite_when_only_machine_rows_matched():
+    """If the typed word exists in memory only inside machine messages (which the search
+    hides), the tool must not rewrite it to a different word under "Did you mean". A word
+    that is really absent is still corrected, so the fix does not turn typo help off."""
+    print("\n--- MCP: No Rewrite When Only Hidden Rows Matched ---")
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, _mod = _build_synthetic_keyword_db(tmp)
+        conn = sqlite3.connect(db)
+        ins = ("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp, source) "
+               "VALUES (?, 'tdp', ?, 'user', ?, '2026-05-01T00:00:00Z', 'test')")
+        for i in range(3):       # the typed word, only in machine messages
+            conn.execute(ins, (f"m{i}", f"m{i}", f"<system-reminder> zorbline notice {i}"))
+        for i in range(60):      # a near spelling that is common in real messages
+            conn.execute(ins, (f"r{i}", f"r{i}", f"We discussed zorbling during planning, note {i}."))
+        conn.commit()
+        conn.close()
+        code = ("import json, sys\n"
+                "sys.path.insert(0, sys.argv[1] + '/scripts')\n"
+                "import remember_eval as ev\n"
+                "server = ev.load_mcp_server(sys.argv[2])\n"
+                "out = {'hidden_only': server.search_transcripts('zorbline xqzvk wmpfl'),\n"
+                "       'hidden_only_project': server.search_transcripts('zorbline xqzvk wmpfl', 'tdp'),\n"
+                "       'real_typo': server.search_transcripts('zorblinng xqzvk wmpfl')}\n"
+                "print('RESULT' + json.dumps(out))\n")
+        res = subprocess.run([sys.executable, "-c", code, str(root), db], capture_output=True, text=True,
+                             timeout=300, cwd=str(root))
+        line = next((l for l in res.stdout.splitlines() if l.startswith("RESULT")), None)
+        out = json.loads(line[6:]) if line else {}
+        for name in ("hidden_only", "hidden_only_project"):
+            text = out.get(name, "?")
+            check(f"{name}: no 'Did you mean' and no results for a different word",
+                  "Did you mean" not in text and "zorbling" not in text and text.startswith("No results"),
+                  text[:150] + res.stderr[-200:])
+        text = out.get("real_typo", "?")
+        check("control: a word that is really absent is still corrected", "Did you mean" in text and "zorbling" in text,
+              text[:150] + res.stderr[-200:])
+
+
+def test_mcp_hidden_rows_in_other_project_do_not_block_correction():
+    """The "only hidden rows matched" check is scoped to the project searched. If the
+    typed word sits only in machine messages of ANOTHER project, it is really absent
+    from the project searched, so a project search must still offer the correction."""
+    print("\n--- MCP: Hidden Rows In Another Project Do Not Block Correction ---")
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, _mod = _build_synthetic_keyword_db(tmp)
+        conn = sqlite3.connect(db)
+        ins = ("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp, source) "
+               "VALUES (?, ?, ?, 'user', ?, '2026-05-01T00:00:00Z', 'test')")
+        for i in range(3):       # the typed word, only in machine messages, under lgl
+            conn.execute(ins, (f"m{i}", "lgl", f"m{i}", f"<system-reminder> zorbline notice {i}"))
+        for i in range(60):      # a near spelling, common in real messages under tdp
+            conn.execute(ins, (f"r{i}", "tdp", f"r{i}", f"We discussed zorbling during planning, note {i}."))
+        conn.commit()
+        conn.close()
+        code = ("import json, sys\n"
+                "sys.path.insert(0, sys.argv[1] + '/scripts')\n"
+                "import remember_eval as ev\n"
+                "server = ev.load_mcp_server(sys.argv[2])\n"
+                "print('RESULT' + json.dumps(server.search_transcripts('zorbline xqzvk wmpfl', 'tdp')))\n")
+        res = subprocess.run([sys.executable, "-c", code, str(root), db], capture_output=True, text=True,
+                             timeout=300, cwd=str(root))
+        line = next((l for l in res.stdout.splitlines() if l.startswith("RESULT")), None)
+        text = json.loads(line[6:]) if line else "?"
+        check("hidden rows in another project: the project search still offers the correction",
+              "Did you mean" in text and "zorbling" in text, text[:150] + res.stderr[-200:])
+
+
+def test_explain_load_is_stable():
+    """finding 8: inside a long-running MCP server, explaining twice must not add to
+    sys.path again or load a second copy of retrieval / config_utils / semantic_search."""
+    print("\n--- Explain: Hook Loaded Once ---")
+    code = ("import sys; sys.path.insert(0, sys.argv[1])\n"
+            "import scripts.remember_explain as rx\n"
+            "h1 = rx._load_hook(); n1 = len(sys.path)\n"
+            "h2 = rx._load_hook(); n2 = len(sys.path)\n"
+            "same = all(sys.modules.get(n) is not None and sys.modules.get(n) is sys.modules.get('scripts.' + n)\n"
+            "           for n in ('retrieval', 'config_utils', 'semantic_search', 'metrics_utils'))\n"
+            "print(h1 is h2, n1 == n2, same)\n")
+    res = subprocess.run([sys.executable, "-c", code, str(ROOT)], capture_output=True, text=True, timeout=120,
+                         cwd=tempfile.gettempdir())
+    check("the hook is loaded once and sys.path is unchanged by a second call", res.stdout.split()[:2] == ["True", "True"],
+          res.stdout[-200:] + res.stderr[-300:])
+    check("the hook's bare imports are the same module objects as scripts.X (one copy, one model cache)",
+          res.stdout.split()[2:3] == ["True"], res.stdout[-200:] + res.stderr[-300:])
+
+
+def test_compare_differing_keys():
+    """remember_compare --expect names the keys that differ, never their values."""
+    print("\n--- remember_compare: differing_keys ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_compare as rc
+    a = {"summary": {"n": 1, "m": 2}, "per_question": {"q1": {"x": 1}, "q2": {"x": 2}}}
+    check("equal trees have no differing keys", rc.differing_keys(a, json.loads(json.dumps(a))) == [])
+    b = {"summary": {"n": 1, "m": 3}, "per_question": {"q1": {"x": 1}, "q3": {"x": 2}}}
+    check("differing and one-sided keys are named, values are not",
+          rc.differing_keys(a, b) == ["per_question.q2", "per_question.q3", "summary.m"])
+
+
+def test_run_eval_refuses_db_without_out():
+    """examples/eval/run_eval.py --db without --out would write real project names and
+    session ids into the tracked examples/eval/results/ folder: it must refuse first."""
+    print("\n--- run_eval.py: --db Needs --out ---")
+    results = ROOT / "examples" / "eval" / "results"
+    listing = lambda: sorted(str(p.relative_to(results)) for p in results.rglob("*"))
+    before = listing()
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_db = Path(tmp) / "not_a_real.db"
+        fake_db.write_bytes(b"")
+        res = subprocess.run([sys.executable, str(ROOT / "examples" / "eval" / "run_eval.py"), "--db", str(fake_db)],
+                             capture_output=True, text=True, timeout=60)
+    check("--db without --out exits with an error that says to pass --out",
+          res.returncode == 2 and "--db needs --out" in res.stderr, f"{res.returncode} {res.stderr[-300:]}")
+    check("nothing was written into examples/eval/results/", listing() == before)
+
+
+def test_run_eval_stamp_untracked():
+    """Finding 15: an untracked .py under hooks/, mcp/ or scripts/ is copied into the
+    eval sandbox, so the stamp must not claim the retrieval code matches the commit."""
+    print("\n--- run_eval.py: stamp sees untracked code ---")
+    spec = importlib.util.spec_from_file_location("run_eval_stamp", ROOT / "examples" / "eval" / "run_eval.py")
+    re_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(re_mod)
+
+    def fake_git(untracked):
+        def run(*a):
+            out = {"rev-parse": "abc1234\n", "ls-files": untracked, "status": ""}.get(a[0], "")
+            return subprocess.CompletedProcess(a, 0, stdout=out, stderr="")
+        return run
+    clean = re_mod.stamp(git=fake_git(""))
+    dirty = re_mod.stamp(git=fake_git("scripts/new_tool.py\nscripts/notes.txt\n"))
+    check("no untracked code: stamp says the code matches", clean["retrieval_code_matches_commit"] is True)
+    check("one untracked .py: stamp says it does not match", dirty["retrieval_code_matches_commit"] is False)
+    check("only the .py file is counted", dirty["untracked_code_files"] == 1)
+
+
+def test_compare_tool_logic():
+    """remember_compare: the sign test says what the plan promises, and the
+    cross-check names the question whose bias-on side differs from a reference."""
+    print("\n--- remember_compare.py: sign test and cross-check ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import remember_compare as rc
+    finally:
+        sys.path.remove(str(ROOT / "scripts"))
+    p, plain = rc.sign_test(3, 0)
+    check("3 vs 0 gives p = 0.25 and says luck is not ruled out", p == 0.25 and "rule out luck" in plain, plain)
+    check("0 vs 0 says nothing changed", rc.sign_test(0, 0)[0] == 1.0)
+    check("10 vs 0 is called a clear direction", "clear direction" in rc.sign_test(10, 0)[1])
+    with tempfile.TemporaryDirectory() as d:
+        ref = Path(d) / "cap_study.json"
+        ref.write_text(json.dumps({"policies": {"F4-ctf": {"per_question": {
+            "q1": {"found_flag": True, "first_pos": 1, "ids": [5]},
+            "q2": {"found_flag": False, "first_pos": None, "ids": [7]}}}}}))
+        mk = lambda found, pos, ids: {"j": {"on": {"on_miss": {"found": found, "first_pos": pos, "ids": ids}}}}
+        recs = [{"id": "q1", **mk(True, 1, [5])}, {"id": "q2", **mk(False, None, [8])}, {"id": "q3", **mk(False, None, [])}]
+        check("cross-check names only the questions that differ or are missing",
+              rc.cross_check(recs, ref) == ["q2", "q3"])
+
+
+def test_hook_equivalence_compare():
+    """tests/hook_equivalence.py compare() must notice a retrieval_events row that only
+    the new hook writes (it used to miss it when the old hook wrote none)."""
+    print("\n--- Hook Equivalence: compare() ---")
+    sys.path.insert(0, str(ROOT / "tests"))
+    import hook_equivalence as he
+
+    def run(events, **extra):
+        return {"name": "s1", "stdout_sha": "x", "log": [], "ev": {"outcome": "keyword_hit"}, "events": events, **extra}
+    row = {"outcome": "keyword_hit", "n_results": 1}
+    check("identical results (no rows either side, or the same row) show no difference",
+          he.compare([run([])], [run([])]) == [] and he.compare([run([row])], [run([dict(row)])]) == [])
+    check("a row only the NEW hook writes is a difference", len(he.compare([run([])], [run([row])])) == 1)
+    check("a row only the OLD hook writes is a difference", len(he.compare([run([row])], [run([])])) == 1)
+    check("a table present on one side only is a difference", len(he.compare([run(None)], [run([row])])) == 1)
+    check("a changed value inside a row is a difference",
+          len(he.compare([run([row])], [run([{**row, "n_results": 2}])])) == 1)
+    check("a recorded field that only the new run has is a difference",
+          len(he.compare([run([])], [run([], helper_started=1)])) == 1)
+
+    # labeled scenarios (B1.3): the pass rule and the label check
+    def res(name, outcome="keyword_hit", **extra):
+        return {"name": name, "stdout_sha": "x", "log": [], "ev": {"outcome": outcome}, "events": [], **extra}
+    mapped = {"name": "m", "folder_kind": "mapped", "expected_prefix": "tdp"}
+    unmapped = {"name": "u", "folder_kind": "unmapped", "expected_prefix": None}
+    clear = {"name": "clear:unmapped-pending", "folder_kind": "unmapped", "expected_prefix": None}
+    same = [res("m"), res("u")]
+    changed_u = [res("m"), res("u", outcome="semantic_hit")]
+    check("an unmapped difference that equals the stand-in passes",
+          he.judge([mapped, unmapped], same, changed_u, changed_u, private=True)["ok"])
+    check("an unmapped difference that does not equal the stand-in fails",
+          not he.judge([mapped, unmapped], same, changed_u, same, private=True)["ok"])
+    check("a mapped difference fails",
+          not he.judge([mapped, unmapped], same, [res("m", outcome="semantic_hit"), res("u")],
+                       [res("m"), res("u")], private=False)["ok"])
+    probe = lambda project, entry: {"_probe": {"project": project, "entry_match": entry}}
+    labels = [mapped, unmapped]
+    check("labels the old project_for_cwd agrees with pass",
+          he.check_labels(labels, [res("m", **probe("tdp", True)), res("u", **probe("oth", False))]) == [])
+    check("an unmapped label the old project_for_cwd contradicts fails",
+          he.check_labels(labels, [res("m", **probe("tdp", True)), res("u", **probe("tdp", True))]) == ["u"])
+    check("a mapped label the old project_for_cwd contradicts fails",
+          he.check_labels(labels, [res("m", **probe("oth", False)), res("u", **probe("oth", False))]) == ["m"])
+    check("a private run with no changed unmapped scenario fails; a synthetic one passes",
+          not he.judge([mapped, unmapped], same, same, same, private=True)["ok"]
+          and he.judge([mapped, unmapped], same, same, same, private=False)["ok"])
+    check("post-/clear in an unmapped folder must match the plain old hook",
+          not he.judge([clear], [res("clear:unmapped-pending")], [res("clear:unmapped-pending", outcome="post_clear")],
+                       [res("clear:unmapped-pending", outcome="post_clear")], private=False)["ok"])
 
 
 if __name__ == "__main__":
@@ -1581,6 +3186,35 @@ if __name__ == "__main__":
     test_semantic_modes()
     test_semantic_helper()
     test_memory_check()
+    test_hook_real_layout()
+    test_retrieve_trace()
+    test_explain_render()
+    test_package_import_identity()
+    test_explain_matches_hook()
+    test_hook_project_bias_by_folder()
+    test_explain_writes_nothing()
+    test_explain_clear_uses_hook_project()
+    test_explain_clear_mapped_folder_forced_project()
+    test_explain_hook_load_failure_keeps_sys_path()
+    test_empty_project_mapping_key()
+    test_setup_commands_only()
+    test_explain_command_template()
+    test_eval_skips_short_questions()
+    test_eval_hidden_errors()
+    test_memory_check_reports_errored()
+    test_cap_study_selector()
+    test_cap_study_output_allowlist()
+    test_eval_mcp_is_read_only()
+    test_run_eval_refuses_db_without_out()
+    test_mcp_hides_machine_messages()
+    test_explain_load_is_stable()
+    test_mcp_no_rewrite_when_only_machine_rows_matched()
+    test_mcp_hidden_rows_in_other_project_do_not_block_correction()
+    test_compare_differing_keys()
+    test_run_eval_stamp_untracked()
+    test_compare_tool_logic()
+    test_hook_equivalence_compare()
+    test_synthetic_eval()
 
     print("\n" + "=" * 60)
     print(f"  Results: {PASS} passed, {FAIL} failed")

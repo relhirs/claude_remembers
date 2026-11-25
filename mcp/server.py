@@ -5,10 +5,10 @@ server.py - MCP server for claude_remembers.
 Read-only access to the claude_remembers SQLite database.
 All writes are handled by hooks and scripts.
 
-11 tool functions:
+12 tool functions:
   get_profile, get_project_state, search_transcripts, get_session,
   get_recent_sessions, lookup_decision, lookup_fact, get_recent_summaries,
-  search_semantic, get_status, get_schema
+  search_semantic, explain_retrieval, get_status, get_schema
 
 Registration:
   claude mcp add remember-server python3 /path/to/mcp/server.py
@@ -29,7 +29,7 @@ from mcp.server.fastmcp import FastMCP
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from scripts.fuzzy_search import fuzzy_correct
 from scripts.semantic_search import semantic_search as _semantic_search
-from scripts.config_utils import resolve_db_path
+from scripts.config_utils import machine_filter_sql, resolve_db_path
 from scripts.profile_utils import fetch_merged_profile, format_profile_markdown
 
 # ---------------------------------------------------------------------------
@@ -192,7 +192,10 @@ def _build_fts_query(raw_query: str) -> str:
 
 def _run_fts_query(conn, fts_query: str, project: str | None, limit: int,
                     recency_bias: bool) -> list:
-    """Execute an FTS5 query and return rows."""
+    """Execute an FTS5 query and return rows. Harness-written messages (task
+    notices, system reminders, ...) are left out inside the query, before LIMIT,
+    so the tool still returns up to `limit` real messages."""
+    machine = machine_filter_sql("t.content")
     if recency_bias:
         order = "fts.rank * (1.0 / (1.0 + julianday('now') - julianday(t.timestamp)))"
     else:
@@ -205,6 +208,7 @@ def _run_fts_query(conn, fts_query: str, project: str | None, limit: int,
                FROM transcripts_fts fts
                JOIN transcripts t ON t.rowid = fts.rowid
                WHERE transcripts_fts MATCH ? AND t.project = ?
+                 {machine}
                ORDER BY {order}
                LIMIT ?""",
             (fts_query, project, limit),
@@ -216,10 +220,27 @@ def _run_fts_query(conn, fts_query: str, project: str | None, limit: int,
                FROM transcripts_fts fts
                JOIN transcripts t ON t.rowid = fts.rowid
                WHERE transcripts_fts MATCH ?
+                 {machine}
                ORDER BY {order}
                LIMIT ?""",
             (fts_query, limit),
         ).fetchall()
+
+
+def _matches_exist(conn, fts_query: str, project: str | None) -> bool:
+    """True if the query matches at least one message at all, machine messages
+    included. Used only to tell "nothing matched" from "only hidden messages matched"."""
+    if project:
+        row = conn.execute(
+            """SELECT 1 FROM transcripts_fts fts JOIN transcripts t ON t.rowid = fts.rowid
+               WHERE transcripts_fts MATCH ? AND t.project = ? LIMIT 1""",
+            (fts_query, project),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT 1 FROM transcripts_fts WHERE transcripts_fts MATCH ? LIMIT 1", (fts_query,)
+        ).fetchone()
+    return row is not None
 
 
 def _format_results(rows, header: str = "") -> str:
@@ -247,7 +268,8 @@ def search_transcripts(
     """FTS5 full-text search across all conversation transcripts.
     Args: query - search terms (natural language or FTS5 syntax),
     project - filter by prefix (optional).
-    Returns up to 20 results ranked by relevance."""
+    Returns up to 20 results ranked by relevance. Messages the harness wrote
+    (task notices, system reminders) are left out."""
     limit = 20
     recency_bias = False
     conn = get_db()
@@ -271,6 +293,11 @@ def search_transcripts(
         rows = _run_fts_query(conn, raw_fts_query, project, limit, recency_bias)
         if rows:
             return _format_results(rows)
+
+        # The raw query matched only messages that are hidden (machine-written): the
+        # word is not a typo, so do not rewrite it into a different word.
+        if _matches_exist(conn, raw_fts_query, project):
+            return f"No results for '{query}'."
 
         # Raw query found nothing - only now attempt fuzzy correction.
         corrected, corrections = fuzzy_correct(keywords, DB_PATH)
@@ -563,7 +590,42 @@ def search_semantic(
         return f"Semantic search error: {e}"
 
 # ---------------------------------------------------------------------------
-# 10. get_status
+# 10. explain_retrieval
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def explain_retrieval(
+    question: str,
+    project: str | None = None,
+    mode: str | None = None,
+    as_of: str | None = None,
+    exclude_session: str | None = None,
+) -> str:
+    """Explain step by step how memory retrieval handles one question, with the real numbers:
+    search words, match strength vs the bar it must clear, whether meaning search ran and why,
+    what was left out, and what would be added to Claude's context. It runs the same retrieve()
+    function as the live hook and writes nothing to the memory database.
+    When the user asks how something was found, quote the WHAT HAPPENED summary and the numbered
+    step headlines word for word; do not paraphrase the numbers.
+    Args: question - the question to explain; project - project prefix (default: from the working
+    folder); mode - force off, on_miss or always (default: the configured setting); as_of - ISO
+    time to ask as of (default: now); exclude_session - session id to leave out (default: the
+    newest session for the working folder)."""
+    try:
+        from scripts.remember_explain import ExplainError, explain
+    except Exception as e:
+        raise RuntimeError(
+            f"explain_retrieval is unavailable: scripts/remember_explain.py could not be imported "
+            f"({type(e).__name__}: {e}). Search tools still work.")
+    try:
+        return explain(question, project=project, mode=mode, as_of=as_of,
+                       exclude_session=exclude_session, root=ROOT)
+    except ExplainError as e:
+        raise RuntimeError(str(e))
+
+
+# ---------------------------------------------------------------------------
+# 11. get_status
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
@@ -641,7 +703,7 @@ def get_status() -> str:
         conn.close()
 
 # ---------------------------------------------------------------------------
-# 11. get_schema
+# 12. get_schema
 # ---------------------------------------------------------------------------
 
 @mcp.tool()

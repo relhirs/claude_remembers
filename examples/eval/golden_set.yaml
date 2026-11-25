@@ -1,0 +1,166 @@
+# Public synthetic golden set for scripts/remember_eval.py.
+# Every session and question here is invented. See examples/eval/README.md.
+# as_of fixes 'now' for the keyword search's recency weighting, so results
+# do not drift as the calendar moves on.
+as_of: "2026-06-01T00:00:00Z"
+exclude_sessions: []
+questions:
+  - id: q01
+    kind: answerable
+    project: tdp
+    tags: [exact_words]
+    question: "where does the species picker get its list of species from?"
+    expect: [syn-tdp-04]
+  - id: q02
+    kind: answerable
+    project: tdp
+    tags: [exact_words]
+    question: "what horizontal accuracy makes a GPS reading get flagged amber?"
+    expect: [syn-tdp-05]
+  - id: q03
+    kind: answerable
+    project: lgl
+    tags: [exact_words]
+    question: "which ingredient tags print a bold warning line on the allergen labels?"
+    expect: [syn-lgl-03]
+  - id: q04
+    kind: answerable
+    project: lgl
+    tags: [exact_words]
+    question: "how many daily pg_dump copies of Postgres do we keep?"
+    expect: [syn-lgl-04]
+  - id: q05
+    kind: answerable
+    project: lgl
+    tags: [exact_words]
+    question: "is the cafe discount applied before or after the wholesale price rounding?"
+    expect: [syn-lgl-05]
+  - id: q06
+    kind: answerable
+    project: qst
+    tags: [exact_words]
+    question: "why did we switch the markdown parser to goldmark?"
+    expect: [syn-qst-01]
+  - id: q07
+    kind: answerable
+    project: qst
+    tags: [exact_words]
+    question: "how long does a full rebuild of all 900 posts take?"
+    expect: [syn-qst-04]
+  - id: q08
+    kind: answerable
+    project: qst
+    tags: [exact_words]
+    question: "how many posts go into the RSS feed, and are drafts left out?"
+    expect: [syn-qst-05]
+  - id: q09
+    kind: answerable
+    project: tdp
+    tags: [paraphrase]
+    question: "what happens when several people modify a single entry without internet, then come back online?"
+    expect: [syn-tdp-01]
+  - id: q10
+    kind: answerable
+    project: tdp
+    tags: [paraphrase]
+    question: "how does the app know which sea creatures someone can choose from?"
+    expect: [syn-tdp-04]
+  - id: q11
+    kind: answerable
+    project: tdp
+    tags: [paraphrase]
+    question: "when is the phone's position considered too imprecise, so a human has to double check it?"
+    expect: [syn-tdp-05]
+  - id: q12
+    kind: answerable
+    project: lgl
+    tags: [paraphrase]
+    question: "how would a customer find out a pastry could be dangerous for someone with food sensitivities?"
+    expect: [syn-lgl-03]
+  - id: q13
+    kind: answerable
+    project: lgl
+    tags: [paraphrase]
+    question: "if the server died tonight, how far back could we restore the shop's data?"
+    expect: [syn-lgl-04]
+  - id: q14
+    kind: answerable
+    project: qst
+    tags: [paraphrase]
+    question: "what made us replace the text-to-HTML converter last time?"
+    expect: [syn-qst-01]
+  - id: q15
+    kind: answerable
+    project: qst
+    tags: [paraphrase]
+    question: "why is regenerating the site quick when I only edit one article?"
+    expect: [syn-qst-04]
+  - id: q16
+    kind: answerable
+    project: tdp
+    tags: [recency]
+    question: "what is the photo cap per survey and what size are photos resized to?"
+    expect: [syn-tdp-03]
+    superseded: [syn-tdp-02]
+  - id: q17
+    kind: answerable
+    project: lgl
+    tags: [recency]
+    question: "what did we decide the reorder point for bread flour is?"
+    expect: [syn-lgl-02]
+    superseded: [syn-lgl-01]
+  - id: q18
+    kind: answerable
+    project: qst
+    tags: [recency]
+    question: "where is the docs site hosted?"
+    expect: [syn-qst-03]
+    superseded: [syn-qst-02]
+  - id: q19
+    kind: answerable
+    project: tdp
+    tags: [machine_generated]
+    question: "how does the tidal-chart screen get its tide predictions?"
+    expect: [syn-tdp-07]
+  - id: q20
+    kind: answerable
+    project: lgl
+    tags: [machine_generated]
+    question: "did anyone check the wholesale rounding change against every SKU before it shipped?"
+    expect: [syn-lgl-06]
+  - id: n01
+    kind: no_answer
+    project: qst
+    tags: [no_answer]
+    question: "what color scheme did we pick for the dark mode theme?"
+    expect: []
+  - id: n02
+    kind: no_answer
+    project: tdp
+    tags: [no_answer]
+    question: "how do volunteers get a push notification when their survey is approved?"
+    expect: []
+  - id: n03
+    kind: no_answer
+    project: lgl
+    tags: [no_answer]
+    question: "which payment provider handles card refunds at the counter?"
+    expect: []
+  - id: n04
+    kind: no_answer
+    project: qst
+    tags: [no_answer]
+    question: "what is the plan for translating the blog posts into Spanish?"
+    expect: []
+  - id: n05
+    kind: no_answer
+    project: lgl
+    tags: [no_answer]
+    question: "did we ever add rate limiting to the public API?"
+    expect: []
+  - id: n06
+    kind: no_answer
+    project: lgl
+    tags: [no_answer]
+    question: "which font did we choose for the printed menu boards?"
+    expect: []

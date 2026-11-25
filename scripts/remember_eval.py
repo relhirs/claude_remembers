@@ -4,7 +4,7 @@ remember_eval.py - Score memory search against a golden set of questions.
 
 A golden set is a list of questions whose answer you already know lives in a
 specific past session (plus some questions with NO answer in memory). This
-script asks each question four ways and reports, in plain language, how often
+script asks each question each of the ways below and reports, in plain language, how often
 the right session shows up and how often it injects junk when it shouldn't:
 
     keyword          keyword search only, with its weak-match gate
@@ -14,18 +14,28 @@ the right session shows up and how often it injects junk when it shouldn't:
                      keyword can't be trusted (config: mode: on_miss)
     always           keyword plus meaning search on every prompt, merged by
                      Reciprocal Rank Fusion (config: mode: always)
+    mcp              the MCP tool search_transcripts, exactly as Claude calls it
+                     when it looks memory up by hand (mcp/server.py, unchanged;
+                     its rows are captured, not re-implemented)
 
 Read-only: it never writes to the transcript tables. The only write is saving
 the finished result to metrics_snapshots (--no-save skips that).
 
-The golden set lives in eval/golden_set.yaml (personal, gitignored):
+The golden set lives in eval/golden_set.yaml (personal, gitignored); a public,
+synthetic one lives in examples/eval/golden_set.yaml:
 
+    as_of: "2026-06-01T00:00:00Z"  # optional: fixes "now" for keyword recency
     exclude_sessions: [<session ids that quote the questions, e.g. today's>]
     questions:
       - id: q01
         kind: answerable           # or no_answer
-        question: "where is the anthropic key stored now"
+        question: "where is the api key stored now"
         expect: [<session ids that hold the answer; any of them counts>]
+        tags: [recency]            # optional: scores are also broken down by tag
+        superseded: [<older session with an out-of-date answer>]  # optional,
+                                   # never counts as a hit; checks newer-first
+        project: tdp               # optional: used by remember_baseline.py
+                                   # --questions, not here (no project boost)
 
 Known limits, printed in the report: a question is "right" if ANY message from
 an expected session comes back (session-level, not exact-message); the search
@@ -36,9 +46,11 @@ Usage:
     python3 scripts/remember_eval.py
     python3 scripts/remember_eval.py --golden eval/golden_candidates.yaml
     python3 scripts/remember_eval.py --label before-gate --json
+    python3 scripts/remember_eval.py --keyword-only   # no model: keyword, keyword_ungated, mcp
 """
 
 import argparse
+import contextlib
 import importlib.util
 import json
 import os
@@ -47,25 +59,28 @@ import sqlite3
 import statistics
 import sys
 import time
+import types
 
 import yaml
 
 from config_utils import is_machine_generated, resolve_db_path
 from metrics_utils import ensure_metrics_schema, utc_now
-from remember_baseline import git_stamp, load_hook
+from remember_baseline import git_stamp
+import retrieval
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_GOLDEN = ROOT / "eval" / "golden_set.yaml"
-SEMANTIC_CUTOFF = 0.35
-RRF_K = 60
-CANDIDATES = 30            # meaning-search rows considered before the cutoff
 METHODS = ("keyword", "keyword_ungated", "meaning", "on_miss", "always")
+KEYWORD_METHODS = ("keyword", "keyword_ungated")      # need no model
+SKIPPED_NOTE = "skipped (too short or no usable keywords)"
+ALL_METHODS = METHODS + ("mcp",)
 METHOD_LABELS = {
     "keyword": "Keyword search only",
     "keyword_ungated": "Keyword, without the weak-match gate",
     "meaning": "Meaning-based search only",
     "on_miss": "Meaning search only when keyword looks unreliable (mode: on_miss)",
     "always": "Keyword + meaning on every prompt (mode: always)",
+    "mcp": "MCP search_transcripts (Claude looking memory up by hand)",
 }
 
 
@@ -74,6 +89,86 @@ def load_golden(path):
     if isinstance(data, list):
         data = {"questions": data}
     return data.get("exclude_sessions") or [], data["questions"]
+
+
+def golden_as_of(path):
+    """The golden set's fixed 'now' (ISO string), or None to use the clock."""
+    data = yaml.safe_load(pathlib.Path(path).read_text())
+    return data.get("as_of") if isinstance(data, dict) else None
+
+
+def _ro_connect(db_path):
+    """Read-only connection; the file: URI form also works with Windows paths."""
+    return sqlite3.connect(pathlib.Path(db_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=5.0)
+
+
+def load_mcp_server(db_path, server_path=None):
+    """Import mcp/server.py by path (or the copy at `server_path`) and point it at
+    `db_path`, read-only.
+
+    The module itself is not changed: only its connection factory is swapped
+    for a read-only one, so the eval measures exactly what the tool does.
+    """
+    spec = importlib.util.spec_from_file_location("remember_mcp_server", server_path or ROOT / "mcp" / "server.py")
+    server = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(server)
+
+    def read_only_db():
+        conn = _ro_connect(db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    server.get_db = read_only_db
+    server.DB_PATH = db_path
+    return server
+
+
+@contextlib.contextmanager
+def _read_only_fuzzy(server):
+    """While active, the typo-correction step the MCP tool falls back to when
+    nothing matches cannot write. Left alone, fuzzy_search opens the database
+    read-write and runs CREATE VIRTUAL TABLE IF NOT EXISTS for its vocabulary
+    table. Here its sqlite3 connections are read-only and that table is made in
+    the connection's temporary schema instead (temp tables never touch the
+    file). The correction logic itself is the real one, unchanged, and
+    mcp/server.py and fuzzy_search.py are not edited: only names inside the
+    already-loaded fuzzy_search module are swapped, then put back."""
+    fuzzy = sys.modules.get(getattr(server.fuzzy_correct, "__module__", None))
+    if fuzzy is None:
+        yield
+        return
+    saved = (fuzzy.sqlite3, fuzzy._ensure_vocab_table)
+
+    def ensure_temp_vocab(conn):
+        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.transcripts_fts_vocab "
+                     "USING fts5vocab(main, transcripts_fts, row)")
+
+    fuzzy.sqlite3 = types.SimpleNamespace(connect=lambda path, *a, **k: _ro_connect(path), Connection=sqlite3.Connection)
+    fuzzy._ensure_vocab_table = ensure_temp_vocab
+    try:
+        yield
+    finally:
+        fuzzy.sqlite3, fuzzy._ensure_vocab_table = saved
+
+
+def mcp_search(server, question):
+    """Call the real search_transcripts and capture the rows it formats."""
+    captured = []
+    original = server._format_results
+
+    def capture(rows, header=""):
+        captured.extend(rows)
+        return original(rows, header)
+
+    server._format_results = capture
+    try:
+        started = time.perf_counter()
+        with _read_only_fuzzy(server):
+            server.search_transcripts(question)
+        ms = (time.perf_counter() - started) * 1000
+    finally:
+        server._format_results = original
+    return captured, ms
 
 
 def _rank_sessions(rows):
@@ -86,16 +181,6 @@ def _rank_sessions(rows):
     return out
 
 
-def _rrf(*ranked_lists):
-    """Reciprocal Rank Fusion: each list votes 1/(k + rank) for a row; best total wins."""
-    score = {}
-    for lst in ranked_lists:
-        for rank, (row_id, session) in enumerate(lst, 1):
-            entry = score.setdefault(row_id, [0.0, session])
-            entry[0] += 1.0 / (RRF_K + rank)
-    return [(rid, s) for rid, (_, s) in sorted(score.items(), key=lambda kv: -kv[1][0])]
-
-
 def _clean(question, rows):
     """Drop rows that merely quote the question (the questions themselves get
     written into transcripts when they are discussed)."""
@@ -103,81 +188,173 @@ def _clean(question, rows):
     return [r for r in rows if q not in (r["content"] or "").lower()]
 
 
-def run_question(hook, semantic, conn, config, db_path, item, exclude, cold_start_ms=0.0):
-    """Ask one question every way, through the hook's own functions so the
-    eval measures what the live hook would do. `cold_start_ms` is charged to
-    on_miss whenever its gate loads the model."""
-    question = item["question"]
+def make_leak_filter(conn, exclude, question, session_of):
+    """The eval's row filter for retrieve(): drops rows from excluded sessions
+    and rows that quote the question (the questions themselves get written into
+    transcripts when discussed). Every row that passes has its session recorded
+    in `session_of` (id -> session id). Module-level so remember_cap_study.py
+    applies exactly the filter the eval uses."""
     quoted = question.lower().strip()
-    exclude_one = exclude[0] if exclude else None
-    session_of = {}
 
-    def keyword_rows(keywords, gated, info=None):
-        if not keywords:
-            return [], 0.0
-        fts_query = " OR ".join(f'"{kw}"' for kw in keywords)
-        started = time.perf_counter()
-        raw = hook._keyword_search(conn, fts_query, None, exclude_session=exclude_one,
-                                   gated=gated, info=info)
-        ms = (time.perf_counter() - started) * 1000
-        rows = []
-        for row in raw:                      # (project, timestamp, content, rank, id)
+    def leak_filter(kind, row):
+        if kind == "keyword":                # (project, timestamp, content, rank, id)
             found_session = conn.execute("SELECT session_id FROM transcripts WHERE id = ?",
                                          (row[4],)).fetchone()
             session = found_session[0] if found_session else None
             if session in exclude or quoted in (row[2] or "").lower():
-                continue
+                return False
             session_of[row[4]] = session
-            rows.append(row)
-        return rows, ms
+            return True
+        session_of[row["id"]] = row["session_id"]           # meaning search result (dict)
+        return row["session_id"] not in exclude and quoted not in (row["content"] or "").lower()
 
-    keywords = hook.build_search_keywords(question)
-    kw_info = {}
-    kw_rows, kw_ms = keyword_rows(keywords, gated=True, info=kw_info)
-    ug_rows, ug_ms = keyword_rows(keywords, gated=False)
+    return leak_filter
 
-    started = time.perf_counter()
-    found = semantic.semantic_search(conn, config, question, project=None, limit=CANDIDATES)
-    sem_ms = (time.perf_counter() - started) * 1000
-    usable = []
-    for r in found:
-        session_of[r["id"]] = r["session_id"]
-        if r["session_id"] not in exclude and quoted not in (r["content"] or "").lower():
-            usable.append(r)
-    sem_rows = hook.semantic_rows(usable, None, exclude_one)
-    best_similarity = round(usable[0]["similarity"], 3) if usable else None
 
-    always_rows = hook.merge_results(kw_rows, sem_rows)
-    fires, reason = hook.should_use_semantic(question, keywords, kw_rows, kw_info, conn)
-    on_miss_rows = always_rows if fires else kw_rows
+class EvalError(Exception):
+    """A question hit an error that would otherwise be swallowed (meaning search,
+    the on_miss gate). The text names only the question id and the step, never
+    the underlying message (which `.message` keeps), so it is safe to print for
+    a private golden set."""
+
+    def __init__(self, question_id, field, message=""):
+        super().__init__(f"question {question_id}: error in {field}")
+        self.question_id, self.field, self.message = question_id, field, message
+
+
+def run_question(semantic, conn, config, db_path, item, exclude, cold_start_ms=0.0,
+                 as_of=None, server=None, keyword_only=False, strict=False, trace=None):
+    """Ask one question every way with ONE retrieve() call (the function the live
+    hook runs), then read each method's rows from what it did. `cold_start_ms`
+    is charged to on_miss whenever its gate loads the model. `as_of` fixes
+    "now" for the keyword search's recency weighting (None = the clock, as
+    live). `server` (from load_mcp_server) adds the mcp method; `keyword_only`
+    skips every method that needs the embedding model.
+
+    retrieve() records meaning-search and gate errors in its trace instead of
+    raising, so they used to vanish into an empty result. Now a question whose
+    meaning search or gate errored (or whose gate never decided) either raises
+    EvalError (`strict`) or comes back marked "errored" in every method and is
+    left out of scoring (not strict). `trace`, when given, is filled with
+    retrieve()'s trace (the cap study reads the meaning rows from it)."""
+    question = item["question"]
+    quoted = question.lower().strip()
+    exclude_one = exclude[0] if exclude else None
+    session_of = {}
+    leak_filter = make_leak_filter(conn, exclude, question, session_of)
 
     def pack(rows, ms, **extra):
         return {"sessions": _rank_sessions([(r[4], session_of.get(r[4])) for r in rows]),
+                "ids": [r[4] for r in rows],
+                "machine_rows": sum(1 for r in rows if is_machine_generated(r[2])),
                 "injected": len(rows), "ms": ms, **extra}
 
-    return {
+    # mode "always" with no helper function embeds in-process, so meaning,
+    # always and on_miss can all be read from one pass.
+    trace = {} if trace is None else trace
+    result = retrieval.retrieve(conn, config, question, project=None, exclude_session=exclude_one,
+                                as_of=as_of, mode="off" if keyword_only else "always",
+                                semantic_fn=semantic.semantic_search, row_filter=leak_filter, trace=trace)
+    keywords = trace["keywords"]["kept"]
+    if trace["skip"]:                        # nothing to search: every method returns nothing
+        kw_rows, ug_rows, kw_ms = [], [], 0.0
+    else:
+        kw_rows, ug_rows, kw_ms = trace["keyword_rows"], trace["ungated_rows"], trace["keyword"]["ms"]
+
+    out = {
         "keyword": pack(kw_rows, kw_ms, keywords=keywords),
-        "keyword_ungated": pack(ug_rows, ug_ms, keywords=keywords),
-        "meaning": pack(sem_rows[:hook.MAX_RESULTS], sem_ms, best_similarity=best_similarity),
+        "keyword_ungated": pack(ug_rows, kw_ms, keywords=keywords),
+    }
+    if server is not None:
+        # Same leak filters as above (excluded sessions, rows quoting the
+        # question). The tool hides machine-written messages itself (in its SQL),
+        # so no machine-row filter is added here; "machine_rows" should be 0.
+        found, mcp_ms = mcp_search(server, question)
+        mcp_rows = [r for r in found
+                    if r["session_id"] not in exclude and quoted not in (r["preview"] or "").lower()]
+        out["mcp"] = {"sessions": _rank_sessions([(None, r["session_id"]) for r in mcp_rows]),
+                      "ids": [f"{r['session_id']}@{r['timestamp']}" for r in mcp_rows],
+                      "machine_rows": sum(1 for r in mcp_rows if is_machine_generated(r["preview"])),
+                      "injected": len(mcp_rows), "ms": mcp_ms}
+    if trace["skip"]:
+        for method in KEYWORD_METHODS:
+            out[method]["skipped"] = SKIPPED_NOTE
+    if trace["skip"]:
+        for method in KEYWORD_METHODS:
+            out[method]["skipped"] = SKIPPED_NOTE
+    if keyword_only:
+        return out
+
+    if trace["skip"]:
+        # retrieve() stopped before any search (too short, or only stop words), so
+        # it recorded no meaning-search step. Every hook method returns nothing.
+        out.update({
+            "meaning": pack([], 0.0, best_similarity=None),
+            "on_miss": pack([], 0.0, fired=False, reason=trace["skip"]),
+            "always": pack([], 0.0),
+        })
+        for method in METHODS:
+            out[method]["skipped"] = SKIPPED_NOTE
+        return out
+
+    sem = trace["semantic"]
+    # Checked after the skip return above: a skipped question has no meaning-search step.
+    errored = (("gate", trace["gate"]["error"]) if trace["gate"]["error"] else
+               ("semantic", sem["error"]) if sem["error"] else
+               ("gate", "the on_miss gate never decided") if trace["gate"]["fires"] is None else None)
+    if errored:
+        if strict:
+            raise EvalError(item["id"], errored[0], errored[1])
+        for method in METHODS:
+            out[method] = pack([], 0.0, **({"keywords": keywords} if method in KEYWORD_METHODS else {}))
+        for method in out:
+            out[method]["errored"] = errored[0]
+        return out
+    sem_ms = sem["ms"] or 0.0
+    sem_rows = trace.get("semantic_rows", [])
+    first = sem["usable_first_similarity"]
+    best_similarity = round(first, 3) if first is not None else None
+
+    always_rows = result.rows
+    fires, reason = trace["gate"]["fires"], trace["gate"]["reason"]
+    on_miss_rows = always_rows if fires else kw_rows
+
+    out.update({
+        "meaning": pack(sem_rows[:retrieval.MAX_RESULTS], sem_ms, best_similarity=best_similarity),
         "on_miss": pack(on_miss_rows, kw_ms + (sem_ms + cold_start_ms if fires else 0.0),
                         fired=fires, reason=reason),
         "always": pack(always_rows, kw_ms + sem_ms),
-    }
+    })
+    return out
+
+
+def _first_rank(sessions, wanted):
+    return next((i for i, s in enumerate(sessions, 1) if s in wanted), None)
 
 
 def score(per_question, questions):
-    """Aggregate per-method metrics. Answerable: recall@k, MRR. No-answer: false injection."""
+    """Aggregate per-method metrics. Answerable: recall@k, MRR. No-answer: false
+    injection. All questions: how often a machine-generated row came back.
+    Optional extras when the golden set has them: per-tag recall and, for
+    questions with a `superseded` session, whether the newer answer ranked first."""
     out = {}
+    # A question that errored (run_question, not strict) has no result to score:
+    # it is neither found nor missed, so it is left out of every denominator.
+    questions = [q for q in questions if "errored" not in per_question.get(q["id"], {}).get("keyword", {})]
     answerable = [q for q in questions if q["kind"] == "answerable"]
     no_answer = [q for q in questions if q["kind"] == "no_answer"]
-    for method in METHODS:
+    first_q = next(iter(per_question.values()), {})
+    methods = [m for m in ALL_METHODS if m in first_q]
+    for method in methods:
         hits = {1: 0, 3: 0, 5: 0}
         rr = []
         misses = []
+        firsts = {}
         for q in answerable:
             sessions = per_question[q["id"]][method]["sessions"]
             expect = set(q["expect"])
-            first = next((i for i, s in enumerate(sessions, 1) if s in expect), None)
+            first = _first_rank(sessions, expect)
+            firsts[q["id"]] = first
             rr.append(1.0 / first if first else 0.0)
             for k in hits:
                 hits[k] += bool(first and first <= k)
@@ -200,41 +377,94 @@ def score(per_question, questions):
         }
         if fired:
             out[method]["model_load_rate"] = round(sum(fired) / len(fired), 3)
+        if all("machine_rows" in per_question[q["id"]][method] for q in questions):
+            out[method]["machine_rows_returned"] = sum(
+                per_question[q["id"]][method]["machine_rows"] > 0 for q in questions)
+        tags = sorted({t for q in answerable for t in (q.get("tags") or [])})
+        if tags:
+            out[method]["by_tag"] = {}
+            for tag in tags:
+                tagged = [q for q in answerable if tag in (q.get("tags") or [])]
+                out[method]["by_tag"][tag] = {
+                    "n": len(tagged),
+                    "recall_at_1": round(sum(bool(firsts[q["id"]] and firsts[q["id"]] <= 1)
+                                             for q in tagged) / len(tagged), 3),
+                    "recall_at_5": round(sum(bool(firsts[q["id"]] and firsts[q["id"]] <= 5)
+                                             for q in tagged) / len(tagged), 3)}
+        dated = [q for q in answerable if q.get("superseded")]
+        if dated:
+            newer = older = 0
+            for q in dated:
+                sessions = per_question[q["id"]][method]["sessions"]
+                new_at, old_at = firsts[q["id"]], _first_rank(sessions, set(q["superseded"]))
+                if new_at and (old_at is None or new_at < old_at):
+                    newer += 1
+                elif old_at:
+                    older += 1
+            out[method]["recency"] = {"n": len(dated), "newer_ranked_first": newer,
+                                      "older_ranked_first": older,
+                                      "neither_found": len(dated) - newer - older}
     return out
 
 
-def run_eval(config, golden_path):
+def run_eval(config, golden_path, include_mcp=False, keyword_only=False, strict=True):
     exclude, questions = load_golden(golden_path)
-    return run_questions(config, exclude, questions, str(golden_path))
+    return run_questions(config, exclude, questions, str(golden_path), as_of=golden_as_of(golden_path),
+                         include_mcp=include_mcp, keyword_only=keyword_only, strict=strict)
 
 
-def run_questions(config, exclude, questions, source):
+def run_questions(config, exclude, questions, source, as_of=None, include_mcp=False, keyword_only=False,
+                  strict=False):
     """Score a list of questions every way. Used with a hand-checked golden
-    set by this script and with auto-generated questions by remember_check.py."""
+    set by this script and with auto-generated questions by remember_check.py.
+    The defaults (no mcp, clock time, all model methods) are what
+    remember_check.py relies on.
+
+    `strict` decides what a question that hit a meaning-search or gate error
+    does (see run_question): True stops the run with EvalError (the command line
+    and the cap study); False (the default, what the background Memory Check
+    uses) records it, leaves it out of the scores and reports it in
+    counts.errored / errored_ids, so a check never crashes on one bad question."""
     db_path = resolve_db_path(config)
-    hook = load_hook()
     spec = importlib.util.spec_from_file_location("semantic_search", ROOT / "scripts" / "semantic_search.py")
     semantic = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(semantic)
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0)
+    conn = _ro_connect(db_path)
     try:
-        started = time.perf_counter()
-        semantic.get_embed_model(config)              # load once; reported separately
-        model_load_s = time.perf_counter() - started
-        per_question = {q["id"]: run_question(hook, semantic, conn, config, db_path, q, exclude,
-                                              cold_start_ms=model_load_s * 1000)
+        model_load_s = None
+        if not keyword_only:
+            started = time.perf_counter()
+            semantic.get_embed_model(config)              # load once; reported separately
+            model_load_s = time.perf_counter() - started
+        # After the timing above: server.py imports sentence_transformers at
+        # module level, and loading it first would hide that import's ~3 s
+        # from the cold-start cost charged to on_miss.
+        server = load_mcp_server(db_path) if include_mcp else None
+        per_question = {q["id"]: run_question(semantic, conn, config, db_path, q, exclude,
+                                              cold_start_ms=(model_load_s or 0.0) * 1000, as_of=as_of,
+                                              server=server, keyword_only=keyword_only, strict=strict)
                         for q in questions}
     finally:
         conn.close()
+    methods = score(per_question, questions)
+    skipped_ids = [qid for qid, res in per_question.items() if "skipped" in res["keyword"]]
+    errored_ids = [qid for qid, res in per_question.items() if "errored" in res["keyword"]]
+    scored = [q for q in questions if q["id"] not in errored_ids]      # counts match what score() used
     return {
         "created_at": utc_now(), "git_commit": git_stamp(),
-        "params": {"golden": source, "semantic_cutoff": SEMANTIC_CUTOFF,
-                   "rrf_k": RRF_K, "recency_scale_days": hook.RECENCY_SCALE_DAYS,
-                   "fts_rank_floor": hook.FTS_RANK_FLOOR, "max_results": hook.MAX_RESULTS},
-        "counts": {"answerable": sum(q["kind"] == "answerable" for q in questions),
-                   "no_answer": sum(q["kind"] == "no_answer" for q in questions)},
-        "model_load_s": round(model_load_s, 2),
-        "methods": score(per_question, questions),
+        "params": {"golden": source, "as_of": as_of, "keyword_only": keyword_only,
+                   "methods_run": list(methods),
+                   "semantic_cutoff": retrieval.SEMANTIC_CUTOFF,
+                   "rrf_k": retrieval.RRF_K, "recency_scale_days": retrieval.RECENCY_SCALE_DAYS,
+                   "fts_rank_floor": retrieval.FTS_RANK_FLOOR, "max_results": retrieval.MAX_RESULTS},
+        "counts": {"answerable": sum(q["kind"] == "answerable" for q in scored),
+                   "no_answer": sum(q["kind"] == "no_answer" for q in scored),
+                   **({"skipped": len(skipped_ids)} if skipped_ids else {}),
+                   **({"errored": len(errored_ids)} if errored_ids else {})},
+        **({"skipped_ids": skipped_ids} if skipped_ids else {}),
+        **({"errored_ids": errored_ids} if errored_ids else {}),
+        "model_load_s": round(model_load_s, 2) if model_load_s is not None else None,
+        "methods": methods,
         "per_question": {qid: {m: {k: v for k, v in r.items() if k != "keywords"}
                                for m, r in res.items()} for qid, res in per_question.items()},
         "keywords_used": {qid: {"keyword": res["keyword"]["keywords"],
@@ -248,9 +478,22 @@ def run_questions(config, exclude, questions, source):
             "it is listed in 'expect'.",
             "Every question here is phrased about the past, which trips the on_miss gate more "
             "often than everyday prompts do; remember_baseline.py shows the rate on your real prompts.",
+        ] + ([
             "Meaning search runs here with the model already loaded; a cold start adds "
-            f"about {round(model_load_s, 1)} s per process.",
-        ],
+            f"about {round(model_load_s, 1)} s per process."] if model_load_s is not None else [
+            "Keyword-only run: meaning, on_miss and always were not run (they need the embedding model)."]
+        ) + ([
+            f"{len(skipped_ids)} question(s) were skipped by the hook rule (under {retrieval.SHORT_PROMPT_CHARS} "
+            "characters, or only stop words): the hook methods returned nothing for them, so they count as "
+            "misses when answerable and as correctly quiet when not. The mcp tool is not subject to that rule."]
+            if skipped_ids else []) + ([
+            f"{len(errored_ids)} question(s) errored (meaning search or the on_miss gate failed) and were left "
+            "out of every score above: they are neither found nor missed."] if errored_ids else []) + ([
+            "mcp is the search_transcripts tool as Claude calls it: up to 20 rows, no weak-match gate "
+            "and no recency weighting. It hides machine-written messages (task notices, system reminders) "
+            "like the hook does; its 'injected' count is rows returned."]
+            if include_mcp else []) + ([
+            f"Keyword recency is measured from a fixed time ({as_of}), not the clock."] if as_of else []),
     }
 
 
@@ -265,10 +508,17 @@ def _pct(x):
 def render_report(r):
     m, c = r["methods"], r["counts"]
     na, nn = c["answerable"], c["no_answer"]
+    ways = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}.get(len(m), str(len(m)))
     L = ["=" * 66, "  MEMORY CHECK: does search find the right memory?", "=" * 66,
          f"I asked {na} questions whose answer is in memory and {nn} whose answer is not,",
-         "five different ways. Higher is better, except for the junk rate.", ""]
-    for method in METHODS:
+         f"{ways} different ways. Higher is better, except for the junk rate.", ""]
+    if c.get("skipped"):
+        L += [f"NOTE: {c['skipped']} of those questions were skipped (too short or no usable keywords):",
+              "search returned nothing for them, so they count as misses (answerable) or as correctly",
+              "quiet (no answer) in the scores below. Skipped: " + ", ".join(r.get("skipped_ids", [])), ""]
+    for method in ALL_METHODS:
+        if method not in m:
+            continue
         s = m[method]
         found5 = round(s["recall_at_5"] * na)
         found1 = round(s["recall_at_1"] * na)
@@ -276,14 +526,35 @@ def render_report(r):
               f"  Right memory among the top 5:   {found5} of {na}  ({_pct(s['recall_at_5'])})",
               f"  Right memory ranked first:      {found1} of {na}  ({_pct(s['recall_at_1'])})",
               f"  Injected junk when memory had no answer:  "
-              f"{round((s['false_injection_rate'] or 0) * nn)} of {nn}  ({_pct(s['false_injection_rate'])})",
-              f"  Speed: {s['latency_ms_median']} ms typical, {s['latency_ms_slowest']} ms slowest"
+              f"{round((s['false_injection_rate'] or 0) * nn)} of {nn}  ({_pct(s['false_injection_rate'])})"]
+        if "machine_rows_returned" in s:
+            L.append(f"  Returned a machine-generated message (subagent hand-back, command output) on:  "
+                     f"{s['machine_rows_returned']} of {na + nn} questions")
+        if "recency" in s:
+            rc = s["recency"]
+            L.append(f"  Old vs updated answer: newer ranked first on {rc['newer_ranked_first']} of {rc['n']}, "
+                     f"older first on {rc['older_ranked_first']}, neither found on {rc['neither_found']}")
+        if "by_tag" in s:
+            L.append("  By question type (top 5 / first):  " + ";  ".join(
+                f"{tag} {round(t['recall_at_5'] * t['n'])}/{t['n']} / {round(t['recall_at_1'] * t['n'])}/{t['n']}"
+                for tag, t in s["by_tag"].items()))
+        L += [f"  Speed: {s['latency_ms_median']} ms typical, {s['latency_ms_slowest']} ms slowest"
               + (f"; loads the model on {_pct(s['model_load_rate'])} of questions" if "model_load_rate" in s else ""),
               f"  (recall@1 {s['recall_at_1']}, @3 {s['recall_at_3']}, @5 {s['recall_at_5']}; MRR {s['mrr']})", ""]
-    base, mean, on_miss, always = m["keyword"], m["meaning"], m["on_miss"], m["always"]
+    base = m["keyword"]
     L.append("VERDICT")
     L.append(f"  Keyword search alone finds the right memory {_pct(base['recall_at_5'])} of the time "
              f"and injects junk on {_pct(base['false_injection_rate'])} of unanswerable questions.")
+    if "mcp" in m:
+        mc = m["mcp"]
+        L.append(f"  The MCP lookup tool finds it {_pct(mc['recall_at_5'])} of the time in its top 5 and returns "
+                 f"something on {_pct(mc['false_injection_rate'])} of unanswerable questions.")
+    if "always" not in m:
+        L += ["  Meaning-based methods were not run (--keyword-only)."]
+        L += ["", f"Small sample ({na + nn} questions): a one-question change moves a score "
+              f"by about {round(100 / na)} points.", "", "LIMITS"] + [f"  - {t}" for t in r["caveats"]]
+        return "\n".join(L)
+    mean, on_miss, always = m["meaning"], m["on_miss"], m["always"]
     full_gain = always["recall_at_5"] - base["recall_at_5"]
     if full_gain < -0.02:
         L.append(f"  Adding meaning search LOWERS it to {_pct(always['recall_at_5'])}; leave it off.")
@@ -334,6 +605,9 @@ def main():
     parser.add_argument("--label", default="eval", help="name for the saved snapshot")
     parser.add_argument("--no-save", action="store_true", help="print only; don't save")
     parser.add_argument("--json", action="store_true", help="print the full result as JSON")
+    parser.add_argument("--keyword-only", action="store_true",
+                        help="skip the embedding model: run keyword, keyword_ungated and mcp only")
+    parser.add_argument("--no-mcp", action="store_true", help="don't score the MCP search_transcripts tool")
     args = parser.parse_args()
 
     with open(ROOT / "config.yaml") as f:
@@ -345,7 +619,12 @@ def main():
         print(f"No golden set at {args.golden}. See the usage notes at the top of this script.")
         sys.exit(2)
 
-    result = run_eval(config, args.golden)
+    try:
+        result = run_eval(config, args.golden, include_mcp=not args.no_mcp, keyword_only=args.keyword_only,
+                          strict=True)
+    except EvalError as e:                   # id and step only: the message may carry private text
+        print(f"FATAL: {e}. Nothing was scored or saved.")
+        sys.exit(3)
     if not args.no_save:
         save_result(config, result, args.label)
     print(json.dumps(result, indent=2) if args.json else render_report(result))

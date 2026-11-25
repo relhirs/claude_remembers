@@ -401,6 +401,13 @@ def render_report(result, config_mode="on_miss"):
           f"score by about {round(100 / max(n['answerable'], 1))} points"
           + ("; the same decision asked twice counts twice, so the real sample is smaller. " if used and used != n["answerable"] else "; ")
           + "trust the comparison more than the exact numbers."]
+    if n.get("skipped"):
+        L.append(f"({n['skipped']} of these questions were skipped (too short or no usable keywords): search returned "
+                 "nothing for them, so they count as misses in the scores above, or as correctly quiet for "
+                 "questions with no answer.)")
+    if n.get("errored"):
+        L.append(f"({n['errored']} question(s) errored and were left out: search hit an error on them, so they are "
+                 "not in the scores above, neither found nor missed.)")
     if info.get("vetting_ran") is False:
         L.append("(The fairness filter that removes questions whose answer was never actually said couldn't run this "
                  "time, so a few misses may be unfair questions rather than search failures.)")
@@ -438,7 +445,9 @@ def run_check(config, root=ROOT, label="memory-check"):
             state.update({"last_run_at": time.time(), "last_session_count": count})
             write_state(root, state)
             return {"skipped": f"only {info['decisions_used']} usable decisions so far"}
-        result = run_questions(config, [], questions, source="memory_check")
+        # strict=False: a question whose meaning search or gate errors is counted and reported
+        # as "errored", never allowed to crash the background check.
+        result = run_questions(config, [], questions, source="memory_check", strict=False)
         result["question_style"] = info["style"]
         result["question_info"] = info
         mode = ((config.get("semantic_search") or {}).get("mode") or "on_miss")

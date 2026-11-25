@@ -1,0 +1,10 @@
+MCP machine filter (ref vs working tree) - 26 questions (20 answerable)
+
+Questions with at least one machine row, Python rule (all whitespace, 60 chars): today 6, filtered 0
+Questions with at least one machine row, hook SQL rule (spaces only, 80 chars): today 6, filtered 0
+today    : found in top 5 13, found in all returned rows 13, rows returned 90
+filtered : found in top 5 13, found in all returned rows 13, rows returned 81
+Lost in top 5: []  gained in top 5: []
+Lost in all rows: []  gained in all rows: []
+First position changed: 1 ['q19']
+

@@ -1,0 +1,48 @@
+CAP STUDY  (illustration; 20 answerable + 6 no-answer questions; fixed time 2026-06-01T00:00:00Z; project each question's own)
+
+Checks before any number counted: G1 pass, G2 pass, G3 pass; rows newer than the fixed time: 0.
+
+POOL BEFORE ANY CAP (min / median / max across questions)
+  project keyword rows matched before LIMIT 3    0 / 2.0 / 6
+  global keyword rows matched before LIMIT 7     0 / 2.0 / 15
+  keyword rows after duplicates and floor        0 / 2.0 / 7
+  keyword rows after the leak filter             0 / 2.0 / 7
+  meaning rows scored                            30 / 30.0 / 30
+  meaning rows above 0.35                        0 / 1.0 / 6
+  meaning rows kept                              0 / 1.0 / 4
+  candidate rows in total                        0 / 2.0 / 9
+  questions with more than 5 / 10 / 15 candidates: 3 / 0 / 0
+  cut off by LIMIT 3: 8, by LIMIT 7: 2, by the 30-candidate meaning limit (30th still above 0.35): 0 questions
+  (caps of 10 or 15 can only help when more candidates exist than the cap; the pool tops out at 9 here)
+
+WHERE THE FIRST EXPECTED ROW SITS (no cap)  1 / 2 / 3 / 4 / 5 / 6-10 / 11+ / none
+  keyword_list   11 / 2 / 0 / 0 / 0 / 0 / 0 / 7
+  meaning_list   13 / 3 / 0 / 0 / 0 / 0 / 0 / 4
+  rrf_list       13 / 3 / 0 / 0 / 0 / 0 / 0 / 4
+
+k=5 TWICE: as it runs today (cap, then filter) vs the baseline every policy is compared to (filter, then cap)
+  today: found 16 of 20, junk 24; baseline: found 16, junk 24; questions that differ: 0 []
+
+POLICIES (injected rows only; gates still see 5)
+  id     found  lost  gain  junk/q  tok mean  tok max rows max  NA rows  NA tok  NA inj gate flips
+  F1        13     3     0     0.2      34.8       56        1        1      50       1          0
+  F2        16     0     0     0.5      59.1       92        2        2      75       1          0
+  F3        16     0     0     0.7      71.2      154        3        2      75       1          0
+  F4        16     0     0     1.2      90.6      198        5        2      75       1          0
+  F5        16     0     0     1.4      96.2      207        7        2      75       1          0
+  F6        16     0     0     1.4      96.2      207        7        2      75       1          0
+  S1        15     1     0     0.4      52.7      112        3        2      75       1          0
+  S2        15     1     0     0.4      52.7      112        3        2      75       1          0
+  S3        14     2     0    0.35      46.2       92        2        1      50       1          0
+  S4        14     2     0    0.35      46.2       92        2        1      50       1          0
+  S5        15     1     0    0.25      45.5       95        3        1      50       1          0
+  S6        15     1     0    0.25      45.5       95        3        1      50       1          0
+  T1        16     0     0     1.4      96.2      207        7        2      75       1          0
+  B1        16     0     0     1.4      96.2      207        7        2      75       1          0
+  B2        16     0     0     1.4      96.2      207        7        2      75       1          0
+  B3        16     0     0     1.4      96.2      207        7        2      75       1          0
+  F4-ctf    16     0     0     1.2      90.6      198        5        2      75       1          0
+
+False injection (1 of 6 no-answer questions) is the same for every policy, as expected: every cap keeps at least 1 row, the score rules keep the best row, the budget always injects the first row, and all policies share the same filtered list and the same gates. It can only change through a gate flip (last column), which the study never applies.
+
+(illustration only: not split into halves and not used to choose a policy)

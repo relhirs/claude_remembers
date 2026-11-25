@@ -1,0 +1,422 @@
+{
+  "comparison": "mcp-machine-filter",
+  "dataset": {
+    "git_commit": "5505026+uncommitted",
+    "mode": "ref-vs-working-tree"
+  },
+  "summary": {
+    "questions": 26,
+    "answerable": 20,
+    "with_machine_rows_today_machine_python": 6,
+    "with_machine_rows_filtered_machine_python": 0,
+    "with_machine_rows_today_machine_hook_sql": 6,
+    "with_machine_rows_filtered_machine_hook_sql": 0,
+    "found_top5_today": 13,
+    "found_in_all_rows_today": 13,
+    "rows_total_today": 90,
+    "found_top5_filtered": 13,
+    "found_in_all_rows_filtered": 13,
+    "rows_total_filtered": 81
+  },
+  "flips": {
+    "lost_top5": [],
+    "gained_top5": [],
+    "lost_all_rows": [],
+    "gained_all_rows": [],
+    "first_position_changed": [
+      "q19"
+    ]
+  },
+  "per_question": {
+    "q01": {
+      "kind": "answerable",
+      "today": {
+        "n": 4,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      },
+      "filtered": {
+        "n": 4,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "q02": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      },
+      "filtered": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "q03": {
+      "kind": "answerable",
+      "today": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      },
+      "filtered": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "q04": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      },
+      "filtered": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "q05": {
+      "kind": "answerable",
+      "today": {
+        "n": 16,
+        "machine_python": 2,
+        "machine_hook_sql": 1,
+        "first_pos": 1
+      },
+      "filtered": {
+        "n": 14,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "q06": {
+      "kind": "answerable",
+      "today": {
+        "n": 3,
+        "machine_python": 1,
+        "machine_hook_sql": 1,
+        "first_pos": 1
+      },
+      "filtered": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "q07": {
+      "kind": "answerable",
+      "today": {
+        "n": 6,
+        "machine_python": 1,
+        "machine_hook_sql": 1,
+        "first_pos": 1
+      },
+      "filtered": {
+        "n": 5,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "q08": {
+      "kind": "answerable",
+      "today": {
+        "n": 5,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      },
+      "filtered": {
+        "n": 5,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "q09": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "q10": {
+      "kind": "answerable",
+      "today": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "q11": {
+      "kind": "answerable",
+      "today": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "q12": {
+      "kind": "answerable",
+      "today": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "q13": {
+      "kind": "answerable",
+      "today": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "q14": {
+      "kind": "answerable",
+      "today": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "q15": {
+      "kind": "answerable",
+      "today": {
+        "n": 7,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 7,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "q16": {
+      "kind": "answerable",
+      "today": {
+        "n": 5,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 2
+      },
+      "filtered": {
+        "n": 5,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 2
+      }
+    },
+    "q17": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 2
+      },
+      "filtered": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 2
+      }
+    },
+    "q18": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 2
+      },
+      "filtered": {
+        "n": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 2
+      }
+    },
+    "q19": {
+      "kind": "answerable",
+      "today": {
+        "n": 6,
+        "machine_python": 2,
+        "machine_hook_sql": 2,
+        "first_pos": 2
+      },
+      "filtered": {
+        "n": 4,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "q20": {
+      "kind": "answerable",
+      "today": {
+        "n": 14,
+        "machine_python": 2,
+        "machine_hook_sql": 1,
+        "first_pos": 1
+      },
+      "filtered": {
+        "n": 12,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": 1
+      }
+    },
+    "n01": {
+      "kind": "no_answer",
+      "today": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "n02": {
+      "kind": "no_answer",
+      "today": {
+        "n": 5,
+        "machine_python": 1,
+        "machine_hook_sql": 1,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 4,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "n03": {
+      "kind": "no_answer",
+      "today": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "n04": {
+      "kind": "no_answer",
+      "today": {
+        "n": 4,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 4,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "n05": {
+      "kind": "no_answer",
+      "today": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    },
+    "n06": {
+      "kind": "no_answer",
+      "today": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      },
+      "filtered": {
+        "n": 0,
+        "machine_python": 0,
+        "machine_hook_sql": 0,
+        "first_pos": null
+      }
+    }
+  }
+}

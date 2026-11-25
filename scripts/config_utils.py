@@ -37,9 +37,38 @@ MACHINE_GENERATED_PREFIXES = (
 )
 
 
+def use_utf8_stdio():
+    """Make stdin, stdout and stderr UTF-8, whatever the OS default is.
+
+    On Windows, when output is piped (a slash command, a hook, CI) Python falls
+    back to the legacy code page (cp1252). That page has no check mark or minus
+    sign, so a plain print() crashes, and a UTF-8 question piped in is misread.
+    Claude Code reads and writes UTF-8, so the command-line tools switch to it.
+    Does nothing where a stream cannot be reconfigured (already replaced, closed).
+    """
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def is_machine_generated(text):
     """True if `text` starts with one of the harness-generated markers."""
     return (text or "").lstrip()[:60].lower().startswith(MACHINE_GENERATED_PREFIXES)
+
+
+def machine_filter_sql(column="t.content"):
+    """SQL fragment, starting with AND NOT, that hides harness-written messages.
+
+    Used by the MCP search tool. It looks at the first 80 characters of `column`,
+    strips leading space, tab, newline and carriage return, lowercases, and checks
+    the markers above. The hook keeps its own copy of the check in
+    scripts/retrieval.py, which strips spaces only; that difference is documented
+    in GO_DEEPER.md and is not changed here."""
+    assert all("'" not in p and "%" not in p and "_" not in p for p in MACHINE_GENERATED_PREFIXES)
+    trim = f"LTRIM(SUBSTR({column}, 1, 80), ' ' || char(9) || char(10) || char(13))"
+    return "AND NOT (" + " OR ".join(f"LOWER({trim}) LIKE '{p}%'" for p in MACHINE_GENERATED_PREFIXES) + ")"
 
 
 def resolve_db_path(config):

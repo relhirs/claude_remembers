@@ -1,0 +1,531 @@
+{
+  "comparison": "mcp-gate",
+  "dataset": {
+    "git_commit": "5505026+uncommitted",
+    "mode": "simulation"
+  },
+  "summary": {
+    "questions": 26,
+    "answerable": 20,
+    "no_answer": 6,
+    "floor": -4.188,
+    "found_top5_today": 13,
+    "found_in_all_rows_today": 13,
+    "no_answer_returning_rows_today": 3,
+    "gated_today": 0,
+    "found_top5_gate": 13,
+    "found_in_all_rows_gate": 13,
+    "no_answer_returning_rows_gate": 1,
+    "gated_gate": 6,
+    "best_rank_answerable": [
+      -21.67,
+      -19.23,
+      -17.91,
+      -15.66,
+      -15.48,
+      -14.72,
+      -11.39,
+      -10.19,
+      -10.08,
+      -9.25,
+      -9.21,
+      -8.97,
+      -8.51,
+      -4.46,
+      -4.16,
+      -4.1,
+      -3.45,
+      -3.16
+    ],
+    "best_rank_no_answer": [
+      -4.8,
+      -3.79,
+      -3.37
+    ]
+  },
+  "flips": {
+    "lost_top5_gate": [],
+    "lost_all_rows_gate": [],
+    "gained_top5_gate": [],
+    "gated_answerable_gate": [
+      "q09",
+      "q13",
+      "q14",
+      "q15"
+    ],
+    "gated_no_answer_gate": [
+      "n01",
+      "n04"
+    ]
+  },
+  "per_question": {
+    "q01": {
+      "kind": "answerable",
+      "today": {
+        "n": 4,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -8.51,
+      "gate": {
+        "n": 4,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q02": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -15.48,
+      "gate": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q03": {
+      "kind": "answerable",
+      "today": {
+        "n": 1,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -21.67,
+      "gate": {
+        "n": 1,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q04": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -14.72,
+      "gate": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q05": {
+      "kind": "answerable",
+      "today": {
+        "n": 14,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -15.66,
+      "gate": {
+        "n": 14,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q06": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -9.25,
+      "gate": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q07": {
+      "kind": "answerable",
+      "today": {
+        "n": 5,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -8.97,
+      "gate": {
+        "n": 5,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q08": {
+      "kind": "answerable",
+      "today": {
+        "n": 5,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -11.39,
+      "gate": {
+        "n": 5,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q09": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -4.1,
+      "gate": {
+        "n": 0,
+        "gated": true,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q10": {
+      "kind": "answerable",
+      "today": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": null,
+      "gate": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q11": {
+      "kind": "answerable",
+      "today": {
+        "n": 1,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -4.46,
+      "gate": {
+        "n": 1,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q12": {
+      "kind": "answerable",
+      "today": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": null,
+      "gate": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q13": {
+      "kind": "answerable",
+      "today": {
+        "n": 1,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -3.45,
+      "gate": {
+        "n": 0,
+        "gated": true,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q14": {
+      "kind": "answerable",
+      "today": {
+        "n": 1,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -3.16,
+      "gate": {
+        "n": 0,
+        "gated": true,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q15": {
+      "kind": "answerable",
+      "today": {
+        "n": 7,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -4.16,
+      "gate": {
+        "n": 0,
+        "gated": true,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q16": {
+      "kind": "answerable",
+      "today": {
+        "n": 5,
+        "gated": false,
+        "first_pos": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -19.23,
+      "gate": {
+        "n": 5,
+        "gated": false,
+        "first_pos": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q17": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -17.91,
+      "gate": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q18": {
+      "kind": "answerable",
+      "today": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -10.19,
+      "gate": {
+        "n": 2,
+        "gated": false,
+        "first_pos": 2,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q19": {
+      "kind": "answerable",
+      "today": {
+        "n": 4,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -9.21,
+      "gate": {
+        "n": 4,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "q20": {
+      "kind": "answerable",
+      "today": {
+        "n": 12,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -10.08,
+      "gate": {
+        "n": 12,
+        "gated": false,
+        "first_pos": 1,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "n01": {
+      "kind": "no_answer",
+      "today": {
+        "n": 1,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -3.37,
+      "gate": {
+        "n": 0,
+        "gated": true,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "n02": {
+      "kind": "no_answer",
+      "today": {
+        "n": 4,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -4.8,
+      "gate": {
+        "n": 4,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "n03": {
+      "kind": "no_answer",
+      "today": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": null,
+      "gate": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "n04": {
+      "kind": "no_answer",
+      "today": {
+        "n": 4,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": -3.79,
+      "gate": {
+        "n": 0,
+        "gated": true,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "n05": {
+      "kind": "no_answer",
+      "today": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": null,
+      "gate": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    },
+    "n06": {
+      "kind": "no_answer",
+      "today": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      },
+      "best_rank": null,
+      "gate": {
+        "n": 0,
+        "gated": false,
+        "first_pos": null,
+        "machine_python": 0,
+        "machine_hook_sql": 0
+      }
+    }
+  }
+}

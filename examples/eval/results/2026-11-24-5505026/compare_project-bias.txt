@@ -1,0 +1,28 @@
+Project bias on vs off - 26 questions (20 answerable, 6 no-answer), as_of 2026-06-01T00:00:00Z, project (each question's own)
+Cross-check against cap_study.json: passed
+
+[on_miss]  found by both 16, by neither 4, only with bias 0 [], only without bias 0 []
+    No question changed, so there is nothing to test.
+    bias on : found 16/20, junk 24, tokens mean 90.6, first hit {'1': 13, '2': 3, '3': 0, '4': 0, '5': 0, '6-10': 0, '11+': 0, 'none': 4}
+    bias off: found 16/20, junk 24, tokens mean 90.6, first hit {'1': 13, '2': 3, '3': 0, '4': 0, '5': 0, '6-10': 0, '11+': 0, 'none': 4}
+    bias on  no-answer: {'questions': 6, 'rows_total': 2, 'rows_max': 2, 'tokens_total': 75, 'tokens_max': 75, 'false_injection': 1}
+    bias off no-answer: {'questions': 6, 'rows_total': 2, 'rows_max': 2, 'tokens_total': 75, 'tokens_max': 75, 'false_injection': 1}
+
+[keyword]  found by both 13, by neither 7, only with bias 0 [], only without bias 0 []
+    No question changed, so there is nothing to test.
+    bias on : found 13/20, junk 22, tokens mean 80.5, first hit {'1': 11, '2': 2, '3': 0, '4': 0, '5': 0, '6-10': 0, '11+': 0, 'none': 7}
+    bias off: found 13/20, junk 22, tokens mean 80.5, first hit {'1': 11, '2': 2, '3': 0, '4': 0, '5': 0, '6-10': 0, '11+': 0, 'none': 7}
+    bias on  no-answer: {'questions': 6, 'rows_total': 2, 'rows_max': 2, 'tokens_total': 75, 'tokens_max': 75, 'false_injection': 1}
+    bias off no-answer: {'questions': 6, 'rows_total': 2, 'rows_max': 2, 'tokens_total': 75, 'tokens_max': 75, 'false_injection': 1}
+
+[always]  found by both 16, by neither 4, only with bias 0 [], only without bias 0 []
+    No question changed, so there is nothing to test.
+    bias on : found 16/20, junk 26, tokens mean 95.2, first hit {'1': 13, '2': 3, '3': 0, '4': 0, '5': 0, '6-10': 0, '11+': 0, 'none': 4}
+    bias off: found 16/20, junk 26, tokens mean 95.2, first hit {'1': 13, '2': 3, '3': 0, '4': 0, '5': 0, '6-10': 0, '11+': 0, 'none': 4}
+    bias on  no-answer: {'questions': 6, 'rows_total': 2, 'rows_max': 2, 'tokens_total': 75, 'tokens_max': 75, 'false_injection': 1}
+    bias off no-answer: {'questions': 6, 'rows_total': 2, 'rows_max': 2, 'tokens_total': 75, 'tokens_max': 75, 'false_injection': 1}
+
+Meaning search starts only with bias off: 0 []
+Meaning search stops with bias off: 0 []
+Keyword pool (rows before cap, mean): on 4.19, off 2.62 (bias off: 3+7 becomes 7)
+
