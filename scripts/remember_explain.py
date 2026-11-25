@@ -26,10 +26,10 @@ import textwrap
 
 try:                                    # as a script (scripts/ on sys.path) ...
     import retrieval
-    from config_utils import resolve_db_path
+    from config_utils import resolve_db_path, use_utf8_stdio
 except ImportError:                     # ... or imported by the MCP server as scripts.X
     from scripts import retrieval
-    from scripts.config_utils import resolve_db_path
+    from scripts.config_utils import resolve_db_path, use_utf8_stdio
 
 import yaml
 
@@ -680,6 +680,7 @@ def run_explain(question, *, project=None, mode=None, as_of=None, exclude_sessio
 
 
 def main(argv=None):
+    use_utf8_stdio()                    # Windows pipes default to cp1252; the question and answer are UTF-8
     # Quiet the model loader's progress bars; they would end up in the output.
     for var, val in (("HF_HUB_DISABLE_PROGRESS_BARS", "1"), ("TQDM_DISABLE", "1"),
                      ("TRANSFORMERS_VERBOSITY", "error")):

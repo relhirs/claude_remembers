@@ -37,6 +37,22 @@ MACHINE_GENERATED_PREFIXES = (
 )
 
 
+def use_utf8_stdio():
+    """Make stdin, stdout and stderr UTF-8, whatever the OS default is.
+
+    On Windows, when output is piped (a slash command, a hook, CI) Python falls
+    back to the legacy code page (cp1252). That page has no check mark or minus
+    sign, so a plain print() crashes, and a UTF-8 question piped in is misread.
+    Claude Code reads and writes UTF-8, so the command-line tools switch to it.
+    Does nothing where a stream cannot be reconfigured (already replaced, closed).
+    """
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def is_machine_generated(text):
     """True if `text` starts with one of the harness-generated markers."""
     return (text or "").lstrip()[:60].lower().startswith(MACHINE_GENERATED_PREFIXES)

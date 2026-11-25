@@ -1819,7 +1819,8 @@ def test_explain_writes_nothing():
         digest = lambda: hashlib.sha256(Path(db_path).read_bytes()).hexdigest()
         before = digest()
         res = subprocess.run([sys.executable, str(root / "scripts" / "remember_explain.py"), "--session", "new-session"],
-                             input=question, capture_output=True, text=True, timeout=60, cwd=str(root))
+                             input=question, capture_output=True, text=True, encoding="utf-8",
+                             timeout=60, cwd=str(root))
         text, err = res.stdout, res.stderr
         check("script runs and prints the explanation", res.returncode == 0 and "WHAT HAPPENED" in text, err[-300:])
         check("a hostile question on stdin is only read, never run (script does not interpret it)",
@@ -2214,7 +2215,7 @@ def test_explain_render():
         except rx.ExplainError as e:
             check("a missing database says where it looked", "Memory database not found" in str(e))
     res = subprocess.run([sys.executable, str(ROOT / "scripts" / "remember_explain.py")], input="",
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, encoding="utf-8", timeout=60)
     check("the script exits non-zero with the message on stderr (nothing on stdout)",
           res.returncode == 2 and "No question given" in res.stderr and not res.stdout.strip())
     _check_mcp_explain_tool_errors()

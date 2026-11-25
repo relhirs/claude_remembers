@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config_utils import (ensure_mcp_user_registration, remove_mcp_local_registrations,
-                          ensure_venv, venv_python)
+                          ensure_venv, venv_python, use_utf8_stdio)
 from metrics_utils import ensure_metrics_schema
 
 # ---------------------------------------------------------------------------
@@ -1136,7 +1136,7 @@ def slash_commands(root):
     # nobody types by accident (a plain QUESTION line, which a user's question
     # can contain, would end the heredoc early and run the rest as shell).
     explain_cmd = (f"{shlex.quote(venv_python(str(root)) or 'python3')} "
-                   f"{shlex.quote(str(Path(root) / 'scripts' / 'remember_explain.py'))}")
+                   f"{shlex.quote((Path(root) / 'scripts' / 'remember_explain.py').as_posix())}")
     return {
         "remember-import": textwrap.dedent(f"""\
             Import conversations from Claude.ai, ChatGPT, or Gemini into the memory database.
@@ -1808,6 +1808,7 @@ def import_questionnaire(root_path, db_path):
 # ---------------------------------------------------------------------------
 
 def main():
+    use_utf8_stdio()                    # the check marks below crash a piped Windows (cp1252) stdout
     print(f"\n{bold('claude_remembers setup')}")
     print("Persistent memory system for Claude Code\n")
 
