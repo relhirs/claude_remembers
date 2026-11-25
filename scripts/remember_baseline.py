@@ -200,8 +200,10 @@ def replay(conn, snapshot_path, prompts, progress=None):
                 ranks = [r[3] for r in rows if r[3] is not None]
                 coverages = [c for c in (retrieval._coverage(keywords, r[2]) for r in rows)
                              if c is not None]
-                # Exactly what the hook would inject on its keyword path,
-                # fingerprinted so a refactor can be proven to change nothing.
+                # What the hook's keyword path injects when the prompt's stored project
+                # label is used as the favored project, fingerprinted so a refactor can
+                # be proven to change nothing. Prompts stored under oth are replayed with
+                # oth favored; the live hook favors nobody in an unmapped folder.
                 injected = trace["injected_text"]
                 rec.update(
                     result_ids=[r[4] for r in rows],

@@ -255,7 +255,8 @@ def _strength_gate(conn, merged):
 
 
 def _keyword_candidates(conn, fts_query, cwd_project, as_of=None, exclude_session=None, diag=None):
-    """The project-biased FTS5 search up to (not including) the weak-match gate.
+    """The FTS5 search up to (not including) the weak-match gate. `cwd_project` is
+    favored in the ranking; None favors no project.
 
     Rows are (project, timestamp, content, rank, transcript_id). `diag`, when
     given, receives what was set aside and why (explanations only).
@@ -320,7 +321,7 @@ def _keyword_candidates(conn, fts_query, cwd_project, as_of=None, exclude_sessio
 
 def _keyword_search(conn, fts_query, cwd_project, as_of=None, exclude_session=None,
                     info=None, gated=True):
-    """Same project-biased FTS5 search used by the normal path.
+    """Same FTS5 search used by the normal path (`cwd_project` favored, None: no project).
 
     Rows are (project, timestamp, content, rank, transcript_id).
     `exclude_session` hides the current session: those messages are already
