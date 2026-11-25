@@ -98,14 +98,14 @@ When both searches run, their results are merged and meaning search looks across
 
 | Rule | Why it exists | Evidence |
 |---|---|---|
-| Never add the conversation you're in | Claude already has it | The `session_filter` in `scripts/retrieval.py:266` |
-| Never add machine-written messages | They aren't anything you said | Filter at `scripts/retrieval.py:270`. On the author's history the hook and the tool flag the same 348 of 15,714 messages |
+| Never add the conversation you're in | Claude already has it | The `session_filter` in `_keyword_candidates` (`scripts/retrieval.py`) |
+| Never add machine-written messages | They aren't anything you said | The `machine_filter` in `_keyword_candidates` (`scripts/retrieval.py`). On the 2026-11-23 frozen copy of the author's history the hook and the tool flag the same 348 of 15,714 messages |
 | Favor your project only in a mapped folder | A folder with no mapping isn't a project you chose | Favoring `oth` pushed the right answer out for 3 of 38 questions and helped none (small sample, p = 0.25) |
-| When two results match about equally, the newer one wins | So an old answer doesn't outrank a newer one that matches as well | Score divided by (1 + age in days / 365), `scripts/retrieval.py:111`. On the public set, q16 and q17 can only be won this way |
-| Search each repeated word once | So repeats don't use up the 8 keyword slots | `scripts/retrieval.py:71` and `scripts/retrieval.py:128` |
-| Drop weak matches instead of padding | Search used to hand back its five least-bad results even when memory had nothing | Floor of −2.0 per result (`scripts/retrieval.py:69`) and a bar of 1.05 × ln(messages) for the best one (`scripts/retrieval.py:81`) |
-| At most 5 per message | A fixed ceiling on what is added to Claude's context | `scripts/retrieval.py:70`. The cap study found nothing better to ship |
-| No typo correction | It found no extra memories, ran about 8 times slower, and turned "kubernetes" into "subagents" | Noted at `scripts/retrieval.py:163` |
+| When two results match about equally, the newer one wins | So an old answer doesn't outrank a newer one that matches as well | Score divided by (1 + age in days / 365), set by `RECENCY_SCALE_DAYS` in `scripts/retrieval.py`. On the public set, q16 and q17 can only be won this way |
+| Search each repeated word once | So repeats don't use up the 8 keyword slots | `MAX_KEYWORDS` and `extract_keywords` in `scripts/retrieval.py` |
+| Drop weak matches instead of padding | Search used to hand back its five least-bad results even when memory had nothing | Floor of −2.0 per result (`FTS_RANK_FLOOR`) and a bar of 1.05 × ln(messages) for the best one (`MIN_STRENGTH_PER_LOG_DOC`) |
+| At most 5 per message | A fixed ceiling on what is added to Claude's context | `MAX_RESULTS` in `scripts/retrieval.py`. The cap study found nothing better to ship |
+| No typo correction | It found no extra memories, ran about 8 times slower, and turned "kubernetes" into "subagents" | Noted in the docstring of `build_search_keywords` in `scripts/retrieval.py` |
 
 <details>
 <summary>The rules in full, and why there is no typo correction</summary>
@@ -133,7 +133,7 @@ The same memory can be searched three ways. They were built for different jobs, 
 | Recency | Newer wins (keyword search only) | None | None | The tool looks up one specific past fact, where an old exact match is often right |
 | Typo fix | None | Only when nothing matched | Always, before searching | Claude can judge a "Did you mean" note. The hook injects silently |
 | Meaning-search results | 30 candidates, cutoff 0.35, at most 5 | 10 by default (`search_semantic`), no cutoff | Up to 10 or 5 | Claude reads the similarity score. The hook has to pick for Claude |
-| Machine-message filter | Hides them (keyword part strips spaces only) | Hides them (strips spaces, tabs and newlines) | None | A message starting with a newline gets past the hook's check: 0 of 348 on the author's history |
+| Machine-message filter | Hides them (keyword part strips spaces only) | `search_transcripts` hides them (strips spaces, tabs and newlines); `search_semantic` does not | None | A message starting with a newline gets past the hook's check: 0 of 348 on the 2026-11-23 frozen copy of the author's history |
 | Weak-match gate | Yes, in every mode | None | None | Measured, not shipped |
 
 ```mermaid
@@ -160,7 +160,7 @@ The same memory can be searched three ways: the automatic search in the hook, th
 | Recency | keyword search only: score divided by (1 + age in days / 365). Meaning search has no age term | none | none | The tool is for looking up one specific past fact, where an old exact match is often the right answer. The scripts are developer tools |
 | Typo fix | none | only when nothing matched, and only if it changes fewer than half the words (so never on a one- or two-word query) | always, before searching (`remember_search.py`, `remember_query.py`) | Claude sees the "Did you mean" note and can judge it. The hook injects silently, which is why it dropped typo fixing |
 | Meaning-search result count | 30 candidates, cutoff 0.35, at most 5 after the merge | 10 by default (`search_semantic`), the caller can change it, no cutoff | `remember_search` up to 10, `remember_query` up to 5 | Claude reads the similarity score shown next to each tool result. The hook has to pick for Claude, so it is strict |
-| Machine-message filter | hides them; the keyword part checks the first 80 characters after stripping spaces only | hides them, stripping spaces, tabs and newlines first | none | A message that starts with a newline would get past the hook's check. On the author's history that is 0 of 348 machine messages (the hook and the tool flag the same ones), so changing the hook is left as its own change with its own proof |
+| Machine-message filter | hides them; the keyword part checks the first 80 characters after stripping spaces only | `search_transcripts` hides them, stripping spaces, tabs and newlines first; `search_semantic` does not | none | A message that starts with a newline would get past the hook's check. On the author's history that is 0 of 348 machine messages on the 2026-11-23 frozen copy (the hook and the tool flag the same ones), so changing the hook is left as its own change with its own proof |
 | Weak-match gate | if even the best keyword match is weaker than a bar that grows with the size of your memory, all the keyword results are dropped, in every mode. Meaning search then takes over if it is on (in `on_miss` this is one of the reasons it runs); with it off, nothing is injected | none: it returns whatever matched, up to 20 results | none | **Measured, not shipped.** See below |
 
 **The weak-match gate for the lookup tool, measured and not added.** On the author's history, a simulated gate using the hook's own bar:
@@ -185,8 +185,8 @@ Everything below ran on the invented public example in `examples/eval/`, from a 
 
 - **The data is invented.** It is the public example in `examples/eval/` (three made-up projects, 54 messages), never real memory. To build it and keep the sandbox: `python3 examples/eval/run_eval.py --keep --out <a folder outside the repo>`. The last line it prints is the sandbox path. (Without `--out` it writes a results folder inside `examples/eval/results/`.)
 - **The command**, from the `root` folder inside that sandbox: `echo "<the question>" | CWD=<a folder whose name contains tidepool> python3 scripts/remember_explain.py --as-of 2026-06-01T00:00:00Z`. The fixed `--as-of` time stops the age adjustment from drifting as the calendar moves.
-- **The kind of folder: a mapped project.** The sandbox config maps any folder whose path contains `tidepool` to the project `tdp` (`examples/eval/run_eval.py:88`), and the folder I gave contained that name, so search favors `tdp`. From an unmapped folder the Project row reads `none (folder not mapped)`, a note says no project is favored, and the ranking can change. I tried question 1 from an unmapped folder: the same four memories came back, with the last two in the other order. That matches the saved comparison `examples/eval/results/2026-11-24-5505026/compare_project-bias.json`, where question 1 is the only one of the 26 whose results change when the project is not favored. I did not try question 2 there.
-- **It is the real code.** `scripts/remember_explain.py` calls `retrieve()` at `scripts/retrieval.py:531`, the same function the hook calls at `hooks/user-prompt-submit.py:380`. Explain writes nothing to the memory database and never sends anything to Claude (if the embedding model fails to load, one error line goes to `logs/semantic_search.log`).
+- **The kind of folder: a mapped project.** The sandbox config maps any folder whose path contains `tidepool` to the project `tdp` (`SYNTHETIC_PROJECTS` in `examples/eval/run_eval.py`), and the folder I gave contained that name, so search favors `tdp`. From an unmapped folder the Project row reads `none (folder not mapped)`, a note says no project is favored, and the ranking can change. I tried question 1 from an unmapped folder: the same four memories came back, with the last two in the other order. That matches the saved comparison `examples/eval/results/2026-11-24-5505026/compare_project-bias.json`, where question 1 is the only one of the 26 whose results change when the project is not favored. I did not try question 2 there.
+- **It is the real code.** `scripts/remember_explain.py` calls `retrieve()` in `scripts/retrieval.py`, the same function the hook calls in `_run` in `hooks/user-prompt-submit.py`. Explain writes nothing to the memory database and never sends anything to Claude (if the embedding model fails to load, one error line goes to `logs/semantic_search.log`).
 - **No conversation was skipped.** The hook leaves out the session you are in. Here none was given, so the line reads "none given".
 - **Each question was run twice**, and the two outputs matched exactly (checked with `cmp`). When meaning search runs, the model prints a one-line notice on stderr. It is not part of the output below.
 
@@ -356,42 +356,42 @@ What to notice: keyword search found nothing, so step 5 sent it to meaning searc
 
 ### The nine steps, and where each one lives
 
-All line numbers are in the code as of this commit.
+References are to function and constant names, so they stay right when lines move.
 
 | # | What happens | Code |
 |---|---|---|
-| 1 | Counts the characters. Under 15, nothing is searched | `scripts/retrieval.py:72`, `scripts/retrieval.py:580` (the hook has its own check at `hooks/user-prompt-submit.py:344`) |
-| 2 | Keeps words of 3 or more letters, drops stop words and repeats, at most 8 | `scripts/retrieval.py:128`, `scripts/retrieval.py:143` |
-| 3 | Full-text search: up to 3 from your project, up to 7 from everywhere, drops duplicates and anything weaker than −2.0, keeps 5 | `scripts/retrieval.py:257`, `scripts/retrieval.py:595` |
-| 4 | The best result must beat 1.05 × ln(messages), or all keyword results are dropped | `scripts/retrieval.py:247`, `scripts/retrieval.py:604` |
-| 5 | In `on_miss` mode, decides whether keyword results look unreliable | `scripts/retrieval.py:352`, `scripts/retrieval.py:657` |
-| 6 | The 30 closest by meaning, from all projects. Keeps those above 0.35 | `scripts/retrieval.py:371`, `scripts/retrieval.py:666` |
-| 7 | Counts what was left out and why. Explanation only | `scripts/retrieval.py:507`, `scripts/remember_explain.py:475` |
-| 8 | Merges the two lists by rank, keeps at most 5 | `scripts/retrieval.py:385`, `scripts/retrieval.py:690` |
-| 9 | Builds the "Relevant Memories" text and estimates its tokens. The hook then hands it to Claude | `scripts/retrieval.py:176`, `hooks/user-prompt-submit.py:399` |
+| 1 | Counts the characters. Under 15, nothing is searched | `SHORT_PROMPT_CHARS` and `retrieve()` in `scripts/retrieval.py` (the hook has its own check in `_run` in `hooks/user-prompt-submit.py`) |
+| 2 | Keeps words of 3 or more letters, drops stop words and repeats, at most 8 | `extract_keywords` and `keyword_breakdown` in `scripts/retrieval.py` |
+| 3 | Full-text search: up to 3 from your project, up to 7 from everywhere, drops duplicates and anything weaker than −2.0, keeps 5 | `_keyword_candidates`, called in `retrieve()` |
+| 4 | The best result must beat 1.05 × ln(messages), or all keyword results are dropped | `_strength_gate`, applied in `retrieve()` |
+| 5 | In `on_miss` mode, decides whether keyword results look unreliable | `should_use_semantic`, called in `retrieve()` |
+| 6 | The 30 closest by meaning, from all projects. Keeps those above 0.35 | `semantic_rows`, called in `retrieve()` |
+| 7 | Counts what was left out and why. Explanation only | `count_filtered` in `scripts/retrieval.py`, and `_render` in `scripts/remember_explain.py` |
+| 8 | Merges the two lists by rank, keeps at most 5 | `merge_results`, called in `retrieve()` |
+| 9 | Builds the "Relevant Memories" text and estimates its tokens. The hook then hands it to Claude | `format_memories` in `scripts/retrieval.py`; the hook hands the text to Claude in `_run` in `hooks/user-prompt-submit.py` |
 
 <details>
 <summary>Each step in words, with every line reference</summary>
 
-All line numbers are in the code as of this commit.
+References are to function and constant names, so they stay right when lines move.
 
-1. **Long enough to search?** It counts the characters in your question. Under 15, nothing is searched and every later step shows as skipped. Both questions passed (59 and 66 characters). The number 15 is `scripts/retrieval.py:72` and the check is `scripts/retrieval.py:580`. The hook has its own check with the number written in, at `hooks/user-prompt-submit.py:344`, which runs before it calls `retrieve()`.
+1. **Long enough to search?** It counts the characters in your question. Under 15, nothing is searched and every later step shows as skipped. Both questions passed (59 and 66 characters). The number 15 is `SHORT_PROMPT_CHARS` and the check is in `retrieve()`, both in `scripts/retrieval.py`. The hook has its own check with the number written in, in `_run` in `hooks/user-prompt-submit.py`, which runs before it calls `retrieve()`.
 
-2. **Picked search words.** It lowercases the question and keeps words of 3 or more letters, dropping stop words and repeats, up to 8 words. In question 1 the second "species" is set aside as a repeat, and "its" is kept because it is not on the stop list, which is how it later matched noise. The word rules are `scripts/retrieval.py:128` (`extract_keywords`), the stop list is `scripts/retrieval.py:52`, and the 8-word limit is `scripts/retrieval.py:71`. The reasons shown next to each dropped word come from `scripts/retrieval.py:143` (`keyword_breakdown`). The search text is built at `scripts/retrieval.py:589`.
+2. **Picked search words.** It lowercases the question and keeps words of 3 or more letters, dropping stop words and repeats, up to 8 words. In question 1 the second "species" is set aside as a repeat, and "its" is kept because it is not on the stop list, which is how it later matched noise. The word rules are `extract_keywords`, the stop list is `STOP_WORDS`, and the 8-word limit is `MAX_KEYWORDS`. The reasons shown next to each dropped word come from `keyword_breakdown`. The search text is built in `retrieve()`. All of these are in `scripts/retrieval.py`.
 
-3. **Keyword search.** SQLite's full-text search looks for any of the words. In a mapped folder it takes up to 3 results from your project and up to 7 from everywhere, removes duplicates and anything weaker than −2.0, and keeps at most 5. Question 1 found 8 possible matches and kept 4. Question 2 found none. See `scripts/retrieval.py:257` (`_keyword_candidates`), the two limits at `scripts/retrieval.py:282` and `scripts/retrieval.py:291`, the weak-result floor at `scripts/retrieval.py:69` and `scripts/retrieval.py:309`, and the cap at `scripts/retrieval.py:314`. It is called at `scripts/retrieval.py:595`.
+3. **Keyword search.** SQLite's full-text search looks for any of the words. In a mapped folder it takes up to 3 results from your project and up to 7 from everywhere, removes duplicates and anything weaker than −2.0, and keeps at most 5. Question 1 found 8 possible matches and kept 4. Question 2 found none. See `_keyword_candidates` in `scripts/retrieval.py`: the two limits are its `LIMIT 3` and `LIMIT 7` queries, the weak-result floor is `FTS_RANK_FLOOR`, and the cap is `MAX_RESULTS`. It is called in `retrieve()`.
 
-4. **Strength check.** The best keyword result must beat a bar that grows with the size of memory: 1.05 × ln(54 messages) gives 4.19 here. Question 1's best was −8.39, so it passed. Question 2 had nothing to check. If the best result were too weak, all keyword results would be dropped. The calculation is `scripts/retrieval.py:247` (`_strength_gate`), the 1.05 is `scripts/retrieval.py:81`, and the dropping happens at `scripts/retrieval.py:604`.
+4. **Strength check.** The best keyword result must beat a bar that grows with the size of memory: 1.05 × ln(54 messages) gives 4.19 here. Question 1's best was −8.39, so it passed. Question 2 had nothing to check. If the best result were too weak, all keyword results would be dropped. The calculation is `_strength_gate`, the 1.05 is `MIN_STRENGTH_PER_LOG_DOC`, and the dropping happens in `retrieve()`.
 
-5. **Should meaning search run?** In the default `on_miss` mode it runs only when the keyword results look unreliable. Question 1 said no: its best result had 3 of the 4 search words (0.75, and 0.25 is enough) and the question has no "what did we decide" phrasing. Question 2 said yes because keyword search found nothing. See `scripts/retrieval.py:352` (`should_use_semantic`), the 0.25 at `scripts/retrieval.py:98`, the phrasing list at `scripts/retrieval.py:101`, and the call at `scripts/retrieval.py:657`. In `always` mode this step is not asked: see `scripts/retrieval.py:640`.
+5. **Should meaning search run?** In the default `on_miss` mode it runs only when the keyword results look unreliable. Question 1 said no: its best result had 3 of the 4 search words (0.75, and 0.25 is enough) and the question has no "what did we decide" phrasing. Question 2 said yes because keyword search found nothing. See `should_use_semantic`, the 0.25 (`GATE_MIN_COVERAGE`), the phrasing list (`MEMORY_PHRASING`), and the call in `retrieve()`. In `always` mode this step is not asked: see the `always` branch of `retrieve()`.
 
-6. **Meaning search.** It compares the question's meaning with the stored messages, takes the 30 closest from all projects, and keeps those above 0.35. Question 1 skipped it. Question 2 got 30 candidates and kept 2. See `scripts/retrieval.py:371` (`semantic_rows`), the cutoff at `scripts/retrieval.py:88`, the 30 at `scripts/retrieval.py:89`, and the calls at `scripts/retrieval.py:666` and `scripts/retrieval.py:678`.
+6. **Meaning search.** It compares the question's meaning with the stored messages, takes the 30 closest from all projects, and keeps those above 0.35. Question 1 skipped it. Question 2 got 30 candidates and kept 2. See `semantic_rows`, the cutoff (`SEMANTIC_CUTOFF`), the 30 (`SEMANTIC_CANDIDATES`), and the meaning-search call in `retrieve()`.
 
-7. **What was left out, and why.** This step exists only in the explanation. The hook never does it. It counts what was set aside along the way: duplicates, results under the floor, results the strength check dropped, and meaning results under the cutoff. In question 1, 4 were left out: 3 as duplicates (same project and same opening words, which is what happens when the project search and the all-projects search find the same memories) and 1 as too weak. The counting uses `retrieve(detail=True)`, with `scripts/retrieval.py:507` (`count_filtered`), and the wording is at `scripts/remember_explain.py:475`.
+7. **What was left out, and why.** This step exists only in the explanation. The hook never does it. It counts what was set aside along the way: duplicates, results under the floor, results the strength check dropped, and meaning results under the cutoff. In question 1, 4 were left out: 3 as duplicates (same project and same opening words, which is what happens when the project search and the all-projects search find the same memories) and 1 as too weak. The counting uses `retrieve(detail=True)`, with `count_filtered` in `scripts/retrieval.py`, and the wording is in `_render` in `scripts/remember_explain.py`.
 
-8. **Final list.** The keyword and meaning lists are merged by rank, so a memory both found moves up, duplicates are removed, and at most 5 stay. Question 1 had only keyword results and Question 2 only meaning results, so no memory was found by both. See `scripts/retrieval.py:385` (`merge_results`), the cap at `scripts/retrieval.py:403`, and the call at `scripts/retrieval.py:690`.
+8. **Final list.** The keyword and meaning lists are merged by rank, so a memory both found moves up, duplicates are removed, and at most 5 stay. Question 1 had only keyword results and Question 2 only meaning results, so no memory was found by both. See `merge_results`, the cap (`MAX_RESULTS`, checked inside it), and the call in `retrieve()`.
 
-9. **Would add to Claude's context.** The final memories become a short "Relevant Memories" text block: the date, project and the first 400 characters of each. The token count is the characters divided by 4 (`scripts/retrieval.py:718`), which is an estimate. The block is built at `scripts/retrieval.py:176` (`format_memories`) and `scripts/retrieval.py:710`. The hook then hands it to Claude at `hooks/user-prompt-submit.py:399`. Explain stops before that point.
+9. **Would add to Claude's context.** The final memories become a short "Relevant Memories" text block: the date, project and the first 400 characters of each. The token count is the characters divided by 4 (`CHARS_PER_TOKEN`, used in `retrieve()`), which is an estimate. The block is built by `format_memories` in `scripts/retrieval.py`, called from `retrieve()`. The hook then hands it to Claude in `_run` in `hooks/user-prompt-submit.py`. Explain stops before that point.
 
 </details>
 
@@ -401,7 +401,7 @@ The diagram is at the top of this page, under [What happens to one message](#wha
 
 Question 1 took the path 1, 2, 3, 4, 5 (no), 7, 8, 9. Question 2 took 1, 2, 3, 4 (nothing to check), 5 (yes), 6, 7, 8, 9.
 
-Not shown here: the `always` mode, the `/clear` pick-up, and a keyword result that fails the strength check. Each of those changes the middle of the path, and `retrieve()` at `scripts/retrieval.py:531` handles them.
+Not shown here: the `always` mode, the `/clear` pick-up, and a keyword result that fails the strength check. Each of those changes the middle of the path, and `retrieve()` in `scripts/retrieval.py` handles them.
 
 ## Vector search vs a regular database
 
@@ -411,14 +411,16 @@ Not shown here: the `always` mode, the `/clear` pick-up, and a keyword result th
 
 | Limit or correction | In plain words |
 |---|---|
-| The self-test and the hook searched differently | The self-test asks with no project. From commit `c26a868` until the Phase 4 change the hook always had one, so the self-test was about 8 points too optimistic on the author's history: 32 of 38 answerable questions found with no project, 29 asked the way the hook searched. Unmapped folders now search with no project (commit `5505026`), so they match the self-test. A mapped folder still favors its project, which only the public example measures |
+| The self-test and the hook searched differently | The self-test asks with no project. From commit `c26a868` until the Phase 4 change the hook always had one, so the self-test was about 8 points too optimistic on the author's history: 32 of 38 answerable questions found with no project, 29 asked the way the hook searched. Unmapped folders now search with no project (commit `5505026`), so they match the self-test. Two exceptions: a mapped folder still favors its project, which only the public example measures, and in an unmapped folder the short list in the message right after a `/clear` still favors `oth` |
 | Three questions are a small sample | The 32 versus 29 gap is 3 questions against 0. A sign test gives p = 0.25, so luck can't be ruled out |
-| The cap of 5 | The study's rule found the same 29 of 38 as the cap of 5, within noise. Bigger limits found 3 to 5 more answers at about 1.2 to 1.9 times the tokens. Nothing shipped |
+| The cap of 5 | The study's rule found the same 29 of 38 as the cap of 5, within noise. Bigger limits found 3 to 5 more answers at about 1.2 to 1.9 times the tokens. Those extra answers are lower bounds: the keyword search fetches only 3 project rows and 7 others, which cut the candidates short on 45 of 46 questions. Nothing shipped |
 | The lookup tool has no weak-match gate | A simulated gate cleaned up 8 of 8 questions with no answer but would have hidden 4 answers that are found today. Not shipped |
-| The fixed time only reaches keyword search | The self-test's `as_of` applies to keyword search. Meaning search ignores it |
+| The fixed time only partly reaches search | The self-test's `as_of` hides newer keyword rows and sets the age used for recency. Keyword match scores and the weak-match bar (which depends on the total message count) still count newer messages, and meaning search ignores `as_of` entirely |
 | The machine-message check is not identical everywhere | 60 characters in Python, 80 in the hook's SQL, and the hook strips spaces only, so a message that starts with a newline gets past it |
-| Folder-to-project matching has quirks | It is a substring test, and three rules can disagree when one entry's name contains another's. Documented, not changed |
-| Meaning search does not hide machine messages | `search_semantic` does not leave out harness-written messages the way keyword search does. About 12% of embedded messages on the author's history are machine-written |
+| Folder-to-project matching has quirks | It is a substring test. The hook takes the first matching entry in file order, while live capture and the importer try the longest name first. So the hook can disagree with the other two, and only when one mapped name contains another. Documented, not changed |
+| An empty `jsonl_project_mapping` breaks capture | Written with nothing under it, the key loads as nothing at all. The hook and `/remember-explain` handle that. Live capture (`write_exchange.py`) fails, logs the error and saves no messages. `session-start.py` and `post-compact.py` fail inside a try block, so the project summary is silently left out. The importer (`ingest_jsonl.py`) fails too. Write `jsonl_project_mapping: {}` instead |
+| Meaning search does not hide machine messages | `search_semantic` does not leave out harness-written messages the way keyword search does. On the author's history, 12% of embedded messages were machine-written on 2026-11-24 (450 of 3,721), and 10% on the 2026-11-23 frozen copy (318 of 3,195) |
+| One hidden match turns off typo correction | When the lookup tool's search matches only machine messages, it skips the typo fix. The words are joined with OR, so if any one word appears only in machine messages, a real typo in another word is not fixed either. Documented, not changed |
 | The MCP server is not strictly read-only | When a search finds nothing, its typo-correction step can create a small word-list table (`transcripts_fts_vocab`) in the database. The eval and `/remember-explain` avoid this; the live server does not |
 | A running MCP server keeps old code | It loads the code once, so after an update it keeps running the old version until it is restarted |
 | Telemetry labels were not bumped | The `mode` labels (such as `on_miss_v3`) did not change when `same_project_n` changed meaning (0 now means no project was favored). The "From the current project" share drops in unmapped folders because of the new definition, not because retrieval got worse. Compare by date only |
@@ -436,13 +438,13 @@ Not shown here: the `always` mode, the `/clear` pick-up, and a keyword result th
 <summary>Known quirks in how folders and projects are matched, in full</summary>
 
 **Known quirks in how folders and projects are matched** (documented, not changed, because each fix would change which project messages are filed under):
-- Three rules turn a folder into a project: the hook takes the first `jsonl_project_mapping` entry, in file order, whose name appears in the folder path; live capture tries the longest name first, on the transcript file's path before the folder; and the importer goes in file order, file path first, then the folder recorded in the transcript. They agree for ordinary names and can disagree when one entry's name contains another's.
+- Three places turn a folder into a project, using two orders. The hook takes the first `jsonl_project_mapping` entry, in file order, whose name appears in the folder path. Live capture and the importer both try the longest name first, on the transcript file's path before the folder (the importer uses the folder recorded in the transcript). So the hook is the only one that can disagree, and only when one entry's name contains another's.
 - The match is a substring test, so an entry named `other` also matches "another" or "brother". On the author's history no stored `oth` message was affected.
 - On the author's snapshot, 656 of 12,587 `oth` messages (5.2%) still carry the label `oth` even though all three rules would now file their folder under a named project. Most likely the mapping was edited after they were stored; that wasn't checked. Their labels were not changed, so they turn up in searches for `oth`, not for their project. Of the `oth` messages, 94.8% come from folders that match no entry at all.
 - `remember_baseline.py` replays stored `oth` messages with their stored label, so it still favors `oth` for them. Stored messages can't tell a deliberately mapped `other` folder from an unmapped one.
 - `same_project_n` in `retrieval_events` is 0 for messages sent from an unmapped folder, because no project is favored there.
-- The machine-message check is 60 characters in Python (`is_machine_generated`, used by the metrics layer and eval) and 80 in the hook's SQL. It only matters at the edges; on the author's history all three definitions flag the same 348 of 15,714 messages.
-- The fixed time the self-test uses (`as_of`) applies to keyword search only. Meaning search ignores it, so a run at a fixed time could still see newer messages through meaning search. The cap study checked that this can't change the numbers reported here.
+- The machine-message check is 60 characters in Python (`is_machine_generated`, used by the metrics layer and eval) and 80 in the hook's SQL. It only matters at the edges; on the author's history all three definitions flag the same 348 of 15,714 messages on the 2026-11-23 frozen copy (492 of 19,871 on the live database on 2026-11-24).
+- The fixed time the self-test uses (`as_of`) hides newer keyword rows and sets the age used for recency. The keyword match scores and the weak-match bar (which depends on the total message count) still count newer messages, and meaning search ignores `as_of` entirely, so a run at a fixed time could still see newer messages through meaning search. The cap study checked that this can't change the numbers reported here.
 
 </details>
 

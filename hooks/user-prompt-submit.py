@@ -6,8 +6,9 @@ Fires before every user message is sent to Claude.
 2. Post-/clear recovery: if the previous session in this project ended via
    /clear and hasn't been shown yet (event-based, no time window), inject
    its generated summary plus a short keyword-only list of related messages
-   (no meaning search, no weak-match gate). That list favors the folder's
-   project, which is "oth" in an unmapped folder.
+   (no meaning search; the weak-match gate, the -2.0 floor and the cap of 5
+   still apply). That list favors the folder's project, which is "oth" in an
+   unmapped folder.
 3. Otherwise: keyword (FTS5) search first. Meaning (embedding) search is added
    per config.yaml `semantic_search.mode`: on_miss only when keyword results
    are weak or empty (the cold model load is only worth paying then);

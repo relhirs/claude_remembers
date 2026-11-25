@@ -1864,6 +1864,38 @@ def test_explain_clear_uses_hook_project():
               "clear_pending" not in ctx, str(ctx))
 
 
+def test_explain_clear_mapped_folder_forced_project():
+    """The mapped half of the rule in test_explain_clear_uses_hook_project: in a
+    MAPPED folder, explain looks for a pending /clear under the folder's mapped
+    project even when --project forces another one for ranking. Folder maps to
+    "tdp", /clear waiting under "tdp", forced project "lgl": the note must show.
+    A /clear waiting only under "lgl" must not show, because the hook here looks
+    under "tdp"."""
+    print("\n--- Explain /clear Check Follows The Hook, Mapped Folder ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    question = "what is the status of the frobnicator staging rollout checklist"
+    mapped = "/work/tidepool-clear-test"
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db_path = _make_real_layout(tmp)
+        config = root / "config.yaml"
+        config.write_text(config.read_text().replace("jsonl_project_mapping: {}",
+                                                     "jsonl_project_mapping: {tidepool: tdp}"))
+        for waiting_under, shown in (("tdp", True), ("lgl", False)):
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("UPDATE sys_sessions SET project = ?", (waiting_under,))
+            conn.commit()
+            conn.close()
+            _trace, ctx = rx.run_explain(question, project="lgl", exclude_session="new-session",
+                                         root=root, cwd=mapped)
+            if shown:
+                check("mapped folder, forced project: the /clear waiting under the mapped project is shown",
+                      ctx.get("clear_pending") == "old-clear-session", str(ctx))
+            else:
+                check("mapped folder, forced project: a /clear waiting only under the forced project is not shown",
+                      "clear_pending" not in ctx, str(ctx))
+
+
 def test_explain_hook_load_failure_keeps_sys_path():
     """If the hook fails to load, scripts/ must not be left on sys.path, and a
     second call must not add it again. The hook copy here is the real hook plus a
@@ -2949,6 +2981,35 @@ def test_mcp_no_rewrite_when_only_machine_rows_matched():
               text[:150] + res.stderr[-200:])
 
 
+def test_mcp_hidden_rows_in_other_project_do_not_block_correction():
+    """The "only hidden rows matched" check is scoped to the project searched. If the
+    typed word sits only in machine messages of ANOTHER project, it is really absent
+    from the project searched, so a project search must still offer the correction."""
+    print("\n--- MCP: Hidden Rows In Another Project Do Not Block Correction ---")
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, _mod = _build_synthetic_keyword_db(tmp)
+        conn = sqlite3.connect(db)
+        ins = ("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp, source) "
+               "VALUES (?, ?, ?, 'user', ?, '2026-05-01T00:00:00Z', 'test')")
+        for i in range(3):       # the typed word, only in machine messages, under lgl
+            conn.execute(ins, (f"m{i}", "lgl", f"m{i}", f"<system-reminder> zorbline notice {i}"))
+        for i in range(60):      # a near spelling, common in real messages under tdp
+            conn.execute(ins, (f"r{i}", "tdp", f"r{i}", f"We discussed zorbling during planning, note {i}."))
+        conn.commit()
+        conn.close()
+        code = ("import json, sys\n"
+                "sys.path.insert(0, sys.argv[1] + '/scripts')\n"
+                "import remember_eval as ev\n"
+                "server = ev.load_mcp_server(sys.argv[2])\n"
+                "print('RESULT' + json.dumps(server.search_transcripts('zorbline xqzvk wmpfl', 'tdp')))\n")
+        res = subprocess.run([sys.executable, "-c", code, str(root), db], capture_output=True, text=True,
+                             timeout=300, cwd=str(root))
+        line = next((l for l in res.stdout.splitlines() if l.startswith("RESULT")), None)
+        text = json.loads(line[6:]) if line else "?"
+        check("hidden rows in another project: the project search still offers the correction",
+              "Did you mean" in text and "zorbling" in text, text[:150] + res.stderr[-200:])
+
+
 def test_explain_load_is_stable():
     """finding 8: inside a long-running MCP server, explaining twice must not add to
     sys.path again or load a second copy of retrieval / config_utils / semantic_search."""
@@ -3127,6 +3188,7 @@ if __name__ == "__main__":
     test_hook_project_bias_by_folder()
     test_explain_writes_nothing()
     test_explain_clear_uses_hook_project()
+    test_explain_clear_mapped_folder_forced_project()
     test_explain_hook_load_failure_keeps_sys_path()
     test_empty_project_mapping_key()
     test_setup_commands_only()
@@ -3141,6 +3203,7 @@ if __name__ == "__main__":
     test_mcp_hides_machine_messages()
     test_explain_load_is_stable()
     test_mcp_no_rewrite_when_only_machine_rows_matched()
+    test_mcp_hidden_rows_in_other_project_do_not_block_correction()
     test_compare_differing_keys()
     test_run_eval_stamp_untracked()
     test_compare_tool_logic()
