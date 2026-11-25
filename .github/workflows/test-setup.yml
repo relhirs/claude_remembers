@@ -6,12 +6,16 @@ on:
   pull_request:
     branches: [main, dev]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.11']
+        python-version: ['3.10', '3.11']
 
     runs-on: ${{ matrix.os }}
 

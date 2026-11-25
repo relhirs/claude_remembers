@@ -208,8 +208,9 @@ def build_output(recs, as_of, default_project, checked_against, git_commit):
 
 def render_text(out):
     d, m = out["dataset"], out["modes"]["on_miss"]
+    own_project = "(each question's own)"
     lines = [f"Project bias on vs off - {d['questions']} questions ({d['answerable']} answerable, {d['no_answer']} no-answer), "
-             f"as_of {d['as_of']}, project {d['default_project'] or '(each question\'s own)'}",
+             f"as_of {d['as_of']}, project {d['default_project'] or own_project}",
              f"Cross-check against {out['cross_check']['checked_against'] or 'nothing (not requested)'}: passed", ""]
     for mode in MODES:
         mm = out["modes"][mode]
