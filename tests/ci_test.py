@@ -1789,6 +1789,11 @@ def test_hook_project_bias_by_folder():
         check("explain in an unmapped folder searches with no project and says so",
               trace["injected_text"] == injected(None) and trace["inputs"]["project"] is None
               and "no project is favored" in ctx.get("project_note", ""))
+        trace, ctx = rx.run_explain(q["question"], exclude_session="ci-session", root=root, cwd="/work/tidepool")
+        check("explain's default project in a mapped folder equals the hook's",
+              trace["inputs"]["project"] == "tdp" == rx._load_hook().mapped_project_for_cwd(
+                  _yaml.safe_load((root / "config.yaml").read_text()), "/work/tidepool")
+              and trace["injected_text"] == hook_says("/work/tidepool", synthetic))
         trace, ctx = rx.run_explain(q["question"], project="tdp", exclude_session="ci-session", root=root,
                                     cwd="/work/unmapped-folder")
         check("explain with a chosen project says the hook here would favor none",
@@ -1832,6 +1837,89 @@ def test_explain_writes_nothing():
         check("no retrieval.log was written", not (root / "logs" / "retrieval.log").exists())
         check("no helper was started (no helper info file)", not list(root.glob("**/*helper*.json"))
               and not list(root.glob("logs/*helper*")))
+
+
+def test_explain_clear_uses_hook_project():
+    """Explain looks for a pending /clear under the project the HOOK uses for this
+    folder (the folder's mapped project, else "oth"), even when --project forces a
+    different project for ranking. Unmapped folder, /clear waiting under "oth",
+    forced project "tdp": the note must show. A /clear waiting only under "tdp"
+    must not show, because the hook here would never look there."""
+    print("\n--- Explain /clear Check Follows The Hook ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    question = "what is the status of the frobnicator staging rollout checklist"
+    unmapped = "/work/unmapped-folder-for-clear-test"
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db_path = _make_real_layout(tmp)            # one /clear waiting under "oth"
+        _trace, ctx = rx.run_explain(question, project="tdp", exclude_session="new-session", root=root, cwd=unmapped)
+        check("unmapped folder, forced project: the /clear waiting under oth is shown",
+              ctx.get("clear_pending") == "old-clear-session", str(ctx))
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("UPDATE sys_sessions SET project = 'tdp'")      # now it waits under tdp only
+        conn.commit()
+        conn.close()
+        _trace, ctx = rx.run_explain(question, project="tdp", exclude_session="new-session", root=root, cwd=unmapped)
+        check("unmapped folder, forced project: a /clear waiting only under tdp is not shown",
+              "clear_pending" not in ctx, str(ctx))
+
+
+def test_explain_hook_load_failure_keeps_sys_path():
+    """If the hook fails to load, scripts/ must not be left on sys.path, and a
+    second call must not add it again. The hook copy here is the real hook plus a
+    line that fails after its own sys.path.insert, so it adds a path like the real one."""
+    print("\n--- Explain Hook Load Failure Keeps sys.path ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    saved_path, saved_hook = rx.HOOK_PATH, rx._HOOK
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = Path(tmp) / "hooks" / "user-prompt-submit.py"
+        fake.parent.mkdir()
+        fake.write_text((ROOT / "hooks" / "user-prompt-submit.py").read_text() + "\nraise ImportError('boom')\n")
+        rx.HOOK_PATH, rx._HOOK = fake, None
+        before = list(sys.path)
+        errors = 0
+        try:
+            for _ in range(2):
+                try:
+                    rx._load_hook()
+                except ImportError:
+                    errors += 1
+            after = list(sys.path)
+        finally:
+            rx.HOOK_PATH, rx._HOOK = saved_path, saved_hook
+            sys.path[:] = before
+        check("the failing hook raised on both calls", errors == 2, str(errors))
+        check("sys.path is unchanged after two failed loads", after == before,
+              f"{len(after) - len(before)} entries added")
+
+
+def test_empty_project_mapping_key():
+    """`jsonl_project_mapping:` with nothing under it loads as None. The hook must treat
+    that as "no folders mapped" and still inject memories (it used to fail on .items()
+    inside its outer except, which turned memory silently off), and explain must run too."""
+    print("\n--- Empty jsonl_project_mapping Key ---")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import remember_explain as rx
+    prompt = "what is the status of the frobnicator staging rollout checklist"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root, db_path = _make_real_layout(tmpdir)
+        cfg = (root / "config.yaml").read_text().replace("jsonl_project_mapping: {}", "jsonl_project_mapping:")
+        check("fixture: the key is present with no value", "jsonl_project_mapping:\n" in cfg and "{}" not in cfg, cfg)
+        (root / "config.yaml").write_text(cfg)
+        res = _run_hook(root, prompt)
+        ctx = json.loads(res.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+        check("hook with an empty mapping key still injects memories", "frobnicator" in ctx, res.stdout[:200] + res.stderr[-200:])
+        conn = sqlite3.connect(str(db_path))
+        outcomes = [r[0] for r in conn.execute("SELECT outcome FROM retrieval_events ORDER BY id")]
+        conn.close()
+        check("hook with an empty mapping key does not record an error outcome", "error" not in outcomes, str(outcomes))
+        trace, ctx2 = rx.run_explain(prompt, exclude_session="ci-session", root=root, cwd="/work/anywhere")
+        check("explain with an empty mapping key runs and favors no project",
+              trace["inputs"]["project"] is None and "no project is favored" in ctx2.get("project_note", ""), str(ctx2))
+        hook = rx._load_hook()
+        check("mapped_project_for_cwd treats a None mapping as no entries",
+              hook.mapped_project_for_cwd({"jsonl_project_mapping": None}, "/work/anywhere") is None)
 
 
 def test_retrieve_trace():
@@ -2726,7 +2814,11 @@ def yaml_load(path):
 def test_eval_mcp_is_read_only():
     """The eval's mcp method reaches the typo-correction fallback when nothing matches;
     that must not write to the database it is measuring (it used to CREATE a vocabulary
-    table in it)."""
+    table in it).
+
+    This tests the eval's read-only wrapper (remember_eval.load_mcp_server), NOT the
+    live MCP server: the live server opens its database read-write, and its no-match
+    fallback can create a vocabulary table there."""
     print("\n--- Eval: MCP Path Is Read-Only ---")
     import hashlib
     with tempfile.TemporaryDirectory() as tmp:
@@ -2797,11 +2889,17 @@ def test_mcp_hides_machine_messages():
                 "        server.search_transcripts(q, proj); server._format_results = orig\n"
                 "        rows = out.pop('captured')\n"
                 "    out[name] = [r['preview'] for r in rows]\n"
+                "server.machine_filter_sql = lambda column='t.content': ''      # the same search with the filter removed\n"
+                "rows, ms = ev.mcp_search(server, 'zorbline')\n"
+                "out['unfiltered'] = [r['preview'] for r in rows]\n"
                 "print('RESULT' + json.dumps(out))\n")
         res = subprocess.run([sys.executable, "-c", code, str(root), db], capture_output=True, text=True,
                              timeout=300, cwd=str(root))
         line = next((l for l in res.stdout.splitlines() if l.startswith("RESULT")), None)
         out = json.loads(line[6:]) if line else {}
+        unfiltered = out.get("unfiltered", [])
+        check("control: without the filter the machine messages DO appear (so the checks below can fail)",
+              any("system-reminder" in p for p in unfiltered), f"{len(unfiltered)} rows; {res.stderr[-300:]}")
         for name in ("plain", "project", "fts"):
             previews = out.get(name, ["?"])
             check(f"{name} search: only the 3 real matches come back (machine messages hidden, backfilled past the limit)",
@@ -2813,6 +2911,44 @@ def test_mcp_hides_machine_messages():
               frag.startswith("AND NOT (") and all(frag.count(f"LIKE '{p}%'") == 1 for p in cu.MACHINE_GENERATED_PREFIXES))
 
 
+def test_mcp_no_rewrite_when_only_machine_rows_matched():
+    """If the typed word exists in memory only inside machine messages (which the search
+    hides), the tool must not rewrite it to a different word under "Did you mean". A word
+    that is really absent is still corrected, so the fix does not turn typo help off."""
+    print("\n--- MCP: No Rewrite When Only Hidden Rows Matched ---")
+    with tempfile.TemporaryDirectory() as tmp:
+        root, db, _mod = _build_synthetic_keyword_db(tmp)
+        conn = sqlite3.connect(db)
+        ins = ("INSERT INTO transcripts (session_id, project, uuid, role, content, timestamp, source) "
+               "VALUES (?, 'tdp', ?, 'user', ?, '2026-05-01T00:00:00Z', 'test')")
+        for i in range(3):       # the typed word, only in machine messages
+            conn.execute(ins, (f"m{i}", f"m{i}", f"<system-reminder> zorbline notice {i}"))
+        for i in range(60):      # a near spelling that is common in real messages
+            conn.execute(ins, (f"r{i}", f"r{i}", f"We discussed zorbling during planning, note {i}."))
+        conn.commit()
+        conn.close()
+        code = ("import json, sys\n"
+                "sys.path.insert(0, sys.argv[1] + '/scripts')\n"
+                "import remember_eval as ev\n"
+                "server = ev.load_mcp_server(sys.argv[2])\n"
+                "out = {'hidden_only': server.search_transcripts('zorbline xqzvk wmpfl'),\n"
+                "       'hidden_only_project': server.search_transcripts('zorbline xqzvk wmpfl', 'tdp'),\n"
+                "       'real_typo': server.search_transcripts('zorblinng xqzvk wmpfl')}\n"
+                "print('RESULT' + json.dumps(out))\n")
+        res = subprocess.run([sys.executable, "-c", code, str(root), db], capture_output=True, text=True,
+                             timeout=300, cwd=str(root))
+        line = next((l for l in res.stdout.splitlines() if l.startswith("RESULT")), None)
+        out = json.loads(line[6:]) if line else {}
+        for name in ("hidden_only", "hidden_only_project"):
+            text = out.get(name, "?")
+            check(f"{name}: no 'Did you mean' and no results for a different word",
+                  "Did you mean" not in text and "zorbling" not in text and text.startswith("No results"),
+                  text[:150] + res.stderr[-200:])
+        text = out.get("real_typo", "?")
+        check("control: a word that is really absent is still corrected", "Did you mean" in text and "zorbling" in text,
+              text[:150] + res.stderr[-200:])
+
+
 def test_explain_load_is_stable():
     """finding 8: inside a long-running MCP server, explaining twice must not add to
     sys.path again or load a second copy of retrieval / config_utils / semantic_search."""
@@ -2821,7 +2957,8 @@ def test_explain_load_is_stable():
             "import scripts.remember_explain as rx\n"
             "h1 = rx._load_hook(); n1 = len(sys.path)\n"
             "h2 = rx._load_hook(); n2 = len(sys.path)\n"
-            "same = all(sys.modules.get(n) is sys.modules.get('scripts.' + n) for n in ('retrieval', 'config_utils', 'semantic_search'))\n"
+            "same = all(sys.modules.get(n) is not None and sys.modules.get(n) is sys.modules.get('scripts.' + n)\n"
+            "           for n in ('retrieval', 'config_utils', 'semantic_search', 'metrics_utils'))\n"
             "print(h1 is h2, n1 == n2, same)\n")
     res = subprocess.run([sys.executable, "-c", code, str(ROOT)], capture_output=True, text=True, timeout=120,
                          cwd=tempfile.gettempdir())
@@ -2989,6 +3126,9 @@ if __name__ == "__main__":
     test_explain_matches_hook()
     test_hook_project_bias_by_folder()
     test_explain_writes_nothing()
+    test_explain_clear_uses_hook_project()
+    test_explain_hook_load_failure_keeps_sys_path()
+    test_empty_project_mapping_key()
     test_setup_commands_only()
     test_explain_command_template()
     test_eval_skips_short_questions()
@@ -3000,6 +3140,7 @@ if __name__ == "__main__":
     test_run_eval_refuses_db_without_out()
     test_mcp_hides_machine_messages()
     test_explain_load_is_stable()
+    test_mcp_no_rewrite_when_only_machine_rows_matched()
     test_compare_differing_keys()
     test_run_eval_stamp_untracked()
     test_compare_tool_logic()
