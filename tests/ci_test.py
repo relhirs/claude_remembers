@@ -2336,8 +2336,12 @@ def test_setup_commands_only():
         def tripwire():
             raise AssertionError("normal setup ran")
         setup2.phase_preflight = tripwire
-        old_argv, old_home = sys.argv, os.environ.get("HOME")
-        sys.argv, os.environ["HOME"] = ["remember-setup.py", "--commands-only"], str(fake_home)
+        # Path.home() reads HOME on Linux/macOS but USERPROFILE on Windows, so fake both.
+        home_vars = ("HOME", "USERPROFILE")
+        old_argv, old_homes = sys.argv, {v: os.environ.get(v) for v in home_vars}
+        sys.argv = ["remember-setup.py", "--commands-only"]
+        for v in home_vars:
+            os.environ[v] = str(fake_home)
         try:
             setup2.main()
             ran = True
@@ -2345,10 +2349,11 @@ def test_setup_commands_only():
             ran = False
         finally:
             sys.argv = old_argv
-            if old_home is None:
-                os.environ.pop("HOME", None)
-            else:
-                os.environ["HOME"] = old_home
+            for v, old in old_homes.items():
+                if old is None:
+                    os.environ.pop(v, None)
+                else:
+                    os.environ[v] = old
         check("--commands-only installs the commands without starting the normal setup",
               ran and (fake_home / ".claude" / "commands" / "remember-explain.md").exists()
               and not (fake_home / ".claude" / "settings.json").exists())
